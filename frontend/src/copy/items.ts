@@ -149,17 +149,30 @@ export const NEW_ITEM = {
   unitHint: "Once stock, orders or price lists record quantities of this item, its unit can't be changed.",
 } as const;
 
-/** R1-1 / B-6 U-C: each served unit code's option label, keys in served order (held equal to the served enum by T-1). */
-export const UNIT_LABELS: Readonly<Record<string, { label: string }>> = {
-  EA: { label: 'Each (EA)' },
-  BOX: { label: 'Box (BOX)' },
-  KG: { label: 'Kilogram (KG)' },
-  L: { label: 'Litre (L)' },
-  M: { label: 'Metre (M)' },
+/**
+ * R1-1 / B-6 U-C: each served unit code's option label, keys in served order (held equal to the served enum by T-1).
+ * S-3 (FE-R5): `spoken` is the unit's name as read after a quantity, always plural, a bare word (items-i4-ux.md M-3;
+ * fe-r8-s3-ux.md Revision 1 FINAL).
+ */
+export const UNIT_LABELS: Readonly<Record<string, { label: string; spoken: string }>> = {
+  EA: { label: 'Each (EA)', spoken: 'each' },
+  BOX: { label: 'Box (BOX)', spoken: 'boxes' },
+  KG: { label: 'Kilogram (KG)', spoken: 'kilograms' },
+  L: { label: 'Litre (L)', spoken: 'litres' },
+  M: { label: 'Metre (M)', spoken: 'metres' },
 };
 
 /** A served unit code's label; a code with no entry renders as sent (the `kindLabel` precedent). */
 export const unitLabel = (code: string): string => UNIT_LABELS[code]?.label ?? code;
+
+/** S-3: a unit's spoken word, bare (the read-only and archived numbers); a code with no entry is spoken as sent. */
+export const unitSpoken = (code: string): string => UNIT_LABELS[code]?.spoken ?? code;
+
+/**
+ * S-3: the edit field's spoken suffix, full stop included, so the hint after it in the description starts a new
+ * sentence (fe-r8-s3-ux.md B refinement).
+ */
+export const unitSuffixSpoken = (code: string): string => `${unitSpoken(code)}.`;
 
 /** B-5 Restore rows + R1-17 "already live" (the W4 treatment). In the archived banner, no dialog. */
 export const RESTORE_ITEM = {

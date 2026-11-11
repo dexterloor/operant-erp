@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { SelectField } from '@/components/ui/SelectField';
 import { TextField } from '@/components/ui/TextField';
 import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
-import { ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST, unitLabel } from '@/copy/items';
+import { ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST, unitLabel, unitSuffixSpoken } from '@/copy/items';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import type { Item, UpdateItemInput } from '@/lib/api/items';
@@ -253,8 +253,9 @@ export function ItemForm({ item, units, save, editCode, announce, fallbackFocusR
           hint={NUMBER_LABELS[f].hint}
           error={fieldErrors[f]}
           // QR-8 / R1-2 / F-4 as amended by I-4 H-1: the unit the form will save, in edit, after the number, outside the
-          // input. It follows the select; the read-only and archived pages show the saved unit instead.
-          suffix={values.unit_of_measure_code}
+          // input. It follows the select; the read-only and archived pages show the saved unit instead. S-3 (FE-R5): the
+          // code is shown, and the unit's name is what is read.
+          suffix={{ shown: values.unit_of_measure_code, spoken: unitSuffixSpoken(values.unit_of_measure_code) }}
           value={values[f]}
           onChange={(e) => set(f, e.target.value)}
           // Never type="number" (locale-mangled, spinner, `e` notation): text, with a decimal keypad on touch.

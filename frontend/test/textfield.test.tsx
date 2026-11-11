@@ -36,17 +36,20 @@ describe('TextField', () => {
     expect(line.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   });
 
-  // Items I-1 (UX R1-2 / F-4; items-i1-red.md L-6 d): the unit code comes AFTER the number, outside the input, and is read
-  // with the field first; without a suffix the field renders exactly as before (no wrapper, the same describedby).
+  // Items I-1 (UX R1-2 / F-4; items-i1-red.md L-6 d), as amended by S-3: the suffix comes AFTER the number, outside the
+  // input, and is read with the field first; without a suffix the field renders exactly as before (no wrapper, the same
+  // describedby). Moved deliberately: the id is on the spoken span, the visible code is aria-hidden.
   it('a suffix follows the input, outside it, and is described first; without one there is no wrapper', () => {
-    const { unmount } = render(<TextField id="item-point" label="Reorder point" hint="When it is due." error="Bad." suffix="KG" />);
+    const { unmount } = render(<TextField id="item-point" label="Reorder point" hint="When it is due." error="Bad." suffix={{ shown: 'KG', spoken: 'kilograms.' }} />);
     const input = screen.getByRole('textbox', { name: 'Reorder point' });
-    const suffix = screen.getByText('KG');
-    expect(suffix.id).toBe('item-point-suffix');
-    expect(input.contains(suffix)).toBe(false);
-    expect(input.compareDocumentPosition(suffix) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const spoken = document.getElementById('item-point-suffix')!;
+    const shown = spoken.parentElement!.querySelector('[aria-hidden="true"]')!;
+    expect(shown.textContent).toBe('KG');
+    expect(input.contains(spoken)).toBe(false);
+    expect(input.compareDocumentPosition(spoken) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(input.getAttribute('aria-describedby')).toBe('item-point-suffix item-point-hint item-point-error');
-    expect(input.parentElement).toBe(suffix.parentElement);
+    // s3-fer8-final-red.md L-2: by DOM ancestry, not by a class name.
+    expect(input.parentElement).toBe(spoken.parentElement!.parentElement);
     unmount();
     render(<TextField id="item-point" label="Reorder point" hint="When it is due." />);
     const plain = screen.getByRole('textbox', { name: 'Reorder point' });
@@ -54,6 +57,30 @@ describe('TextField', () => {
     expect(document.getElementById('item-point-suffix')).toBeNull();
     // The input sits directly in the field, as it did before the suffix existed.
     expect(plain.parentElement).toBe(screen.getByText('Reorder point').parentElement);
+  });
+
+  // S-3 T-S3-1 (items-s3-design.md Revision 1 — FINAL item 7(a), with s3-fer8-final-red.md F-1).
+  it('T-S3-1: the description says the spoken suffix verbatim; the code is shown, hidden from assistive technology; the spoken span is never inside an aria-hidden subtree', () => {
+    render(<TextField id="item-point" label="Reorder point" hint="When it is due." error="Bad." suffix={{ shown: 'KG', spoken: 'kilograms.' }} />);
+    const input = screen.getByRole('textbox', { name: 'Reorder point' });
+    expect(input).toHaveAccessibleDescription('kilograms. When it is due. Bad.');
+    const spoken = document.getElementById('item-point-suffix')!;
+    expect(spoken.textContent).toBe('kilograms.');
+    expect(spoken).toHaveClass('visually-hidden');
+    expect(spoken.closest('[aria-hidden="true"]')).toBeNull();
+    const shown = spoken.parentElement!.querySelector('[aria-hidden="true"]')!;
+    expect(shown.textContent).toBe('KG');
+    expect(shown.id).toBe('');
+    expect(input.getAttribute('aria-describedby')).toBe('item-point-suffix item-point-hint item-point-error');
+    expect(input.contains(spoken)).toBe(false);
+    expect(input.compareDocumentPosition(shown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('T-S3-5: a suffix without its spoken text is a type error', () => {
+    // @ts-expect-error — `spoken` is required wherever a suffix is shown (S-3).
+    render(<TextField id="t5" label="T5" suffix="KG" />);
+    // @ts-expect-error — the same for an object without `spoken`.
+    render(<TextField id="t6" label="T6" suffix={{ shown: 'KG' }} />);
   });
 
   it('an empty-string error is no error', () => {

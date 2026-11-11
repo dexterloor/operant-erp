@@ -6,6 +6,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: nav.push, refresh:
 import { takeArrivalMessage } from '@/app/(app)/arrivalMessage';
 import { NewItemPage } from '@/app/(app)/items/new/NewItemPage';
 import type { Item } from '@/lib/api/items';
+import { unitSuffixSpoken } from '@/copy/items';
 import { wireEnum } from '@/lib/bff/surface';
 import { classify } from '@/lib/bff/problem';
 import { itemCreate } from '@/lib/items/wired';
@@ -79,7 +80,8 @@ describe('/items/new — the form (B-4)', () => {
     for (const code of UNITS) {
       await u.selectOptions(unit(), code);
       expect(document.querySelectorAll('[id$="-suffix"]')).toHaveLength(0);
-      for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) expect(field(n)).not.toHaveAccessibleDescription(expect.stringMatching(new RegExp(`^${code}\\b`)));
+      // S-3 (s3-fer8-red.md L-3): neither the code nor its spoken suffix starts any number's description.
+      for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) expect(field(n)).not.toHaveAccessibleDescription(expect.stringMatching(new RegExp(`^(${code}|${unitSuffixSpoken(code).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\b`)));
     }
   });
 

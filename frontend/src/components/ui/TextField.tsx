@@ -19,10 +19,12 @@ export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElemen
   /** The server's sentence for this field, verbatim; empty or absent = no error. */
   error?: string | undefined;
   /**
-   * Text shown after the input, outside it (items B-3 / R1-2: a quantity's unit code), and read with the field: it
-   * joins `aria-describedby` first. Absent = the field renders exactly as before.
+   * Text shown after the input, outside it (items B-3 / R1-2: a quantity's unit), and read with the field: it joins
+   * `aria-describedby` first. `shown` is the visible text, hidden from assistive technology; `spoken` is the accessible
+   * description, verbatim as the caller gives it (the field adds no punctuation), and is required wherever a suffix is
+   * shown (S-3, FE-R5). An empty `shown` still renders the wrapper. Absent = the field renders exactly as before.
    */
-  suffix?: string;
+  suffix?: { shown: string; spoken: string };
 }
 
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function TextField({ id, label, hint, error, suffix, type = 'text', ...input }, ref) {
@@ -37,8 +39,11 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
       {suffix ? (
         <span className={styles.withSuffix}>
           {field}
-          <span className={styles.suffix} id={suffixId}>
-            {suffix}
+          <span className={styles.suffix}>
+            <span aria-hidden="true">{suffix.shown}</span>
+            <span className="visually-hidden" id={suffixId}>
+              {suffix.spoken}
+            </span>
           </span>
         </span>
       ) : (

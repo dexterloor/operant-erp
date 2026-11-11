@@ -12,7 +12,7 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { COULD_NOT_REACH, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
-import { DELETE_ITEM, ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST, RESTORE_ITEM } from '@/copy/items';
+import { DELETE_ITEM, ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST, RESTORE_ITEM, unitSpoken } from '@/copy/items';
 import type { Item } from '@/lib/api/items';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
@@ -43,8 +43,16 @@ type Cause = 'unreachable' | 'server-error';
 /** The served units, in served order: the edit form's Unit options (I-4; the `NewItemPage` precedent, the one contract reader). */
 const UNITS = wireEnum('Item.UpdateItemInput.jsonMergePatch', 'unit_of_measure_code');
 
-/** A number as the page shows it read-only: QR-2's rendering, then the item's unit code (R1-2, F-4). */
-const withUnit = (served: string, unit: string) => `${renderQuantity(served)} ${unit}`;
+/**
+ * A number as the page shows it read-only: QR-2's rendering, then the item's unit (R1-2, F-4). S-3 (FE-R5): the code is
+ * shown but hidden from assistive technology, and the unit's bare spoken word is read instead (no full stop, no id).
+ */
+const withUnit = (served: string, code: string) => (
+  <>
+    {renderQuantity(served)} <span aria-hidden="true">{code}</span>
+    <span className="visually-hidden">{unitSpoken(code)}</span>
+  </>
+);
 
 /**
  * The item page (items-ux-copy.md B-3, B-5; IA L-4: the detail page is the editor; Revision 8 R8-2). It holds the item in

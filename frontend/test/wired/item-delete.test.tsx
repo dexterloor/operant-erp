@@ -8,7 +8,7 @@ import { ItemPage } from '@/app/(app)/items/[id]/ItemPage';
 import { DELETE_ITEM } from '@/copy/items';
 import type { Item } from '@/lib/api/items';
 import { classify } from '@/lib/bff/problem';
-import { empty, held, json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
+import { empty, expectSuffix, held, json, problem, refused, renderWired, shownText, stubFetch, textsOf } from './harness';
 
 // Items I-3 (items-i3-design.md Revision 1 — FINAL §1 as corrected by items-i3-red.md "Final RED — on Revision 1";
 // items-i3-ux.md Revision 1 — FINAL F-1, F-2; items-i3-po-sec.md I3-1…I3-9): **Delete item** on a live item's page for a
@@ -45,11 +45,6 @@ const confirm = () => within(dialog()).getByRole('button', { name: 'Delete item'
 const field = (name: string) => screen.queryByRole('textbox', { name });
 const unit = () => screen.queryByRole('combobox', { name: 'Unit of measure' });
 const ddAfter = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement;
-const NUMBERS = ['Reorder point', 'Reorder quantity', 'Safety stock'];
-/** I-4: every suffix after the three numbers starts with this code (in edit it follows the select, H-1). */
-const expectSuffix = (code: string) => {
-  for (const n of NUMBERS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(new RegExp(`^${code} `)));
-};
 /** A distinctive fixture for `ItemWriter::UNIT_IN_USE` (I-4). */
 const IN_USE = 'Fixture: this unit is in use, so it was refused.';
 /** items-ux-copy.md FINAL F-1, verbatim (I3-2). */
@@ -638,7 +633,7 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     const expectSavedReadOnly = () => {
       if (edit === 'unit') {
         expect(ddAfter('Unit of measure')).toHaveTextContent(/^KG$/);
-        expect(ddAfter('Reorder point').textContent).toBe('10 KG');
+        expect(shownText(ddAfter('Reorder point'))).toBe('10 KG');
       } else expect(ddAfter('Name')).toHaveTextContent(/^Boltx$/);
     };
 

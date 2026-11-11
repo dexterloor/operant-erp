@@ -12,7 +12,7 @@ import { TooltipProvider } from '@/components/ui/Tooltip';
 import type { Item } from '@/lib/api/items';
 import { formatDate } from '@/lib/format/dates';
 import { wireEnum } from '@/lib/bff/surface';
-import { SID, TZ, empty, held, json, problem, refused, renderWired, stubFetch } from './harness';
+import { SID, TZ, atText, empty, expectSuffix, held, json, problem, refused, renderWired, shownText, stubFetch } from './harness';
 
 // Items I-1 (items-plan.md §4 I-1 as amended by R1-1…R1-9 and Revision 1 — FINAL; items-ux-copy.md B-3, B-5 as amended
 // by R1-1, R1-2, R1-6, R1-9, R1-17, F-4; Revision 8 R8-2): the item page is the editor. SKU, Name, the Unit (since I-4,
@@ -64,7 +64,6 @@ const unit = () => screen.getByRole('combobox', { name: 'Unit of measure' });
 const UNIT_HINT = "Once stock, orders or price lists record quantities of this item, its unit can't be changed. The three numbers below are in this unit, so check them when you change it.";
 /** A distinctive fixture for `ItemWriter::UNIT_IN_USE`: the page shows the server's sentence as sent, whatever it is. */
 const IN_USE = 'Fixture: this unit is in use, so it was refused.';
-const NUMBER_FIELDS = ['Reorder point', 'Reorder quantity', 'Safety stock'];
 
 describe('/items/[id] — the editor (B-3 as amended)', () => {
   it('h1 "{sku} — {name}"; editable SKU, Name, Unit and the three numbers, in that order (I-4 T-0b); Preferred supplier is text', () => {
@@ -125,7 +124,8 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
       const four = [0, 1, 2].map((k) => SERVED_AS[(order + k) % 4]!);
       const { unmount } = show(withNumbers(BOLT, four.map(([s]) => s)));
       expect(['Reorder point', 'Reorder quantity', 'Safety stock'].map((n) => (field(n) as HTMLInputElement).value)).toEqual(four.map(([, r]) => r));
-      for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^KG /));
+      // S-3: the spoken suffix (moved deliberately from the code).
+      expectSuffix('KG');
       unmount();
     }
   });
@@ -134,7 +134,7 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     for (const order of [0, 1, 2, 3]) {
       const four = [0, 1, 2].map((k) => SERVED_AS[(order + k) % 4]!);
       const { unmount } = show(withNumbers(BOLT, four.map(([s]) => s)), false);
-      expect(['Reorder point', 'Reorder quantity', 'Safety stock'].map((l) => ddAfter(l).textContent)).toEqual(four.map(([, r]) => `${r} KG`));
+      expect(['Reorder point', 'Reorder quantity', 'Safety stock'].map((l) => shownText(ddAfter(l)))).toEqual(four.map(([, r]) => `${r} KG`));
       unmount();
     }
   });
@@ -143,17 +143,17 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     for (const order of [0, 1, 2, 3]) {
       const four = [0, 1, 2].map((k) => SERVED_AS[(order + k) % 4]!);
       const { unmount } = show(withNumbers(ARCHIVED, four.map(([s]) => s)), true, true);
-      expect(['Reorder point', 'Reorder quantity', 'Safety stock'].map((l) => ddAfter(l).textContent)).toEqual(four.map(([, r]) => `${r} KG`));
+      expect(['Reorder point', 'Reorder quantity', 'Safety stock'].map((l) => shownText(ddAfter(l)))).toEqual(four.map(([, r]) => `${r} KG`));
       unmount();
     }
   });
 
   it("the suffix is the served unit code, not a constant (R1-3 / F-4): EA on an EA item, KG on a KG item", () => {
     const { unmount } = show({ ...BOLT, unit_of_measure_code: 'EA' }, false);
-    expect(ddAfter('Reorder point').textContent).toBe('10 EA');
+    expect(shownText(ddAfter('Reorder point'))).toBe('10 EA');
     unmount();
     show(BOLT, false);
-    expect(ddAfter('Reorder point').textContent).toBe('10 KG');
+    expect(shownText(ddAfter('Reorder point'))).toBe('10 KG');
   });
 
   it('Save is aria-disabled with "Nothing to save." until a field differs; an untouched rendered number is not a change', async () => {
@@ -907,7 +907,6 @@ describe('/items/[id] — holds_stock is required on every item body (I-3 T-4)',
 // (in use, contention) take the shared `refused` path under **Not saved**, the server's sentence its only paragraph, the
 // edits kept (option A). In edit the suffix after each number follows the select (RED H-1).
 describe('/items/[id] — I-4: the Unit select', () => {
-  const descriptions = () => NUMBER_FIELDS.map((n) => field(n).getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)!.textContent).join(' '));
 
   it('T-1: changing the unit enables Save; picking the saved unit back is "Nothing to save." and two presses send nothing', async () => {
     const calls = stubFetch([]);
@@ -955,11 +954,11 @@ describe('/items/[id] — I-4: the Unit select', () => {
   it("T-4′ (1)(2): the suffix after each number follows the select in edit, and returns with it", async () => {
     const u = userEvent.setup();
     show();
-    for (const d of descriptions()) expect(d).toMatch(/^KG /);
+    expectSuffix('KG');
     await u.selectOptions(unit(), 'EA');
-    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^EA /));
+    expectSuffix('EA');
     await u.selectOptions(unit(), 'KG');
-    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^KG /));
+    expectSuffix('KG');
     expect(save()).toHaveAttribute('aria-disabled', 'true');
   });
 
@@ -975,7 +974,7 @@ describe('/items/[id] — I-4: the Unit select', () => {
     await u.click(save());
     expect(await screen.findByText(sentence)).toBeInTheDocument();
     expect(unit()).toHaveValue('EA');
-    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^EA /));
+    expectSuffix('EA');
   });
 
   it('T-4′ (4): after a 200 and a re-read of an EA item, the select and the suffix read EA', async () => {
@@ -986,7 +985,7 @@ describe('/items/[id] — I-4: the Unit select', () => {
     await u.click(save());
     await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt (re-read)'));
     expect(unit()).toHaveValue('EA');
-    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^EA /));
+    expectSuffix('EA');
   });
 
   it('T-4b: saved, the re-read fails: the 200 body (unit EA) is committed under the region error, and the suffix reads EA', async () => {
@@ -998,7 +997,7 @@ describe('/items/[id] — I-4: the Unit select', () => {
     expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
     expect(unit()).toHaveValue('EA');
     expect(save()).toHaveAttribute('aria-disabled', 'true');
-    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^EA /));
+    expectSuffix('EA');
   });
 
   it('T-5: in use (option A): the sentence as sent is the banner\'s only paragraph under "Not saved", heading focused; Name and the unit kept; a second press sends both again', async () => {
@@ -1050,7 +1049,7 @@ describe('/items/[id] — I-4: the Unit select', () => {
     await waitFor(() => expect(screen.getByText('Not saved')).toHaveFocus());
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(ddAfter('Unit of measure')).toHaveTextContent(/^KG$/);
-    expect(ddAfter('Reorder point').textContent).toBe('10 KG');
+    expect(shownText(ddAfter('Reorder point'))).toBe('10 KG');
   });
 
   it('T-8: a 422 on /unit_of_measure_code sits beside the select, not in a banner, and the select takes focus once it is shown', async () => {
@@ -1096,6 +1095,8 @@ describe('/items/[id] — I-4: the Unit select', () => {
     expect(first().value).toBe('XX');
     expect(first().textContent).toBe('XX');
     expect(unit()).toHaveValue('XX');
+    // S-3 T-S3-3: a saved unit the list lacks is shown as sent and spoken as sent, with the field's full stop.
+    expectSuffix('XX');
     expect(save()).toHaveAttribute('aria-disabled', 'true');
     await u.selectOptions(unit(), 'EA');
     expect(first().value).toBe('XX');
@@ -1157,5 +1158,28 @@ describe('/items/[id] — I-4: the Unit select', () => {
     expect(unit()).toHaveValue('KG');
     expect(field('Name')).toHaveValue('Bolt (theirs)');
     expect(save()).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+// S-3 (items-s3-design.md Revision 1 — FINAL item 7(d), with s3-fer8-final-red.md F-1): on the read-only and archived
+// pages each number is the QR-2 value, the code shown but hidden from assistive technology, then the unit's spoken word
+// (bare: no full stop, no id), never inside an aria-hidden subtree.
+describe('/items/[id] — S-3: the read-only and archived numbers say the unit by its name', () => {
+  it.each([
+    ['read-only, KG', BOLT, false, 'KG', 'kilograms'],
+    ['archived, KG', ARCHIVED, true, 'KG', 'kilograms'],
+    ['read-only, EA', { ...BOLT, unit_of_measure_code: 'EA' }, false, 'EA', 'each'],
+  ] as const)('T-S3-4 (%s)', (_n, i, canEdit, code, word) => {
+    show(i, canEdit, true);
+    for (const [label, served] of [['Reorder point', '10'], ['Reorder quantity', '1234567890123.123456'], ['Safety stock', '-0.5']] as const) {
+      const dd = ddAfter(label);
+      expect(shownText(dd)).toBe(`${served} ${code}`);
+      expect(dd.querySelector('[aria-hidden="true"]')!.textContent).toBe(code);
+      const spoken = dd.querySelector('.visually-hidden')!;
+      expect(spoken.textContent).toBe(word);
+      expect(spoken.id).toBe('');
+      expect(spoken.closest('[aria-hidden="true"]')).toBeNull();
+      expect(atText(dd)).toBe(`${served} ${word}`);
+    }
   });
 });
