@@ -58,13 +58,14 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
-  const region = useLiveRegion();
   // FE-R8 location half (s3-fer8-final-red.md F-3): every write to this page's region goes through `announce`, which
   // counts it and returns the count. A late correction (`replaceIfCurrent`) is written only while nothing has written the
   // region since the write it corrects, by anyone: the Locations section, the warehouse form, Restore warehouse, Delete
   // warehouse, the arrival message. Decided by the count, never by the text: the same sentence can be written twice.
   const regionWrites = useRef(0);
-  const { announce: writeRegion } = region;
+  // fe-r8-location-red.md L-6: only the message and the raw writer are taken (no `region` object in scope), and the raw
+  // writer is used only inside `announce` below.
+  const { message: regionMessage, announce: writeRegion } = useLiveRegion();
   const announce = useCallback(
     (text: string) => {
       regionWrites.current += 1;
@@ -224,7 +225,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
         ) : null}
       </header>
       {/* Mounted from first render, above every branch below, so it never arrives already speaking. */}
-      <LiveRegion message={region.message} visuallyHidden />
+      <LiveRegion message={regionMessage} visuallyHidden />
       {rereadError ? (
         <RegionError key={rereadError.gen} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={WAREHOUSE_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}

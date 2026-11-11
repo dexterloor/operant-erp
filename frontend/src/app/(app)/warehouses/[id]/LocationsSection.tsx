@@ -60,7 +60,7 @@ interface Answer {
 function correctionAfterDelete(l: StorageLocation, r: RereadResult, answer: Answer | null): string | null {
   switch (r.kind) {
     case 'ok': {
-      if (answer === null) return null;
+      if (answer === null) return null; // unreachable after an ok re-read; kept for the type
       const row = answer.items.find((x) => x.id === l.id);
       if (!answer.archived) return row !== undefined ? DELETE_LOCATION.afterRestored(row.code) : null;
       return row === undefined ? DELETE_LOCATION.afterRestored(l.code) : null;
@@ -134,6 +134,8 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
   // FE-R8 location half (first RED M-5 option (i), no change to the list core): every answered view is recorded here, so
   // the delete can read what its own re-read answered. `reread()` resolves once its read has committed, and the list's
   // queue starts no later read before the awaiting caller resumes, so after an `ok` this holds that re-read's answer.
+  // This holds only while `reread()` returns `run`'s promise unwrapped and nothing is awaited between it and
+  // `correctionAfterDelete`; the queued-switch test pins it.
   const lastAnswer = useRef<Answer | null>(null);
   const load = useCallback(
     async (read: Read, archived: boolean, signal: AbortSignal) => {

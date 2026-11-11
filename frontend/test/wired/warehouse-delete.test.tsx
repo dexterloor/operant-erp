@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { WarehousePage } from '@/app/(app)/warehouses/[id]/WarehousePage';
+import { WAITING } from '@/copy/roles';
+import { DELETE_LOCATION } from '@/copy/warehouses';
 import type { StorageLocation, Warehouse } from '@/lib/api/warehouses';
 import { empty, held, json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
 
@@ -875,6 +877,87 @@ describe('/warehouses/[id] — Delete location, the corrected "after" (FE-R8 loc
     await settle();
     await settle();
     expect(region().textContent).toBe("MAIN was deleted. It's now in the archived warehouses.");
+  });
+
+  // fe-r8-location-red.md L-5: `afterListStale` is `after` then `WAITING.listStale` (copy/* may not import copy/*, so the
+  // text is written out there; this ties the three together). Mutation ML-5 (one word of `WAITING.listStale`) → red.
+  it('"afterListStale" is "after" followed by the shared list-stale sentence', () => {
+    for (const c of ['A1', 'X-9']) expect(DELETE_LOCATION.afterListStale(c)).toBe(`${DELETE_LOCATION.after(c)} ${WAITING.listStale}`);
+  });
+
+  // fe-r8-location-red.md L-1: the decision reads the delete's OWN re-read answer, never a view switch queued behind it.
+  // Mutation ML-1 (an `await` between the re-read and the decision) → red: the switch's answer would win.
+  it('a view switch queued behind the delete\'s re-read does not decide its sentence', async () => {
+    const reread = held();
+    const calls = stubFetch([empty(204), reread.reply, json(200, coll([B1]))]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe(AFTER));
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    reread.release(json(200, coll([Q1])));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls[2]!.url).toContain('archived=true');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Archived locations' })).toBeInTheDocument());
+    await settle();
+    expect(region().textContent).toBe(AFTER);
+  });
+
+  // fe-r8-location-red.md L-2: Restore warehouse can speak in the window (a refused Delete warehouse whose Close re-read
+  // reads it archived archives the page with no region write). Mutation ML-2 (RestoreActions given the raw region writer)
+  // → red. The arrival message cannot speak in the window: it is written by a 0 ms timer at mount, before any delete.
+  it('Restore warehouse in the window speaks its own sentence → the location re-read leaves it', async () => {
+    const reread = held();
+    const calls = stubFetch([empty(204), reread.reply, refused('warehouse.holds_stock', 'x'), json(200, ARCHIVED), json(200, MAIN), json(200, MAIN)]);
+    const u = userEvent.setup();
+    const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: true };
+    renderWired(<WarehousePage initial={MAIN} canEdit={false} canRestore canDelete locations={locations} />);
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe(AFTER));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
+    await u.click(within(dialog()).getByRole('button', { name: 'Close' }));
+    await u.click(await screen.findByRole('button', { name: 'Restore warehouse' }));
+    await waitFor(() => expect(region().textContent).toBe('MAIN was restored.'));
+    expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'DELETE', 'GET', 'POST', 'GET']);
+    reread.release(json(200, coll([A1, Q1])));
+    await settle();
+    await settle();
+    expect(region().textContent).toBe('MAIN was restored.');
+  });
+
+  // fe-r8-location-red.md L-3: the view that decides is the one the re-read read, not the one on screen at the 204.
+  // Mutation ML-3 (decide with the view at the 204) → red.
+  it('a view switch still in flight at the 204: the re-read reads the switched view, and "after" stands', async () => {
+    const toArchived = held();
+    const calls = stubFetch([toArchived.reply, empty(204), json(200, coll([A1_ARCHIVED, B1]))]);
+    const u = userEvent.setup();
+    showSection();
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe(AFTER));
+    toArchived.release(json(200, coll([B1])));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls[2]!.url).toContain('archived=true');
+    await waitFor(() => expect(within(section()).getByText('A1')).toBeInTheDocument());
+    await settle();
+    expect(region().textContent).toBe(AFTER);
+  });
+
+  // fe-r8-location-red.md L-4: a close that was not a 204 never gets a correction, even when its re-read fails.
+  // Mutation ML-4 (speak the correction when nothing was said) → red.
+  it('a refusal\'s Close with a failed re-read speaks nothing', async () => {
+    const calls = stubFetch([refused('storage_location.holds_stock', L8), json(503, {})]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteA1(u);
+    await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
+    await u.click(within(dialog()).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await settle();
+    expect(region().textContent).toBe('');
+    expect(region().textContent).not.toContain('was deleted');
   });
 
   // s3-fer8-final-red.md F-3 "Same text". Mutation M6 (compare the region's text, not a generation) → red.
