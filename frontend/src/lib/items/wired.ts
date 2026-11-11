@@ -63,7 +63,8 @@ export function itemSave(w: ItemWiring): SaveItemAction {
             if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, ITEM_FIELDS) };
             // 4.4 RED M-1: a refusal may prove the page stale (UX-I2: archived elsewhere). Re-read under the same
             // deadline; only an item that now reads archived is committed (the page turns read-only and shows the
-            // sentence). A live re-read is NOT committed, so the person's edits stay for another press (P1, UX-I1).
+            // sentence, unless a newer reading was committed first; the page decides, FE-R7). A live re-read is NOT
+            // committed, so the person's edits stay for another press (P1, UX-I1).
             const s = w.stamp();
             const again = await loadItem(readOf(w.caller), w.id, deadline.signal);
             if (again.kind === 'ok' && again.item.archived_at !== null) {

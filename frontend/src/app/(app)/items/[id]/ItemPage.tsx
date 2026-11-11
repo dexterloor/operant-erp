@@ -53,7 +53,8 @@ const withUnit = (served: string, unit: string) => `${renderQuantity(served)} ${
  * viewer holds, under the ST-9 banner *"This item was archived on {date}."* with **Restore item** for a RestoreItem holder
  * (`components/records/RestoreActions`): a restore sets the re-read item here, so the page turns live without a remount.
  * A refused Save whose re-read finds the item archived (UX-I2 on a stale page) turns the page archived and shows the
- * server's sentence under **Not saved**, its heading focused. A failed re-read → the region error (focus on its heading),
+ * server's sentence under **Not saved**, its heading focused. Not when that reading was dropped because a newer live
+ * reading was committed first (FE-R7): the refusal is not kept. A failed re-read → the region error (focus on its heading),
  * Retry re-reads; 403 → ST-4b; 404 → ST-5. No stock, movements or links to them (G-47); no History (plan §2e). **Delete
  * item** (items I-3, the warehouse step-4.6 shape) on a live item for a DeleteItem holder: the shared danger dialog, its
  * stock line when the committed item's `holds_stock` is true (the only place the page shows it, I3-4); after a 204 the
@@ -186,8 +187,8 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   }, [archivedNow]);
 
   // Items I-3 (the WarehousePage.closeDelete shape, FE-D1). After a 204 the page stays: the item is archived, not gone,
-  // and `itemDelete` has already committed (or reported) the re-read, so the ST-9 banner and Restore item are on screen.
-  // Commit the close, focus the h1 (the opener is gone with the live state), speak "After" with the SKU last committed
+  // and `itemDelete` has already committed (or reported) the re-read, so the page shows what that re-read found:
+  // archived (the ST-9 banner and Restore item), or live if someone restored it in between (S-2). Commit the close, focus the h1 (the opener is gone with the live state), speak "After" with the SKU last committed
   // (a Save may have renamed it after Delete was pressed; i3-c1 RED L-2), refresh the router cache once. The deleted
   // branch does not set `deletedHere`: `onDeleted` already did, and only a commit that is not dropped may clear it (a
   // re-read that reads the item live, restored in between, must leave the page live; i3-c1 RED L-3). Any other close

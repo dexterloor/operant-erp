@@ -36,7 +36,8 @@ export interface ItemFormProps {
   /**
    * A refused Save whose re-read found the item archived (`refused-archived`): the page is already archived and read-only
    * (this form is gone), so the page shows the server's sentence under **Not saved** — unless its own Delete answered 204
-   * after this Save was sent (`sentAsOf`, the stamp taken then; items-i4-ux.md M-4, T-17).
+   * after this Save was sent (`sentAsOf`, the stamp taken then; items-i4-ux.md M-4, T-17), or the page is live again: a
+   * restore committed after this Save's archived reading was asked for, so that reading was dropped (FE-R7).
    */
   onRefusedArchived: (message: string, sentAsOf: number) => void;
 }

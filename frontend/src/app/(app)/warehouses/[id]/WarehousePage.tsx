@@ -137,7 +137,8 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   const onSaved = useCallback(() => router.refresh(), [router]);
 
   // §2 step 4.6. After a 204 the page stays: the warehouse is archived, not gone, and `warehouseDelete` has already
-  // committed the re-read (archived) warehouse, so the ST-9b banner and Restore warehouse are on screen. FE-D1: commit
+  // committed the re-read warehouse: archived (the ST-9b banner and Restore warehouse), or live if someone restored it
+  // in between (S-2). FE-D1: commit
   // the close, focus the h1 (the opener is gone with the live state), speak B-7's "After", refresh the router cache once
   // (Back to the list then shows it under Archived). Any other close after an answer re-reads the warehouse, so the page
   // under the dialog is the server's (an interrupted press may have committed; a W6 means it was deleted elsewhere).
