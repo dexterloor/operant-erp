@@ -75,13 +75,18 @@ describe('/items/new — the form (B-4)', () => {
   });
 
   it('no unit suffix on the create numbers, also after each unit is chosen', async () => {
+    // S-3 (s3-fer8-red.md L-3, as fixed by items-s3-commit-red.md L-1): a description starting with the code, or with
+    // the spoken suffix followed by a space or the end. Built once, so the guard and its control are one copy.
+    const startsWithUnit = (code: string) => new RegExp(`^(?:${code}\\b|${unitSuffixSpoken(code).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$))`);
+    // Positive control: the guard bites on both forms.
+    expect(`${unitSuffixSpoken('KG')} Enter`).toMatch(startsWithUnit('KG'));
+    expect('KG Enter').toMatch(startsWithUnit('KG'));
     const u = userEvent.setup();
     renderWired(<NewItemPage />);
     for (const code of UNITS) {
       await u.selectOptions(unit(), code);
       expect(document.querySelectorAll('[id$="-suffix"]')).toHaveLength(0);
-      // S-3 (s3-fer8-red.md L-3): neither the code nor its spoken suffix starts any number's description.
-      for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) expect(field(n)).not.toHaveAccessibleDescription(expect.stringMatching(new RegExp(`^(${code}|${unitSuffixSpoken(code).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\b`)));
+      for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) expect(field(n)).not.toHaveAccessibleDescription(expect.stringMatching(startsWithUnit(code)));
     }
   });
 

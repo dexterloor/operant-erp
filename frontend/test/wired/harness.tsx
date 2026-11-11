@@ -51,10 +51,13 @@ export function shownText(el: Element): string {
   return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
-/** S-3 (s3-fer8-final-red.md F-1): an element's text with every `[aria-hidden="true"]` subtree removed — what is read. */
+/**
+ * S-3 (s3-fer8-final-red.md F-1; items-s3-commit-red.md L-2): an element's text with every `[aria-hidden="true"]` and
+ * every `[hidden]` subtree removed — what is read.
+ */
 export function atText(el: Element): string {
   const c = el.cloneNode(true) as Element;
-  c.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+  c.querySelectorAll('[aria-hidden="true"], [hidden]').forEach((n) => n.remove());
   return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 

@@ -7,10 +7,11 @@ import styles from './TextField.module.css';
 /**
  * The in-app form field (Revision 7 A-19 item 1), props-only, with the contract `AuthField` already has (ST-3, WCAG
  * 3.3.1): the label names the input through `htmlFor`; `aria-invalid` is set only while there is an error;
- * `aria-describedby` is the hint id then the error id, and absent when there is neither; the error line carries its
- * icon. It takes no value transform: a field that upper-cases as typed does it in the form's own `onChange`. No length
- * limit is typed here (the contract states none); a presentation limit is the caller's `maxLength`. `AuthField` is not
- * re-based on this component (the credential pages do not change).
+ * `aria-describedby` is the suffix id (when a suffix is given), then the hint id, then the error id, and absent when
+ * there is none of them; the error line carries its icon. It takes no value transform: a field that upper-cases as
+ * typed does it in the form's own `onChange`. No length limit is typed here (the contract states none); a presentation
+ * limit is the caller's `maxLength`. `AuthField` is not re-based on this component (the credential pages do not
+ * change).
  */
 export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'aria-invalid' | 'aria-describedby'> {
   id: string;

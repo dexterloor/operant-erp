@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createRef } from 'react';
-import { render, screen } from '@testing-library/react';
+import { isInaccessible, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { TextField } from '@/components/ui/TextField';
@@ -68,6 +68,8 @@ describe('TextField', () => {
     expect(spoken.textContent).toBe('kilograms.');
     expect(spoken).toHaveClass('visually-hidden');
     expect(spoken.closest('[aria-hidden="true"]')).toBeNull();
+    // items-s3-commit-red.md L-2: nor hidden any other way (the `hidden` attribute, display none, visibility hidden).
+    expect(isInaccessible(spoken)).toBe(false);
     const shown = spoken.parentElement!.querySelector('[aria-hidden="true"]')!;
     expect(shown.textContent).toBe('KG');
     expect(shown.id).toBe('');

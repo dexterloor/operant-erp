@@ -1,5 +1,5 @@
 import { StrictMode, useState } from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, isInaccessible, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -1169,6 +1169,8 @@ describe('/items/[id] — S-3: the read-only and archived numbers say the unit b
     ['read-only, KG', BOLT, false, 'KG', 'kilograms'],
     ['archived, KG', ARCHIVED, true, 'KG', 'kilograms'],
     ['read-only, EA', { ...BOLT, unit_of_measure_code: 'EA' }, false, 'EA', 'each'],
+    // items-s3-commit-red.md L-3: a unit the list lacks is spoken as sent at the <dd> too.
+    ['read-only, a unit the list lacks', { ...BOLT, unit_of_measure_code: 'XX' }, false, 'XX', 'XX'],
   ] as const)('T-S3-4 (%s)', (_n, i, canEdit, code, word) => {
     show(i, canEdit, true);
     for (const [label, served] of [['Reorder point', '10'], ['Reorder quantity', '1234567890123.123456'], ['Safety stock', '-0.5']] as const) {
@@ -1179,6 +1181,7 @@ describe('/items/[id] — S-3: the read-only and archived numbers say the unit b
       expect(spoken.textContent).toBe(word);
       expect(spoken.id).toBe('');
       expect(spoken.closest('[aria-hidden="true"]')).toBeNull();
+      expect(isInaccessible(spoken)).toBe(false);
       expect(atText(dd)).toBe(`${served} ${word}`);
     }
   });
