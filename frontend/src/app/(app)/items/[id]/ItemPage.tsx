@@ -16,7 +16,7 @@ import { DELETE_ITEM, ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST, RESTORE_ITEM } from
 import type { Item } from '@/lib/api/items';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
-import { gateCode } from '@/lib/bff/surface';
+import { gateCode, wireEnum } from '@/lib/bff/surface';
 import { renderQuantity } from '@/lib/format/quantity';
 import { loadItem } from '@/lib/items/load';
 import type { ItemChange } from '@/lib/items/results';
@@ -40,13 +40,16 @@ export interface ItemPageProps {
 
 type Cause = 'unreachable' | 'server-error';
 
+/** The served units, in served order: the edit form's Unit options (I-4; the `NewItemPage` precedent, the one contract reader). */
+const UNITS = wireEnum('Item.UpdateItemInput.jsonMergePatch', 'unit_of_measure_code');
+
 /** A number as the page shows it read-only: QR-2's rendering, then the item's unit code (R1-2, F-4). */
 const withUnit = (served: string, unit: string) => `${renderQuantity(served)} ${unit}`;
 
 /**
  * The item page (items-ux-copy.md B-3, B-5; IA L-4: the detail page is the editor; Revision 8 R8-2). It holds the item in
- * state and passes the re-read one to the form without a remount. Editable (SKU, Name, the three numbers) for an
- * UpdateItem holder on a live item; the same values as plain text otherwise. An archived item is read-only whatever the
+ * state and passes the re-read one to the form without a remount. Editable (SKU, Name, the Unit, the three numbers) for
+ * an UpdateItem holder on a live item; the same values as plain text otherwise, the Unit as its saved code. An archived item is read-only whatever the
  * viewer holds, under the ST-9 banner *"This item was archived on {date}."* with **Restore item** for a RestoreItem holder
  * (`components/records/RestoreActions`): a restore sets the re-read item here, so the page turns live without a remount.
  * A refused Save whose re-read finds the item archived (UX-I2 on a stale page) turns the page archived and shows the
@@ -54,7 +57,9 @@ const withUnit = (served: string, unit: string) => `${renderQuantity(served)} ${
  * Retry re-reads; 403 → ST-4b; 404 → ST-5. No stock, movements or links to them (G-47); no History (plan §2e). **Delete
  * item** (items I-3, the warehouse step-4.6 shape) on a live item for a DeleteItem holder: the shared danger dialog, its
  * stock line when the committed item's `holds_stock` is true (the only place the page shows it, I3-4); after a 204 the
- * page stays and turns archived. After a save's, restore's or delete's message is on screen the router cache is refreshed
+ * page stays and turns archived. The person's own Delete outranks their own Save (items-i4-ux.md M-4 T-17, M-3):
+ * once its 204 is handled, a **Not saved** banner already showing is cleared, and a Save sent before that 204 neither
+ * shows its refusal nor speaks its "saved" sentence. After a save's, restore's or delete's message is on screen the router cache is refreshed
  * once.
  */
 export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: ItemPageProps) {
@@ -86,9 +91,10 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   // when that re-read fails, so no reading requested before it can undo the delete. A write's own answer body is also
   // dropped when a 204 arrived after that write was sent: it describes the item before the delete. The 204 fact
   // (`deletedHere`) is cleared only by a commit that is not dropped. An older re-read landing first never drops a newer
-  // one. Known limit: when that re-read fails, the write's answer body describes the moment of the write but carries the
-  // re-read's stamp, so it can overwrite a Retry, sent in between, that read someone else's later change; the next
-  // reading corrects it.
+  // one. A Save's refusal is dropped the same way when a 204 arrived after that Save was sent: it describes the item
+  // before the delete (UX T-17 ruling); so is its "saved" sentence (UX M-3), though its refresh stays. Known limit: when
+  // that re-read fails, the write's answer body describes the moment of the write but carries the re-read's stamp, so it
+  // can overwrite a Retry, sent in between, that read someone else's later change; the next reading corrects it.
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
   const deletedAsOf = useRef(0);
@@ -129,10 +135,24 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
     if (s > committedAsOf.current) committedAsOf.current = s;
     deletedAsOf.current = s;
     setDeletedHere(true);
+    // T-17: the item is archived by the person's own act; a stale Save refusal describes an edit they can no longer make.
+    setStaleRefusal(null);
   }, []);
   const remove = useCallback(() => itemDelete({ caller, id, stamp, setItem: commit, onRereadFailed: failed, onDeleted })(), [caller, id, stamp, commit, failed, onDeleted]);
   const onSaved = useCallback(() => router.refresh(), [router]);
-  const onRefusedArchived = useCallback((message: string) => setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message })), []);
+  const onRefusedArchived = useCallback((message: string, sentAsOf: number) => {
+    if (sentAsOf < deletedAsOf.current) return;
+    setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message }));
+  }, []);
+  const speak = region.announce;
+  // M-3: the same rule for a Save that succeeded: its sentence is not spoken over the person's own delete.
+  const announceSaved = useCallback(
+    (text: string, sentAsOf: number) => {
+      if (sentAsOf < deletedAsOf.current) return;
+      speak(text);
+    },
+    [speak],
+  );
   // A restore turns the page live: the stale Save's sentence no longer describes what is on screen.
   const onRestored = useCallback(() => {
     setStaleRefusal(null);
@@ -250,7 +270,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
         />
       ) : null}
       {canEdit && !actionsArchived ? (
-        <ItemForm item={item} save={save} editCode={gateCode('UpdateItem')} announce={region.announce} fallbackFocusRef={h1} onSaved={onSaved} onRefusedArchived={onRefusedArchived} />
+        <ItemForm item={item} units={UNITS} save={save} editCode={gateCode('UpdateItem')} announce={announceSaved} fallbackFocusRef={h1} onSaved={onSaved} onRefusedArchived={onRefusedArchived} />
       ) : (
         <dl className={styles.fields}>
           <dt>{ITEM_PAGE.sku}</dt>

@@ -43,8 +43,8 @@ const NUMBER_LABELS: Record<(typeof QUANTITY_FIELDS)[number], { label: string; h
 
 /**
  * `/items/new`'s form (items-ux-copy.md B-4 as amended by R1-1; items-i2-design.md Revision 1 — FINAL A-6), props-only.
- * SKU, Name, the Unit (a select over the served units: no preselection, its prompt an enabled first option) and the three
- * numbers, prefilled 0. All six are sent on every submit, exactly as typed (no trim, no case folding, no client format
+ * SKU, Name, the Unit (a select over the served units: no preselection, its prompt an enabled first option; I-4: U4-7's
+ * hint under it) and the three numbers, prefilled 0. All six are sent on every submit, exactly as typed (no trim, no case folding, no client format
  * rule), built by name from `CREATE_ITEM_FIELDS`, so `supplier_id` and `null` are never sent. Nothing chosen, or an
  * emptied number, is refused here on every press with no request; those sentences replace any earlier field sentences.
  * A 422's field sentences show beside their fields and its others in the banner; a 409 and every other failure in the
@@ -198,7 +198,7 @@ export function ItemCreateForm({ create, createCode, units, onCreated }: ItemCre
         prompt={NEW_ITEM.unitPrompt}
         value={values.unit_of_measure_code}
         onChange={(v) => set('unit_of_measure_code', v)}
-        hints={[]}
+        hints={[NEW_ITEM.unitHint]}
         error={fieldErrors.unit_of_measure_code}
       />
       {QUANTITY_FIELDS.map((f) => (

@@ -31,6 +31,8 @@ const SERVED: Item = { id: IID, sku: 'SKU-1', name: 'Bolt', unit_of_measure_code
 const UX_I1 = 'Another live item in this workspace already uses this SKU.';
 const P1 = 'Some of the same records were being changed at the same moment. Nothing was saved; try again.';
 const BLANK = 'This field may not be blank.';
+/** items-i4-ux.md Revision 1 — FINAL U4-7 (`NEW_ITEM.unitHint`), verbatim. */
+const UNIT_HINT = "Once stock, orders or price lists record quantities of this item, its unit can't be changed.";
 const INTERRUPTED = (sku: string) => `We can't tell whether ${sku} was created. Search the list for ${sku} before you try again.`;
 
 const field = (name: string) => screen.getByRole('textbox', { name });
@@ -55,7 +57,8 @@ describe('/items/new — the form (B-4)', () => {
     expect(field('SKU')).toHaveAccessibleDescription('The code your team uses for this item. Each item needs its own, and capitals and spaces count.');
     expect(field('SKU')).toHaveAttribute('autocomplete', 'off');
     expect(field('SKU')).toHaveAttribute('spellcheck', 'false');
-    expect(unit()).not.toHaveAccessibleDescription();
+    // I-4 (items-i4-ux.md U4-7 = items-i3-ux.md L-10, moved deliberately from "no description"): the hint, verbatim.
+    expect(unit()).toHaveAccessibleDescription(UNIT_HINT);
     expect(field('Reorder point')).toHaveAccessibleDescription(expect.stringContaining('due to be reordered'));
     expect(screen.getByText("Leave both reorder numbers at 0 if this item isn't reordered. Use a point for decimals, for example 2.5, and no commas.")).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/items');
@@ -199,7 +202,8 @@ describe('/items/new — refused here, before any request (R1-1, R1-9)', () => {
       await u.click(field('SKU'));
       await u.click(submit());
       await waitFor(() => expect(unit()).toHaveAttribute('aria-invalid', 'true'));
-      expect(unit()).toHaveAccessibleDescription('Choose a unit for this item.');
+      // I-4: describedby is the hint, then the error.
+      expect(unit()).toHaveAccessibleDescription(`${UNIT_HINT} Choose a unit for this item.`);
       expect(unit()).toHaveFocus();
     }
     expect(calls).toHaveLength(0);

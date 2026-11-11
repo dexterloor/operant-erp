@@ -98,6 +98,12 @@ export const ITEM_PAGE = {
   reorderQuantityHint: "How much to order when it's due. A larger amount is suggested if stock has fallen further than this below the reorder point.",
   /** Safety stock help (NEW; changes with PO's D-C1-7 ruling). */
   safetyStockHint: "For your records only: it doesn't change when the item is due. Include it in the reorder point.",
+  /**
+   * items-i4-ux.md Revision 1 — FINAL (U4-6, NEW; second sentence as ruled on the final RED's M-2): the Unit select's
+   * hint, edit only. REPLACES B-3's "Unit hint, edit only — meaning change" and R1-1's last bullet (never built). PO TO
+   * CONFIRM.
+   */
+  unitHint: "Once stock, orders or price lists record quantities of this item, its unit can't be changed. The three numbers below are in this unit, so check them when you change it.",
   /** The shared line under the three numbers (NEW). */
   numbersNote: "Leave both reorder numbers at 0 if this item isn't reordered. Use a point for decimals, for example 2.5, and no commas.",
   /** R1-9: an emptied number field on Save, beside the field; no request is sent. */
@@ -136,6 +142,11 @@ export const NEW_ITEM = {
   /** R1-1: the Unit select's empty first option (no `disabled`) and the client refusal when nothing is chosen. */
   unitPrompt: 'Choose a unit',
   unitRequired: 'Choose a unit for this item.',
+  /**
+   * items-i4-ux.md Revision 1 — FINAL (U4-7, NEW in I-4 = items-i3-ux.md L-10): the create form's Unit hint. REPLACES
+   * items-i3-ux.md F-5 #3's "no Unit hint on the create form" (the "no suffix on create" half stays). PO TO CONFIRM.
+   */
+  unitHint: "Once stock, orders or price lists record quantities of this item, its unit can't be changed.",
 } as const;
 
 /** R1-1 / B-6 U-C: each served unit code's option label, keys in served order (held equal to the served enum by T-1). */

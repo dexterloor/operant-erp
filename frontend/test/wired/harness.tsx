@@ -31,6 +31,18 @@ export type Reply = Response | 'hang' | ((req: Recorded) => Response | 'hang' | 
 /** A reply that arrives after `ms` (timer time, so fake timers drive it). */
 export const later = (ms: number, r: () => Response): Reply => () => new Promise<Response>((resolve) => setTimeout(() => resolve(r()), ms));
 
+/**
+ * A reply answered by hand (moved here from item-delete.test.tsx at I-4: the one ordering helper, items-i4-final-red.md
+ * L-5): queue `reply` in `stubFetch`, then call `release` when the test says so. An interleaving test releases each one
+ * explicitly, in the order it is about, and asserts the fetch order it relies on (`later(ms)` orders by timer and proves
+ * no order).
+ */
+export function held(): { reply: Reply; release: (r: Response) => void } {
+  let answer!: (r: Response) => void;
+  const p = new Promise<Response>((res) => (answer = res));
+  return { reply: () => p, release: (r) => answer(r) };
+}
+
 export const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 export const empty = (status = 204) => new Response(null, { status });
 export const problem = (status: number, type: string, extra: Record<string, unknown> = {}) =>

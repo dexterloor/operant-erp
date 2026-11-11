@@ -11,13 +11,15 @@ import { RouteFocus } from '@/components/shell/RouteFocus';
 import { TooltipProvider } from '@/components/ui/Tooltip';
 import type { Item } from '@/lib/api/items';
 import { formatDate } from '@/lib/format/dates';
-import { SID, TZ, json, problem, refused, renderWired, stubFetch } from './harness';
+import { wireEnum } from '@/lib/bff/surface';
+import { SID, TZ, empty, held, json, problem, refused, renderWired, stubFetch } from './harness';
 
 // Items I-1 (items-plan.md §4 I-1 as amended by R1-1…R1-9 and Revision 1 — FINAL; items-ux-copy.md B-3, B-5 as amended
-// by R1-1, R1-2, R1-6, R1-9, R1-17, F-4; Revision 8 R8-2): the item page is the editor. SKU, Name and the three numbers
-// are editable for an UpdateItem holder; the Unit and the Preferred supplier are text in every state and never sent. Each
-// number starts as its QR-2 rendering and is sent exactly as typed; its unit code follows it. An archived item is
-// read-only under its ST-9 banner with Restore item for a RestoreItem holder.
+// by R1-1, R1-2, R1-6, R1-9, R1-17, F-4; Revision 8 R8-2): the item page is the editor. SKU, Name, the Unit (since I-4,
+// items-i4-design.md Revision 1 — FINAL) and the three numbers are editable for an UpdateItem holder; the Preferred
+// supplier is text in every state and never sent; the Unit is its saved code as text wherever there is no form. Each
+// number starts as its QR-2 rendering and is sent exactly as typed; in edit the unit the form will save follows it. An
+// archived item is read-only under its ST-9 banner with Restore item for a RestoreItem holder.
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -57,13 +59,19 @@ const SERVED_AS: [string, string][] = [
 ];
 const withNumbers = (base: Item, [a, b, c]: string[]): Item => ({ ...base, reorder_point: a!, reorder_quantity: b!, safety_stock: c! });
 const ddAfter = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement;
+const unit = () => screen.getByRole('combobox', { name: 'Unit of measure' });
+/** items-i4-ux.md U4-6 as ruled on the final RED's M-2 ("Final RED rulings"), verbatim. */
+const UNIT_HINT = "Once stock, orders or price lists record quantities of this item, its unit can't be changed. The three numbers below are in this unit, so check them when you change it.";
+/** A distinctive fixture for `ItemWriter::UNIT_IN_USE`: the page shows the server's sentence as sent, whatever it is. */
+const IN_USE = 'Fixture: this unit is in use, so it was refused.';
+const NUMBER_FIELDS = ['Reorder point', 'Reorder quantity', 'Safety stock'];
 
 describe('/items/[id] — the editor (B-3 as amended)', () => {
-  it('h1 "{sku} — {name}"; editable SKU, Name and the three numbers only; Unit and Preferred supplier are text', () => {
+  it('h1 "{sku} — {name}"; editable SKU, Name, Unit and the three numbers, in that order (I-4 T-0b); Preferred supplier is text', () => {
     show();
     expect(screen.getByRole('heading', { level: 1, name: 'A-1 — Bolt' })).toBeInTheDocument();
-    expect(screen.getAllByRole('textbox').map((i) => i.getAttribute('name'))).toEqual(['sku', 'name', 'reorder_point', 'reorder_quantity', 'safety_stock']);
-    expect(ddAfter('Unit of measure')).toHaveTextContent(/^KG$/);
+    expect([...document.querySelectorAll('form input, form select')].map((i) => i.getAttribute('name'))).toEqual(['sku', 'name', 'unit_of_measure_code', 'reorder_point', 'reorder_quantity', 'safety_stock']);
+    expect(screen.queryByText('Unit of measure', { selector: 'dt' })).toBeNull();
     expect(ddAfter('Preferred supplier')).toHaveTextContent(/^Acme Supplies$/);
     expect(field('SKU')).toHaveAccessibleDescription(expect.stringContaining('A new SKU also changes it on every order'));
     expect(field('Name')).toHaveAccessibleDescription('Renaming also changes the name on every order, receipt, shipment and invoice that already names this item.');
@@ -76,21 +84,40 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();
   });
 
-  it('the item page renders no editable Unit control in any state (R1-2 b): edit, read-only, archived', () => {
-    for (const [i, canEdit] of [[BOLT, true], [BOLT, false], [ARCHIVED, true]] as const) {
+  it('I-4 T-0a (i): an UpdateItem holder on a live item gets a Unit select over the served codes, in served order, with the UX labels, at the saved code', () => {
+    show();
+    const options = within(unit()).getAllByRole('option') as HTMLOptionElement[];
+    expect(options.map((o) => o.value)).toEqual(wireEnum('Item.UpdateItemInput.jsonMergePatch', 'unit_of_measure_code'));
+    expect(options.map((o) => o.textContent)).toEqual(['Each (EA)', 'Box (BOX)', 'Kilogram (KG)', 'Litre (L)', 'Metre (M)']);
+    expect(unit()).toHaveValue('KG');
+    expect(unit()).toHaveAttribute('name', 'unit_of_measure_code');
+  });
+
+  it('I-4 T-0a (ii) / T-11: no Unit control read-only, archived, or after a 204 whose re-read failed; the saved code as text, never its label', async () => {
+    for (const [i, canEdit] of [[BOLT, false], [ARCHIVED, true]] as const) {
       const { unmount } = show(i, canEdit, true);
-      expect(screen.queryByRole('textbox', { name: /unit/i })).toBeNull();
-      expect(screen.queryByRole('combobox', { name: /unit/i })).toBeNull();
+      expect(screen.queryByRole('combobox')).toBeNull();
       expect(document.querySelector('[name="unit_of_measure_code"]')).toBeNull();
       expect(ddAfter('Unit of measure')).toHaveTextContent(/^KG$/);
       unmount();
     }
+    // deletedHere: the 204 is a fact even when its re-read fails, so the form is gone (4.6 RED M-1).
+    stubFetch([empty(204), json(503, {})]);
+    const u = userEvent.setup();
+    renderWired(<ItemPage initial={BOLT} canEdit canRestore canDelete />);
+    await u.click(screen.getByRole('button', { name: 'Delete item' }));
+    await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete item' }));
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(document.querySelector('[name="unit_of_measure_code"]')).toBeNull();
+    expect(ddAfter('Unit of measure')).toHaveTextContent(/^KG$/);
   });
 
-  it('no supplier reads "None", as text, never a control (R1-6, S-B′)', () => {
+  it('no supplier reads "None", as text, never a control (R1-6, S-B′): the only select is the Unit (I-4)', () => {
     show({ ...BOLT, supplier: null });
     expect(ddAfter('Preferred supplier')).toHaveTextContent(/^None$/);
-    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Preferred supplier' })).toBeNull();
+    expect(screen.getAllByRole('combobox')).toEqual([unit()]);
   });
 
   it('M-5 per display site — edit inputs start at the QR-2 rendering, with the served unit code after each number', () => {
@@ -140,7 +167,7 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     expect(save()).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('Save sends only the changed fields — never supplier_id, never unit_of_measure_code — re-reads, says "{sku} was saved." with the SKU as saved, focuses the h1', async () => {
+  it('Save sends only the changed fields — never supplier_id, and the unit only when it changed (not here) — re-reads, says "{sku} was saved." with the SKU as saved, focuses the h1', async () => {
     const after = { ...BOLT, sku: 'B-2', name: 'Bolt M6' };
     const calls = stubFetch([json(200, after), json(200, { ...after, name: 'Bolt M6 (re-read)' })]);
     const u = userEvent.setup();
@@ -178,7 +205,7 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     }
   });
 
-  it('every editable field changed at once: the body holds exactly those five, never supplier_id or unit_of_measure_code', async () => {
+  it('every editable field changed at once: the body holds exactly those six, the unit as its code, never supplier_id (I-4 T-0c)', async () => {
     const calls = stubFetch([violation('/sku', 'x', 'blank')]);
     const u = userEvent.setup();
     show();
@@ -186,9 +213,10 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
       await u.clear(field(n));
       await u.type(field(n), v);
     }
+    await u.selectOptions(unit(), 'EA');
     await u.click(save());
     await waitFor(() => expect(calls.length).toBe(1));
-    expect(JSON.parse(calls[0]!.body!)).toEqual({ sku: 'B-2', name: 'Nut', reorder_point: '3', reorder_quantity: '4', safety_stock: '5' });
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ sku: 'B-2', name: 'Nut', unit_of_measure_code: 'EA', reorder_point: '3', reorder_quantity: '4', safety_stock: '5' });
   });
 
   it('an emptied number: "Enter a number, or 0 for none." beside it, no request — on two consecutive presses — focus on it after the error is shown (R1-9)', async () => {
@@ -377,11 +405,6 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
   // flight asked for its reading before the Save sent its re-read, so the Save's re-read is the newer reading even when
   // the Retry answers first. A write stamps when it sends its re-read, not when it sends its request.
   const REREAD_FAILED = "We couldn't load this item again, so what's shown may be out of date.";
-  const heldReply = () => {
-    let release!: (r: Response) => void;
-    const p = new Promise<Response>((res) => (release = res));
-    return { reply: () => p, release: (r: Response) => release(r) };
-  };
   // The Save is over once the form has refreshed the router (`onSaved`, after the action resolved, so after any
   // region-error timer the action set); one more timer turn inside act lets that timer's update render.
   const settled = async (refreshes: number) => {
@@ -391,9 +414,9 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     });
   };
   const retryDuringSave = async (saveReread: Response) => {
-    const patch = heldReply();
-    const retry = heldReply();
-    const reread = heldReply();
+    const patch = held();
+    const retry = held();
+    const reread = held();
     const calls = stubFetch([json(200, { ...BOLT, name: 'Boltx' }), json(503, {}), patch.reply, retry.reply, reread.reply]);
     const u = userEvent.setup();
     show();
@@ -427,7 +450,7 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
   });
 
   it("a write's failed re-read older than what is on screen does not raise the region error (0a)", async () => {
-    const reread = heldReply();
+    const reread = held();
     const calls = stubFetch([json(200, { ...BOLT, name: 'Bolt M6' }), json(503, {}), json(200, { ...BOLT, name: 'Bolt M7' }), reread.reply, json(200, { ...BOLT, name: 'Bolt M7' })]);
     const u = userEvent.setup();
     show();
@@ -876,5 +899,263 @@ describe('/items/[id] — holds_stock is required on every item body (I-3 T-4)',
     expect(screen.getByText('Something went wrong on our side.')).toBeInTheDocument();
     expect(screen.getByText(/This item was archived on/)).toBeInTheDocument();
     expect(calls.map((c) => c.method)).toEqual(['POST']);
+  });
+});
+
+// Items I-4 (items-i4-design.md Revision 1 — FINAL §11 as corrected by items-i4-red.md; items-i4-ux.md Revision 1 —
+// FINAL): the Unit becomes a select on the item page. It is sent only when it differs from the saved unit; both 409s
+// (in use, contention) take the shared `refused` path under **Not saved**, the server's sentence its only paragraph, the
+// edits kept (option A). In edit the suffix after each number follows the select (RED H-1).
+describe('/items/[id] — I-4: the Unit select', () => {
+  const descriptions = () => NUMBER_FIELDS.map((n) => field(n).getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)!.textContent).join(' '));
+
+  it('T-1: changing the unit enables Save; picking the saved unit back is "Nothing to save." and two presses send nothing', async () => {
+    const calls = stubFetch([]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit(), 'EA');
+    expect(save()).not.toHaveAttribute('aria-disabled');
+    await u.selectOptions(unit(), 'KG');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+    expect(save()).toHaveAccessibleDescription('Nothing to save.');
+    await u.click(save());
+    await u.click(save());
+    expect(calls).toEqual([]);
+  });
+
+  it('T-2: a unit-only change sends exactly { unit_of_measure_code: "EA" }; the re-read commits it; "{sku} was saved."; the h1 focused', async () => {
+    const calls = stubFetch([json(200, { ...BOLT, unit_of_measure_code: 'EA' }), json(200, { ...BOLT, unit_of_measure_code: 'EA' })]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit(), 'EA');
+    await u.click(save());
+    await waitFor(() => expect(region()).toHaveTextContent('A-1 was saved.'));
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ unit_of_measure_code: 'EA' });
+    expect(unit()).toHaveValue('EA');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+  });
+
+  it('T-3: a Name-only change never sends the unit', async () => {
+    const calls = stubFetch([json(200, { ...BOLT, name: 'Bolt M6' }), json(200, { ...BOLT, name: 'Bolt M6' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), ' M6');
+    await u.click(save());
+    await waitFor(() => expect(region()).toHaveTextContent('A-1 was saved.'));
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ name: 'Bolt M6' });
+  });
+
+  it('T-M1: the select is described by U4-6 verbatim; the hint is the whole description', () => {
+    show();
+    expect(unit()).toHaveAccessibleDescription(UNIT_HINT);
+  });
+
+  it("T-4′ (1)(2): the suffix after each number follows the select in edit, and returns with it", async () => {
+    const u = userEvent.setup();
+    show();
+    for (const d of descriptions()) expect(d).toMatch(/^KG /);
+    await u.selectOptions(unit(), 'EA');
+    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^EA /));
+    await u.selectOptions(unit(), 'KG');
+    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^KG /));
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it.each([
+    ['in use', () => refused('inventory_item.unit_in_use', IN_USE), IN_USE],
+    ['contention', () => refused('transaction.contention', P1), P1],
+  ])('T-4′ (3): a %s 409 with a live re-read leaves the select and every suffix at the refused unit', async (_n, answer, sentence) => {
+    stubFetch([answer(), json(200, BOLT)]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit(), 'EA');
+    await u.type(field('Name'), ' M6');
+    await u.click(save());
+    expect(await screen.findByText(sentence)).toBeInTheDocument();
+    expect(unit()).toHaveValue('EA');
+    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^EA /));
+  });
+
+  it('T-4′ (4): after a 200 and a re-read of an EA item, the select and the suffix read EA', async () => {
+    stubFetch([json(200, { ...BOLT, unit_of_measure_code: 'EA' }), json(200, { ...BOLT, unit_of_measure_code: 'EA', name: 'Bolt (re-read)' })]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit(), 'EA');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt (re-read)'));
+    expect(unit()).toHaveValue('EA');
+    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^EA /));
+  });
+
+  it('T-4b: saved, the re-read fails: the 200 body (unit EA) is committed under the region error, and the suffix reads EA', async () => {
+    stubFetch([json(200, { ...BOLT, unit_of_measure_code: 'EA' }), json(500, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit(), 'EA');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+    expect(unit()).toHaveValue('EA');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+    for (const n of NUMBER_FIELDS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(/^EA /));
+  });
+
+  it('T-5: in use (option A): the sentence as sent is the banner\'s only paragraph under "Not saved", heading focused; Name and the unit kept; a second press sends both again', async () => {
+    const calls = stubFetch([refused('inventory_item.unit_in_use', IN_USE), json(200, BOLT), refused('inventory_item.unit_in_use', IN_USE), json(200, BOLT)]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit(), 'EA');
+    await u.type(field('Name'), ' M6');
+    await u.click(save());
+    expect(await screen.findByText(IN_USE)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Not saved')).toHaveFocus());
+    const heading = screen.getByText('Not saved');
+    const banner = heading.parentElement!;
+    expect([...banner.querySelectorAll('p')].filter((p) => p !== heading).map((p) => p.textContent)).toEqual([IN_USE]);
+    expect(unit()).toHaveValue('EA');
+    expect(unit()).not.toHaveAttribute('aria-invalid');
+    expect(field('Name')).toHaveValue('Bolt M6');
+    expect(save()).not.toHaveAttribute('aria-disabled');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(4));
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ name: 'Bolt M6', unit_of_measure_code: 'EA' });
+    expect(JSON.parse(calls[2]!.body!)).toEqual({ name: 'Bolt M6', unit_of_measure_code: 'EA' });
+  });
+
+  it('T-6: contention from a unit change: P1 under "Not saved", the unit kept, Save offered; a second press sends the unit again and saves', async () => {
+    const calls = stubFetch([refused('transaction.contention', P1), json(200, BOLT), json(200, { ...BOLT, unit_of_measure_code: 'EA' }), json(200, { ...BOLT, unit_of_measure_code: 'EA' })]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit(), 'EA');
+    await u.click(save());
+    expect(await screen.findByText(P1)).toBeInTheDocument();
+    expect(unit()).toHaveValue('EA');
+    expect(save()).not.toHaveAttribute('aria-disabled');
+    await u.click(save());
+    await waitFor(() => expect(region()).toHaveTextContent('A-1 was saved.'));
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH', 'GET']);
+    expect(JSON.parse(calls[2]!.body!)).toEqual({ unit_of_measure_code: 'EA' });
+  });
+
+  it('T-7: in use, and the re-read finds the item archived: the page turns read-only, the Unit is the archived reading\'s code as text, the sentence under "Not saved"', async () => {
+    stubFetch([refused('inventory_item.unit_in_use', IN_USE), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    show(BOLT, true, true);
+    await u.selectOptions(unit(), 'EA');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByText(/This item was archived on/)).toBeInTheDocument());
+    expect(screen.getByText(IN_USE)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Not saved')).toHaveFocus());
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(ddAfter('Unit of measure')).toHaveTextContent(/^KG$/);
+    expect(ddAfter('Reorder point').textContent).toBe('10 KG');
+  });
+
+  it('T-8: a 422 on /unit_of_measure_code sits beside the select, not in a banner, and the select takes focus once it is shown', async () => {
+    stubFetch([violation('/unit_of_measure_code', 'No unit of measure has this code.', 'unknown_reference')]);
+    const u = userEvent.setup();
+    show();
+    const select = unit();
+    const invalidAtFocus: (string | null)[] = [];
+    select.addEventListener('focus', () => invalidAtFocus.push(select.getAttribute('aria-invalid')));
+    await u.selectOptions(select, 'EA');
+    await u.click(field('Name'));
+    invalidAtFocus.length = 0;
+    await u.click(save());
+    await waitFor(() => expect(select).toHaveAttribute('aria-invalid', 'true'));
+    expect(select).toHaveAccessibleDescription(`${UNIT_HINT} No unit of measure has this code.`);
+    expect(screen.queryByText('Not saved')).toBeNull();
+    await waitFor(() => expect(select).toHaveFocus());
+    expect(invalidAtFocus).toEqual(['true']);
+  });
+
+  it('T-8: focus follows screen order: SKU before Unit, Unit before a number', async () => {
+    for (const [errors, first] of [
+      [[{ pointer: '/unit_of_measure_code', code: 'unknown_reference', message: 'U.' }, { pointer: '/sku', code: 'blank', message: 'S.' }], () => field('SKU')],
+      [[{ pointer: '/safety_stock', code: 'not_a_decimal', message: I8 }, { pointer: '/unit_of_measure_code', code: 'unknown_reference', message: 'U.' }], () => unit()],
+    ] as const) {
+      stubFetch([problem(422, 'validation-failed', { errors })]);
+      const u = userEvent.setup();
+      const { unmount } = show();
+      await u.selectOptions(unit(), 'EA');
+      await u.click(save());
+      await waitFor(() => expect(unit()).toHaveAttribute('aria-invalid', 'true'));
+      await waitFor(() => expect(first()).toHaveFocus());
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('T-9: a saved unit the served list lacks is offered first, as sent; untouched it is never sent; picked back after another, it is "Nothing to save." again', async () => {
+    const calls = stubFetch([json(200, { ...BOLT, unit_of_measure_code: 'EA' }), json(200, { ...BOLT, unit_of_measure_code: 'EA' })]);
+    const u = userEvent.setup();
+    show({ ...BOLT, unit_of_measure_code: 'XX' });
+    const first = () => (within(unit()).getAllByRole('option') as HTMLOptionElement[])[0]!;
+    expect(first().value).toBe('XX');
+    expect(first().textContent).toBe('XX');
+    expect(unit()).toHaveValue('XX');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+    await u.selectOptions(unit(), 'EA');
+    expect(first().value).toBe('XX');
+    await u.selectOptions(unit(), 'XX');
+    expect(unit()).toHaveValue('XX');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+    await u.click(save());
+    expect(calls).toEqual([]);
+    await u.selectOptions(unit(), 'EA');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ unit_of_measure_code: 'EA' });
+  });
+
+  it('T-10: no empty option on the item page (an existing item always has a unit)', () => {
+    show();
+    expect((within(unit()).getAllByRole('option') as HTMLOptionElement[]).map((o) => o.value)).not.toContain('');
+  });
+
+  it('T-15: edits typed during a save are replaced by the saved item (recorded behaviour; RED L-5, UX confirmed for I-4)', async () => {
+    const patch = held();
+    const calls = stubFetch([patch.reply, json(200, { ...BOLT, unit_of_measure_code: 'EA' })]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit(), 'EA');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await u.type(field('Name'), ' typed while saving');
+    expect(field('Name')).toHaveValue('Bolt typed while saving');
+    patch.release(json(200, { ...BOLT, unit_of_measure_code: 'EA' }));
+    await waitFor(() => expect(region()).toHaveTextContent('A-1 was saved.'));
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
+    expect(field('Name')).toHaveValue('Bolt');
+    expect(unit()).toHaveValue('EA');
+  });
+
+  it('T-18: a refusal answered after a newer commit (a Retry during the Save): "Not saved" + the sentence over a form reset to the newer reading', async () => {
+    const patch = held();
+    const retry = held();
+    const calls = stubFetch([json(200, { ...BOLT, name: 'Boltx' }), json(503, {}), patch.reply, retry.reply, json(200, { ...BOLT, name: 'Bolt (theirs)' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    expect(await screen.findByText("We couldn't load this item again, so what's shown may be out of date.")).toBeInTheDocument();
+    await u.selectOptions(unit(), 'EA');
+    await u.type(field('Name'), 'y');
+    await u.click(save());
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    retry.release(json(200, { ...BOLT, name: 'Bolt (theirs)' }));
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt (theirs)'));
+    patch.release(refused('inventory_item.unit_in_use', IN_USE));
+    expect(await screen.findByText(IN_USE)).toBeInTheDocument();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH', 'GET', 'GET']);
+    expect(screen.getByText('Not saved')).toBeInTheDocument();
+    // The edits were lost to the newer reading (the shipped loadedKey rule), recorded.
+    expect(unit()).toHaveValue('KG');
+    expect(field('Name')).toHaveValue('Bolt (theirs)');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
   });
 });

@@ -17,8 +17,9 @@ import { CREATE_ITEM_FIELDS, ITEM_FIELDS, type CreateItemAction, type DeleteItem
 // after a refusal is told to the page (`onRereadFailed`), so a stale page is never left silent (M-1).
 //
 // Blind spot, stated (the warehouses X-2 precedent): C-2's body-key check reads object-literal bodies only; the Save body
-// is built by `changedFields` over `ITEM_FIELDS` and copied by name below, which is what keeps `supplier_id` and
-// `unit_of_measure_code` out of it.
+// is built by `changedFields` over `ITEM_FIELDS` and copied by name below, which is what keeps `supplier_id` out of it
+// and the unit in it only when the person changed it. The unit's own refusal (in use) is not compared here either: it
+// takes the shared `refused` path and is shown as sent (items-i4-design.md Revision 1 — FINAL §3.2, option A).
 //
 // Blind spot, stated: C-2's body-key check reads object-literal bodies only; the create body is built by name over
 // `CREATE_ITEM_FIELDS`, which, with the item-create body test, keeps it to the six keys.
@@ -28,7 +29,8 @@ import { CREATE_ITEM_FIELDS, ITEM_FIELDS, type CreateItemAction, type DeleteItem
 // before it sends its re-read, after the write's answer has arrived, and passes it to every commit or failure that
 // follows, the fallback answer body included. The page drops anything older than what it shows.
 // A Save also takes a stamp when it sends its PATCH; its own answer body is committed only if no 204 arrived after that
-// (a Save that answers after a delete was processed before it; i3-0a0b RED H-1, the warehouse rule).
+// (a Save that answers after a delete was processed before it; i3-0a0b RED H-1, the warehouse rule). The same stamp goes
+// back with `saved` and `refused-archived` (`sentAsOf`), so the page can drop what such a Save would say (I-4 T-17, M-3).
 
 export interface ItemWiring {
   readonly caller: ApiCaller;
@@ -67,7 +69,7 @@ export function itemSave(w: ItemWiring): SaveItemAction {
             if (again.kind === 'ok' && again.item.archived_at !== null) {
               await w.setItem(again.item, s);
               // P1 says "try again": it is never shown as the page's archived-elsewhere refusal (L-3).
-              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message };
+              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message, sentAsOf: sent };
             }
             if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
             return r;
@@ -92,7 +94,7 @@ export function itemSave(w: ItemWiring): SaveItemAction {
         await w.setItem(r.body, s, sent);
         w.onRereadFailed(again.kind, s);
       }
-      return { kind: 'saved', item: r.body };
+      return { kind: 'saved', item: r.body, sentAsOf: sent };
     } finally {
       deadline.cancel();
     }

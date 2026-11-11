@@ -8,7 +8,7 @@ import { ItemPage } from '@/app/(app)/items/[id]/ItemPage';
 import { DELETE_ITEM } from '@/copy/items';
 import type { Item } from '@/lib/api/items';
 import { classify } from '@/lib/bff/problem';
-import { empty, json, problem, refused, renderWired, stubFetch } from './harness';
+import { empty, held, json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
 
 // Items I-3 (items-i3-design.md Revision 1 — FINAL §1 as corrected by items-i3-red.md "Final RED — on Revision 1";
 // items-i3-ux.md Revision 1 — FINAL F-1, F-2; items-i3-po-sec.md I3-1…I3-9): **Delete item** on a live item's page for a
@@ -43,6 +43,15 @@ const dialog = () => screen.getByRole('dialog');
 const deleteButton = () => screen.queryByRole('button', { name: 'Delete item' });
 const confirm = () => within(dialog()).getByRole('button', { name: 'Delete item' });
 const field = (name: string) => screen.queryByRole('textbox', { name });
+const unit = () => screen.queryByRole('combobox', { name: 'Unit of measure' });
+const ddAfter = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement;
+const NUMBERS = ['Reorder point', 'Reorder quantity', 'Safety stock'];
+/** I-4: every suffix after the three numbers starts with this code (in edit it follows the select, H-1). */
+const expectSuffix = (code: string) => {
+  for (const n of NUMBERS) expect(field(n)).toHaveAccessibleDescription(expect.stringMatching(new RegExp(`^${code} `)));
+};
+/** A distinctive fixture for `ItemWriter::UNIT_IN_USE` (I-4). */
+const IN_USE = 'Fixture: this unit is in use, so it was refused.';
 /** items-ux-copy.md FINAL F-1, verbatim (I3-2). */
 const BODY =
   "It moves to the archived items. Until it's restored, it can't be added to orders or price lists, it isn't due for reordering, and any stock of it can't be counted or moved between locations. Orders that already name it keep showing it, and can still be received and shipped.";
@@ -61,11 +70,6 @@ const show = (o: { i?: Item; canDelete?: boolean; canEdit?: boolean } = {}) =>
 const openAndConfirm = async (u: ReturnType<typeof userEvent.setup>) => {
   await u.click(deleteButton()!);
   await u.click(confirm());
-};
-const held = () => {
-  let release!: (r: Response) => void;
-  const p = new Promise<Response>((res) => (release = res));
-  return { reply: () => p, release: (r: Response) => release(r) };
 };
 const tick = async (ms = 50) => {
   await act(async () => {
@@ -401,12 +405,25 @@ describe('/items/[id] — Delete item: answers (F-2)', () => {
   });
 });
 
-describe('/items/[id] — Delete item: a close that is not a delete keeps the typed edits (M-5, final RED L-4)', () => {
+// I-4 (items-i4-final-red.md M-1): the form-keeping closes run over a typed SKU and a chosen unit; the unit run asserts
+// the select and every suffix still hold the chosen unit after the live re-read.
+describe.each([
+  ['a typed SKU', 'sku'],
+  ['a chosen unit (EA → KG)', 'unit'],
+] as const)('/items/[id] — Delete item: a close that is not a delete keeps the typed edits (M-5, final RED L-4) — with %s', (_n, edit) => {
+  const expectKept = () => {
+    if (edit === 'sku') expect(field('SKU')).toHaveValue('A-1Z');
+    else {
+      expect(unit()).toHaveValue('KG');
+      expectSuffix('KG');
+    }
+  };
   const editThenRefused = async (answer: Response | (() => Response), closeWith: 'Close' | 'Cancel' | 'Escape') => {
     const calls = stubFetch([answer, json(200, BOLT)]);
     const u = userEvent.setup();
     show();
-    await u.type(field('SKU')!, 'Z');
+    if (edit === 'sku') await u.type(field('SKU')!, 'Z');
+    else await u.selectOptions(unit()!, 'KG');
     await openAndConfirm(u);
     await waitFor(() => expect(within(dialog()).getByText(/^(Not deleted|We couldn't reach the server\.)$/)).toBeInTheDocument());
     if (closeWith === 'Escape') await u.keyboard('{Escape}');
@@ -415,23 +432,25 @@ describe('/items/[id] — Delete item: a close that is not a delete keeps the ty
     await tick();
   };
 
-  it('P1 → Cancel → the live re-read: the typed SKU is still in the field', async () => {
+  it('P1 → Cancel → the live re-read: the edit is still in the form', async () => {
     await editThenRefused(refused('transaction.contention', CONTENTION), 'Cancel');
-    expect(field('SKU')).toHaveValue('A-1Z');
+    expectKept();
   });
 
-  it('403 → Cancel → the live re-read: the typed SKU is still in the field', async () => {
+  it('403 → Cancel → the live re-read: the edit is still in the form', async () => {
     await editThenRefused(problem(403, 'permission-denied'), 'Cancel');
-    expect(field('SKU')).toHaveValue('A-1Z');
+    expectKept();
   });
 
-  it('a lost connection → Escape → the live re-read: the typed SKU is still in the field', async () => {
+  it('a lost connection → Escape → the live re-read: the edit is still in the form', async () => {
     await editThenRefused(() => {
       throw new TypeError('Failed to fetch');
     }, 'Escape');
-    expect(field('SKU')).toHaveValue('A-1Z');
+    expectKept();
   });
+});
 
+describe('/items/[id] — Delete item: a close that is not a delete (M-5, final RED L-4) — edit-independent cases', () => {
   it('I3 → Close → the re-read reads archived: the form is gone', async () => {
     stubFetch([refused('inventory_item.is_archived', I3), json(200, ARCHIVED)]);
     const u = userEvent.setup();
@@ -479,6 +498,9 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(2));
     await tick(20);
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'DELETE', 'GET']);
+    // UX M-3 (I-4): the Save was sent before the person's own 204, so its "saved" sentence is not spoken; the refresh
+    // above stays. The region keeps the delete's sentence.
+    expect(region().textContent).toBe(AFTER);
   };
 
   it('an older Save re-read landing after a 204 does not turn the page live: archived banner stays, no Delete item, no form (I-A)', async () => {
@@ -513,6 +535,8 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
     expect(deleteButton()).toBeNull();
     expect(field('Name')).toBeNull();
+    // UX M-3 (I-4): this Save answered after the person's own 204, so "A-1 was saved." is not spoken over the delete.
+    expect(region().textContent).toBe(AFTER);
   });
 
   it("…and the same when the Save answers while the delete's re-read is in flight (H-1)", async () => {
@@ -532,7 +556,7 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
     expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
     expect(deleteButton()).toBeNull();
-    expect(field('Name')).toBeNull();
+    expect(field('Name')).toBeNull();    expect(region().textContent).toBe(AFTER);
   });
 
   // i3-0a0b RED L-2, item twin: Restore takes its stamp when it sends its re-read. A Retry pressed during the Restore
@@ -561,83 +585,105 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
   });
 
   // Close re-read vs Retry, both landing orders (d39635f): only a commit of NEWER evidence drops a page-owned re-read.
-  const twoReads = async (first: 'retry' | 'close') => {
-    const retry = held();
-    const close = held();
-    stubFetch([json(200, { ...BOLT, name: 'Boltx' }), json(503, {}), retry.reply, refused('inventory_item.is_archived', I3), close.reply]);
-    const u = userEvent.setup();
-    show();
-    await u.type(field('Name')!, 'x');
-    await u.click(screen.getByRole('button', { name: 'Save' }));
-    await u.click(await screen.findByRole('button', { name: 'Retry' }));
-    await openAndConfirm(u);
-    await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    const retryAnswers = () => retry.release(json(200, { ...BOLT, name: 'Boltx' }));
-    const closeAnswers = () => close.release(json(200, { ...ARCHIVED, name: 'Boltx' }));
-    for (const release of first === 'retry' ? [retryAnswers, closeAnswers] : [closeAnswers, retryAnswers]) {
-      release();
+  // I-4 (items-i4-final-red.md M-1): run with a Name Save and with a unit Save; the end is archived, so the unit run
+  // asserts the read-only Unit text and the read-only suffix show the saved unit (no select exists there).
+  for (const edit of ['name', 'unit'] as const) {
+    const saved = edit === 'name' ? { ...BOLT, name: 'Boltx' } : { ...BOLT, unit_of_measure_code: 'KG' };
+    const doEdit = async (u: ReturnType<typeof userEvent.setup>, name: string) => {
+      if (edit === 'name') {
+        const box = field('Name')!;
+        await u.clear(box);
+        await u.type(box, name);
+      } else await u.selectOptions(unit()!, 'KG');
+    };
+    const twoReads = async (first: 'retry' | 'close') => {
+      const retry = held();
+      const close = held();
+      stubFetch([json(200, saved), json(503, {}), retry.reply, refused('inventory_item.is_archived', I3), close.reply]);
+      const u = userEvent.setup();
+      show();
+      await doEdit(u, 'Boltx');
+      await u.click(screen.getByRole('button', { name: 'Save' }));
+      await u.click(await screen.findByRole('button', { name: 'Retry' }));
+      await openAndConfirm(u);
+      await u.click(await within(dialog()).findByRole('button', { name: 'Close' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      const retryAnswers = () => retry.release(json(200, saved));
+      const closeAnswers = () => close.release(json(200, { ...saved, archived_at: ARCHIVED.archived_at }));
+      for (const release of first === 'retry' ? [retryAnswers, closeAnswers] : [closeAnswers, retryAnswers]) {
+        release();
+        await tick();
+      }
+    };
+    const expectSavedReadOnly = () => {
+      if (edit === 'unit') {
+        expect(ddAfter('Unit of measure')).toHaveTextContent(/^KG$/);
+        expect(ddAfter('Reorder point').textContent).toBe('10 KG');
+      } else expect(ddAfter('Name')).toHaveTextContent(/^Boltx$/);
+    };
+
+    it(`an older Retry that lands first does not drop the newer Close re-read: the page turns archived, focus on the h1 — ${edit} Save`, async () => {
+      await twoReads('retry');
+      expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
+      expect(deleteButton()).toBeNull();
+      expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+      expectSavedReadOnly();
+    });
+
+    it(`a newer Close re-read that lands first is not undone by the older Retry (reverse order) — ${edit} Save`, async () => {
+      await twoReads('close');
+      expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
+      expect(deleteButton()).toBeNull();
+      expectSavedReadOnly();
+    });
+
+    const after = edit === 'name' ? { ...BOLT, name: 'Bolty' } : { ...BOLT, unit_of_measure_code: 'KG' };
+    const expectSavedInForm = () => {
+      if (edit === 'name') expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolty');
+      else {
+        expect(unit()).toHaveValue('KG');
+        expectSuffix('KG');
+      }
+    };
+    const cancelThenSave = async () => {
+      const close = held();
+      stubFetch([refused('transaction.contention', CONTENTION), close.reply, json(200, after), json(200, after)]);
+      const u = userEvent.setup();
+      show();
+      await openAndConfirm(u);
+      await u.click(await within(dialog()).findByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await doEdit(u, 'Bolty');
+      await u.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(region()).toHaveTextContent('A-1 was saved.'));
+      expectSavedInForm();
+      return close;
+    };
+
+    // Final RED M-3: an overtaken Close re-read is dropped (the warehouse X3 twin). A live answer would not be committed
+    // anyway (M-5), so only the failure case can show the drop.
+    it(`an overtaken Close re-read that fails is dropped: no region error, the saved value stays (M-3) — ${edit} Save`, async () => {
+      const close = await cancelThenSave();
+      close.release(json(503, {}));
       await tick();
-    }
-  };
+      expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+      expectSavedInForm();
+    });
 
-  it('an older Retry that lands first does not drop the newer Close re-read: the page turns archived, focus on the h1', async () => {
-    await twoReads('retry');
-    expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
-    expect(deleteButton()).toBeNull();
-    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
-  });
-
-  it('a newer Close re-read that lands first is not undone by the older Retry (reverse order)', async () => {
-    await twoReads('close');
-    expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
-    expect(deleteButton()).toBeNull();
-  });
-
-  // Final RED M-3: an overtaken Close re-read is dropped (the warehouse X3 twin). A live answer would not be committed
-  // anyway (M-5), so only the failure case can show the drop.
-  it('an overtaken Close re-read that fails is dropped: no region error, the saved name stays (M-3)', async () => {
-    const close = held();
-    stubFetch([refused('transaction.contention', CONTENTION), close.reply, json(200, { ...BOLT, name: 'Bolty' }), json(200, { ...BOLT, name: 'Bolty' })]);
-    const u = userEvent.setup();
-    show();
-    await openAndConfirm(u);
-    await u.click(await within(dialog()).findByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    const name = field('Name')!;
-    await u.clear(name);
-    await u.type(name, 'Bolty');
-    await u.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolty'));
-    close.release(json(503, {}));
-    await tick();
-    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolty');
-  });
-
-  // D-3: the caller's own stamp check also guards what follows a commit. An overtaken Close re-read that reads
-  // archived is dropped, and must not move focus to the h1 or refresh the router cache.
-  it('an overtaken Close re-read that reads archived is dropped: no focus jump, no extra refresh (D-3)', async () => {
-    const close = held();
-    stubFetch([refused('transaction.contention', CONTENTION), close.reply, json(200, { ...BOLT, name: 'Bolty' }), json(200, { ...BOLT, name: 'Bolty' })]);
-    const u = userEvent.setup();
-    show();
-    await openAndConfirm(u);
-    await u.click(await within(dialog()).findByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    const name = field('Name')!;
-    await u.clear(name);
-    await u.type(name, 'Bolty');
-    await u.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolty'));
-    const refreshes = nav.refresh.mock.calls.length;
-    name.focus();
-    close.release(json(200, ARCHIVED));
-    await tick();
-    expect(screen.queryByText(ARCHIVED_BANNER)).toBeNull();
-    expect(nav.refresh.mock.calls.length).toBe(refreshes);
-    expect(screen.getByRole('heading', { level: 1 })).not.toHaveFocus();
-  });
+    // D-3: the caller's own stamp check also guards what follows a commit. An overtaken Close re-read that reads
+    // archived is dropped, and must not move focus to the h1 or refresh the router cache.
+    it(`an overtaken Close re-read that reads archived is dropped: no focus jump, no extra refresh (D-3) — ${edit} Save`, async () => {
+      const close = await cancelThenSave();
+      const refreshes = nav.refresh.mock.calls.length;
+      (edit === 'name' ? field('Name')! : unit()!).focus();
+      close.release(json(200, ARCHIVED));
+      await tick();
+      expect(screen.queryByText(ARCHIVED_BANNER)).toBeNull();
+      expect(nav.refresh.mock.calls.length).toBe(refreshes);
+      expect(screen.getByRole('heading', { level: 1 })).not.toHaveFocus();
+      expectSavedInForm();
+    });
+  }
 
   // i3-c1 fix-RED L-1: the SKU "After" speaks moves only with a commit that is not dropped.
   it('a dropped Save re-read (older than the 204) does not change the SKU "After" speaks', async () => {
@@ -664,6 +710,123 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     await tick();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('A-1 — Bolt');
     expect(region().textContent).toBe(AFTER);
+  });
+});
+
+// Items I-4 (items-i4-ux.md M-4 ruling, as built by items-i4-final-red.md H-1): the person's own Delete outranks their own
+// Save. Once its 204 is handled, a **Not saved** banner already showing is cleared, and a Save sent before that 204 shows
+// no refusal. The page, focus and sentence are exactly as after any 204 of the person's own Delete (UX L-1 wording). One
+// test per answer order (T-17a/b/c), each asserting the fetch order it relies on, and a control (T-17d) that a refusal
+// from a Save sent after an earlier delete still shows.
+describe('/items/[id] — I-4: own Delete during a unit Save (T-16, T-17)', () => {
+  const unitAndNameSaveThenDelete = async (u: ReturnType<typeof userEvent.setup>) => {
+    await u.selectOptions(unit()!, 'KG');
+    await u.type(field('Name')!, ' M6');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await openAndConfirm(u);
+  };
+  const expectOwnDeleteOnly = (spoken: string[]) => {
+    expect(screen.queryByText('Not saved')).toBeNull();
+    expect(screen.queryByText(IN_USE)).toBeNull();
+    expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    expect(spoken.filter((t) => t !== '')).toEqual([AFTER]);
+    expect(region().textContent).toBe(AFTER);
+    expect(unit()).toBeNull();
+    expect(screen.queryAllByRole('textbox')).toEqual([]);
+    expect(ddAfter('Unit of measure')).toHaveTextContent(/^EA$/);
+  };
+
+  it('T-16: restored elsewhere between a 204 and its re-read, after the select was changed: the fresh form shows the saved unit', async () => {
+    stubFetch([empty(204), json(200, BOLT)]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(unit()!, 'KG');
+    await openAndConfirm(u);
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await tick();
+    expect(unit()).toHaveValue('EA');
+    expectSuffix('EA');
+  });
+
+  it('T-17a: the refusal settles first (its re-read reads archived), then the 204: the banner that showed is cleared', async () => {
+    const patch = held();
+    const del = held();
+    const calls = stubFetch([patch.reply, del.reply, json(200, ARCHIVED), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    show();
+    const spoken = textsOf(region());
+    await unitAndNameSaveThenDelete(u);
+    await waitFor(() => expect(calls).toHaveLength(2));
+    patch.release(refused('inventory_item.unit_in_use', IN_USE));
+    await waitFor(() => expect(screen.getByText(IN_USE)).toBeInTheDocument());
+    del.release(empty(204));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await tick();
+    spoken.stop();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+    expectOwnDeleteOnly(spoken.texts);
+  });
+
+  it("T-17b: the 204 is handled first, and the refusal settles while the delete's re-read is in flight: no banner", async () => {
+    const patch = held();
+    const del = held();
+    const delReread = held();
+    const calls = stubFetch([patch.reply, del.reply, delReread.reply, json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    show();
+    const spoken = textsOf(region());
+    await unitAndNameSaveThenDelete(u);
+    await waitFor(() => expect(calls).toHaveLength(2));
+    del.release(empty(204));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    patch.release(refused('inventory_item.unit_in_use', IN_USE));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await tick();
+    delReread.release(json(200, ARCHIVED));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await tick();
+    spoken.stop();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+    expectOwnDeleteOnly(spoken.texts);
+  });
+
+  it('T-17c: the refusal settles after the dialog has closed and the h1 has focus: no banner, and the h1 keeps focus', async () => {
+    const patch = held();
+    const del = held();
+    const calls = stubFetch([patch.reply, del.reply, json(200, ARCHIVED), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    show();
+    const spoken = textsOf(region());
+    await unitAndNameSaveThenDelete(u);
+    await waitFor(() => expect(calls).toHaveLength(2));
+    del.release(empty(204));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    patch.release(refused('inventory_item.unit_in_use', IN_USE));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await tick();
+    await tick();
+    spoken.stop();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+    expectOwnDeleteOnly(spoken.texts);
+  });
+
+  it('T-17d (control): after an own delete and a restore, a unit Save refused and re-read archived (deleted elsewhere) still shows its banner, focused', async () => {
+    const calls = stubFetch([empty(204), json(200, ARCHIVED), json(200, BOLT), json(200, BOLT), refused('inventory_item.unit_in_use', IN_USE), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    show();
+    await openAndConfirm(u);
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await u.click(await screen.findByRole('button', { name: 'Restore item' }));
+    await waitFor(() => expect(unit()).toBeInTheDocument());
+    await u.selectOptions(unit()!, 'KG');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(IN_USE)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Not saved')).toHaveFocus());
+    expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'POST', 'GET', 'PATCH', 'GET']);
+    expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
   });
 });
 
