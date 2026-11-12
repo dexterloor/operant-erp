@@ -95,12 +95,13 @@ final class ContractArtefactTest extends KernelTestCase
     {
         $spec = ['paths' => [
             '/things' => ['get' => ['operationId' => 'ListThings']],
-            '/things/{id}' => ['delete' => ['operationId' => 'DeleteThing', 'parameters' => [['name' => 'id', 'in' => 'path']]]],
+            '/things/{id}' => ['delete' => ['operationId' => 'DeleteThing', 'parameters' => [['name' => 'id', 'in' => 'path', 'schema' => ['type' => 'string', 'format' => 'uuid']]]]],
             '/things/{code}/restoration' => ['post' => ['operationId' => 'RestoreThing', 'parameters' => [['name' => 'code', 'in' => 'path']]]],
             '/bulk-archivals' => ['post' => ['operationId' => 'CreateBulkArchival', 'requestBody' => ['content' => ['application/json' => ['schema' => ['$ref' => '#/components/schemas/B']]]]]],
             '/bulk-restorations' => ['post' => ['operationId' => 'CreateBulkRestoration', 'requestBody' => ['content' => ['application/json' => ['schema' => ['properties' => ['ids' => ['maxItems' => 49]]]]]]]],
             '/unregistered' => ['get' => ['operationId' => 'ListGhosts']],
-            '/things/{id}/archive' => ['post' => ['operationId' => 'ArchiveThing', 'parameters' => [['name' => 'thingId', 'in' => 'path']]]],
+            '/things/{id}/archive' => ['post' => ['operationId' => 'ArchiveThing', 'parameters' => [['name' => 'thingId', 'in' => 'path', 'schema' => ['type' => 'string', 'format' => 'uuid']]]]],
+            '/things/{id}/void' => ['post' => ['operationId' => 'VoidThing', 'parameters' => [['name' => 'id', 'in' => 'path', 'schema' => ['type' => 'string']]]]],
         ], 'components' => ['schemas' => ['B' => ['properties' => ['ids' => ['maxItems' => 50]]]]]];
         $facts = static fn (string ...$codes): array => ['kind' => 'all_of', 'codes' => $codes, 'idempotency' => false];
         $registry = [
@@ -110,6 +111,7 @@ final class ContractArtefactTest extends KernelTestCase
             'CreateBulkArchival' => ['kind' => 'derived', 'codes' => [], 'idempotency' => true],
             'CreateBulkRestoration' => ['kind' => 'derived', 'codes' => [], 'idempotency' => true],
             'ArchiveThing' => $facts('thing.delete'),
+            'VoidThing' => $facts('thing.delete'),
         ];
 
         $problems = ApiSurface::build(
@@ -130,6 +132,7 @@ final class ContractArtefactTest extends KernelTestCase
             'CreateBulkRestoration declares ids.maxItems 49; the enforced cap is 50',
             'RestoreThing has a path variable {code}',
             'ArchiveThing: the path template names {id} but the declared path parameters are {thingId}',
+            'VoidThing serves {id} as',
         ];
         foreach ($expected as $fragment) {
             self::assertNotEmpty(array_filter($problems, static fn (string $p): bool => str_contains($p, $fragment)), 'The builder did not report: '.$fragment."\nIt reported:\n".implode("\n", $problems));

@@ -481,6 +481,15 @@ services:
     App\Modules\Inventory\Application\Port\Sales\ItemSalesLines: '@App\Modules\Sales\Application\ItemSalesLinesAnswer'
     App\Modules\Inventory\Application\Port\Suppliers\ItemCatalogueEntries: '@App\Modules\Suppliers\Application\ItemCatalogueEntriesAnswer'
 
+    # BK-18 R18-d — every record-id path parameter is published as `{type: string, format: uuid}`. Keyed by the class name
+    # so it replaces the auto-registered definition rather than adding a second one. Priority 1: outside the link and
+    # uri-template factories (500), so every uri variable already exists; inside the cached layer (-10), so the result is
+    # cached. It changes the spec only: no constraint, no default, no route requirement (see the class docblock).
+    App\Platform\Http\UuidPathParameters:
+        decorates: api_platform.metadata.resource.metadata_collection_factory
+        decoration_priority: 1
+        arguments: ['@.inner']
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test
