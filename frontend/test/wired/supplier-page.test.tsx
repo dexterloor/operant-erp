@@ -321,6 +321,120 @@ describe('/suppliers/[id] — the editor (UX S-1 SUPPLIER_PAGE)', () => {
   });
 });
 
+// S-1 follow-up (the stamp rule's commit guard; suppliers-s1-red.md L-1): the page's stamp rule and FE-R7, through the page's own
+// commit. A Save is refused (S5) and its re-read is held; a Retry, sent after it, commits a newer live reading; the
+// held re-read then answers the supplier ARCHIVED. That older reading must be dropped (the stamp rule), and the Save's
+// `refused-archived` answer, landing on a live page, must not be kept for a later archived reading (FE-R7).
+const lateArchivedRefusal = async () => {
+  const reread = held();
+  const calls = stubFetch([json(200, { ...ACME, name: 'Acme M6' }), json(500, {}), refused('supplier.is_archived', S5), reread.reply, json(200, { ...ACME, name: 'Acme (Retry)' })]);
+  const u = userEvent.setup();
+  show(ACME, true, true);
+  await u.type(field('Name'), ' M6');
+  await u.click(save());
+  expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+  await u.type(field('Name'), 'x');
+  await u.click(save());
+  await waitFor(() => expect(calls).toHaveLength(4));
+  await u.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ACME — Acme (Retry)'));
+  await act(async () => {
+    reread.release(json(200, { ...ARCHIVED, name: 'Acme (stale archived)' }));
+    await new Promise((t) => setTimeout(t, 50));
+  });
+  expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH', 'GET', 'GET']);
+  return u;
+};
+
+describe('/suppliers/[id] — late answers (the stamp rule, FE-R7)', () => {
+  it('an older re-read answering last does not overwrite a newer one: the page stays on the Retry reading, live (the stamp rule)', async () => {
+    await lateArchivedRefusal();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ACME — Acme (Retry)');
+    expect(screen.queryByText(/This supplier was archived on/)).toBeNull();
+    expect(screen.queryByText('Not saved')).toBeNull();
+    expect(field('Name')).toBeInTheDocument();
+  });
+
+  it('a refused Save landing on a live page is not kept: when the page reads archived later, no old "Not saved" appears (FE-R7, RED L-1)', async () => {
+    const u = await lateArchivedRefusal();
+    // Archived again by a path that sets no sentence of its own (P1 + an archived re-read).
+    stubFetch([refused('transaction.contention', P1), json(200, ARCHIVED)]);
+    await u.type(field('Name'), 'y');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByText(/This supplier was archived on/)).toBeInTheDocument());
+    expect(screen.queryByText(S5)).toBeNull();
+    expect(screen.queryByText('Not saved')).toBeNull();
+  });
+});
+
+// S-1 follow-up (suppliers-s1-red.md L-2, L-3): a refusal whose re-read fails shows both the refusal and the region
+// error. Which heading ends up focused is pinned as built today (L-3: two claimants, the region error's mount focus runs
+// after the banner's; UX TO CONFIRM which should win).
+describe('/suppliers/[id] — a refusal whose re-read fails (RED L-2, L-3)', () => {
+  it('Save refused (S2), re-read 500: S2 under "Not saved", the region error, the edits kept; focus ends on the region error heading', async () => {
+    const S2 = 'Another supplier already uses this code. Keep the current code or choose a different one.';
+    stubFetch([refused('supplier.code_is_unique_per_workspace', S2), json(500, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.clear(field('Code'));
+    await u.type(field('Code'), 'TAKEN');
+    await u.click(save());
+    expect(await screen.findByText(S2)).toBeInTheDocument();
+    expect(screen.getByText('Not saved')).toBeInTheDocument();
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    expect(field('Code')).toHaveValue('TAKEN');
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    expect(screen.getByRole('heading', { level: 2, name: 'Something went wrong on our side.' })).toHaveFocus();
+  });
+
+  it('Restore refused (S10), re-read 500: S10 under "Not restored", the region error, the button kept; focus ends on the region error heading', async () => {
+    const S10 = "Another supplier now uses this supplier's name, so it can't be restored. It can be restored once that supplier is renamed.";
+    stubFetch([refused('supplier.name_is_unique_per_workspace', S10), json(500, {})]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    await u.click(screen.getByRole('button', { name: 'Restore supplier' }));
+    expect(await screen.findByText(S10)).toBeInTheDocument();
+    expect(screen.getByText('Not restored')).toBeInTheDocument();
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restore supplier' })).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+    expect(screen.getByRole('heading', { level: 2, name: 'Something went wrong on our side.' })).toHaveFocus();
+  });
+});
+
+// S-1 follow-up (suppliers-s1-red.md L-4): a served supplier whose terms are not a whole number is malformed, and a
+// successful Retry focuses the h1.
+describe('/suppliers/[id] — malformed re-read and Retry focus (RED L-4)', () => {
+  it('a re-read serving payment_terms_days 30.5 is malformed: the 200 body is shown under the region error', async () => {
+    stubFetch([json(200, { ...ACME, name: 'Acme Ltd' }), json(200, { ...ACME, name: 'Acme (bad)', payment_terms_days: 30.5 })]);
+    const u = userEvent.setup();
+    show();
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Acme Ltd');
+    await u.click(save());
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ACME — Acme Ltd');
+  });
+
+  it('a successful Retry clears the region error and focuses the h1', async () => {
+    stubFetch([json(200, { ...ACME, name: 'Acme Ltd' }), json(500, {}), json(200, { ...ACME, name: 'Acme (Retry)' })]);
+    const u = userEvent.setup();
+    show();
+    await u.clear(field('Name'));
+    await u.type(field('Name'), 'Acme Ltd');
+    await u.click(save());
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ACME — Acme (Retry)'));
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+  });
+});
+
 describe('/suppliers/[id] — archived, and Restore supplier (UX S-1 RESTORE_SUPPLIER, ST-9)', () => {
   const restore = () => screen.getByRole('button', { name: 'Restore supplier' });
 
