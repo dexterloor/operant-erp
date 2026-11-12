@@ -1,5 +1,5 @@
 import { StrictMode, useState } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
@@ -31,6 +31,7 @@ const ACME: Supplier = { id: NEW_ID, code: 'ACME', name: 'Acme Supplies', countr
 const field = (name: string) => screen.getByRole('textbox', { name });
 const submit = () => screen.getByRole('button', { name: 'Create supplier' });
 const TERMS = 'Payment terms (days)';
+const posts = (calls: { method: string }[]) => calls.filter((c) => c.method === 'POST');
 const CODE_HINT = "A short code people will recognise, for example ACME. Two suppliers can't share a code unless one of them is archived, and capitals and spaces count.";
 const TERMS_HINT = 'How many days you have to pay this supplier. For your records only: nothing else in the app uses it.';
 const TERMS_REQUIRED = 'Enter a number of days, or 0.';
@@ -69,6 +70,8 @@ describe('/suppliers/new — the form (UX S-2 NEW_SUPPLIER)', () => {
     await u.type(field('Currency'), 'gbp');
     expect(field('Country')).toHaveValue('GB');
     expect(field('Currency')).toHaveValue('GBP');
+    expect(field('Country')).toHaveAttribute('maxlength', '2');
+    expect(field('Currency')).toHaveAttribute('maxlength', '3');
   });
 
   it('201: POSTs exactly the typed fields, terms "30" as the JSON number 30, with an Idempotency-Key; leaves "{code} was created." for the new page and navigates there', async () => {
@@ -85,6 +88,45 @@ describe('/suppliers/new — the form (UX S-2 NEW_SUPPLIER)', () => {
     expect(JSON.parse(calls[0]!.body!)).toEqual({ code: 'ACME', name: 'Acme Supplies', country_code: 'GB', currency_code: 'GBP', payment_terms_days: 30 });
     expect(calls[0]!.headers.get('idempotency-key')).toMatch(/^[0-9a-f-]{36}$/);
     expect(takeArrivalMessage(`/suppliers/${NEW_ID}`)).toBe('ACME was created.');
+  });
+
+  it('an in-flight submit is sent once: a second press and an Enter while busy send nothing', async () => {
+    const calls = stubFetch(['hang']);
+    const u = userEvent.setup();
+    renderWired(<NewSupplierPage />);
+    await fill(u);
+    await u.click(submit());
+    await waitFor(() => expect(submit()).toHaveAttribute('aria-busy', 'true'));
+    await u.click(submit());
+    await u.type(field('Name'), '{Enter}');
+    expect(posts(calls)).toHaveLength(1);
+  });
+
+  it('the form itself refuses a second submit while busy, whatever triggers it (a submit event, not the button)', async () => {
+    const calls = stubFetch(['hang']);
+    const u = userEvent.setup();
+    renderWired(<NewSupplierPage />);
+    await fill(u);
+    await u.click(submit());
+    await waitFor(() => expect(submit()).toHaveAttribute('aria-busy', 'true'));
+    fireEvent.submit(submit().closest('form')!);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(posts(calls)).toHaveLength(1);
+  });
+
+  it('a malformed 201 body (no id) → "Something went wrong on our side." + the interrupted sentence; nothing navigates, no arrival message is left', async () => {
+    const { id: _id, ...noId } = ACME;
+    void _id;
+    stubFetch([json(201, noId)]);
+    const u = userEvent.setup();
+    renderWired(<NewSupplierPage />);
+    await fill(u);
+    await u.click(submit());
+    expect(await screen.findByText("We can't tell whether ACME was created. Search the list for ACME before you try again.")).toBeInTheDocument();
+    expect(screen.getByText('Something went wrong on our side.')).toHaveFocus();
+    expect(nav.push).not.toHaveBeenCalled();
+    // One take only (a take clears the slot whatever it returns): the address a body without an id would have produced.
+    expect(takeArrivalMessage('/suppliers/undefined')).toBeNull();
   });
 
   it('H-2 (a): Create with Payment terms empty → "Enter a number of days, or 0." beside the field, focused, and NO request', async () => {
