@@ -2,7 +2,8 @@
 // corrected by `suppliers-final-red.md`), falling back to Revision 0 Part B where Revision 1 is silent; each entry names
 // its row. Server refusals are never stored here: they render as sent (Part A, S1…S16). Each sentence holds for the web
 // app in the commit that renders it (`STATES.md:161`): S-1 has the list, the Archived view, the supplier page (edit) and
-// Restore supplier; no create page (S-2), no catalogue (S-3), no Delete supplier (S-7) — so no sentence here names one.
+// Restore supplier; S-2 adds the create page (UX S-2). No catalogue (S-3), no Delete supplier (S-7) — so no sentence here
+// names one (suppliers-final-red.md L-1: the create page's Currency hint carries no catalogue sentence until S-3).
 
 /** `{n} days` / `1 day` / `0 days` (UX S-1 "payment terms cell" and "read-only terms"). */
 const days = (n: number) => (n === 1 ? '1 day' : `${n} days`);
@@ -38,8 +39,11 @@ export const SUPPLIERS_LIST = {
     [archived ? (n === 1 ? '1 archived supplier shown.' : `${n} archived suppliers shown.`) : n === 1 ? '1 supplier shown.' : `${n} suppliers shown.`, q !== '' ? `Name or code starts with “${q}”.` : null].filter(Boolean).join(' '),
   /** `loadFailed`. */
   loadFailed: "The list of suppliers couldn't be loaded.",
-  /** `noneYet` (no action until S-2). */
+  /** `noneYet` (from S-2 with Create supplier as its action, for a CreateSupplier holder). */
   noneYet: 'No suppliers yet.',
+  /** UX S-2 `newSupplier` (live header) · `createSupplier` (the `noneYet` and `allArchived` action), CONFIRMS §3. */
+  newSupplier: 'New supplier',
+  createSupplier: 'Create supplier',
   /** `allArchived` · `viewArchived`. */
   allArchived: "No suppliers to show. Every supplier here has been deleted, and they're in the archived suppliers.",
   viewArchived: 'View archived suppliers',
@@ -119,4 +123,26 @@ export const RESTORE_SUPPLIER = {
 export const SUPPLIER_FORBIDDEN = {
   before: 'This needs the ',
   after: ' permission, which you no longer have. Your workspace administrator can grant it.',
+} as const;
+
+/** UX S-2 `NEW_SUPPLIER`: `/suppliers/new`. Fields as S-1 with `codeHint`, `countryHint`, `termsHint` and no `nameHint`. */
+export const NEW_SUPPLIER = {
+  /** `heading`: h1 and `<title>`. */
+  heading: 'New supplier',
+  /** `deniedResource`: ST-4b's noun for `/suppliers/new` without `CreateSupplier`'s codes. */
+  deniedResource: 'new suppliers',
+  /**
+   * `currencyHintNew` AT S-2 (suppliers-final-red.md L-1): the first sentence only. The second ("This supplier's
+   * catalogue costs will be in this currency.") joins at S-3, when the catalogue is on the supplier page.
+   */
+  currencyHintNew: 'Three letters, for example GBP.',
+  /** `submit` · `cancel` (CONFIRMS). */
+  submit: 'Create supplier',
+  cancel: 'Cancel',
+  /** `after(code)`: spoken once on the new supplier's page, focus on its h1. */
+  after: (code: string) => `${code} was created.`,
+  /** `interrupted(code)`: not "press Create supplier again" — the create is not replayed on its key. */
+  interrupted: (code: string) => `We can't tell whether ${code} was created. Search the list for ${code} before you try again.`,
+  /** `interruptedNoCode`: the code as sent is empty after trimming. */
+  interruptedNoCode: "We can't tell whether the new supplier was created. Check the list of suppliers before you try again.",
 } as const;

@@ -17,6 +17,7 @@ import { gateCode } from '@/lib/bff/surface';
 import { loadSupplier } from '@/lib/suppliers/load';
 import type { SupplierChange } from '@/lib/suppliers/results';
 import { supplierRestore, supplierSave } from '@/lib/suppliers/wired';
+import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import { useCommittedState } from '../../useCommittedState';
 import { SupplierNotFound, SuppliersDenied } from '../SupplierStates';
@@ -44,7 +45,7 @@ type Cause = 'unreachable' | 'server-error';
  * remount. A refused Save whose re-read finds the supplier archived (S5 on a stale page) turns the page archived and
  * shows the server's sentence under **Not saved**, its heading focused — unless a newer live reading was committed first
  * (FE-R7): the refusal is not kept. A failed re-read → the region error (focus on its heading), Retry re-reads; 403 →
- * ST-4b; 404 → ST-5. No catalogue (S-3), no History. After a save's or restore's message is on screen the router cache is
+ * ST-4b; 404 → ST-5. After a create (S-2) the page speaks *"{code} was created."* once, in its region. No catalogue (S-3), no History. After a save's or restore's message is on screen the router cache is
  * refreshed once.
  */
 export function SupplierPage({ initial, canEdit, canRestore }: SupplierPageProps) {
@@ -60,6 +61,9 @@ export function SupplierPage({ initial, canEdit, canRestore }: SupplierPageProps
   const staleHeading = useRef<HTMLHeadingElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
   const id = initial.id;
+  // After a create (S-2; S-1 D-3): the create page left *"{code} was created."* for this address (A-19 item 7). Written to
+  // this page's one region, like Save's and Restore's sentences: a later writer simply replaces it.
+  useArrivalMessage(`/suppliers/${id}`, region.announce);
 
   // The stamp rule (items-i3-design.md Revision 1 — FINAL §0a, as on the item page, without its delete floor): every
   // commit is stamped with the moment its reading was requested. A page-owned re-read (Retry) takes its stamp when its

@@ -57,7 +57,7 @@ describe('C-2c — DECLARED_ROUTES are the built (app) pages, derived from navig
 
   it('child pages (§2 step 4.3) are never navigation items, account pages or built (nav) pages; planted entries are red', () => {
     const navHrefs = NAV_ITEMS.map((i) => i.href);
-    expect(CHILD_PAGE_HREFS).toEqual(['/warehouses/new', '/items/new']);
+    expect(CHILD_PAGE_HREFS).toEqual(['/warehouses/new', '/items/new', '/suppliers/new']);
     const overlap = (child: readonly string[], other: readonly string[]) => child.filter((h) => other.includes(h));
     expect(overlap(CHILD_PAGE_HREFS, navHrefs)).toEqual([]);
     expect(overlap(CHILD_PAGE_HREFS, ACCOUNT_PAGE_HREFS)).toEqual([]);

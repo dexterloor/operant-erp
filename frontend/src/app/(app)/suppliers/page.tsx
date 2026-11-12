@@ -26,5 +26,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const first = await loadSuppliers(serverRead(session), archived, { q: '', cursor: null });
   if (first.kind === 'session-ended') redirect(sessionEndedPath('/suppliers', query));
   if (first.kind === 'forbidden') return <SuppliersDenied />;
-  return <SuppliersList initial={first} initialArchived={archived} />;
+  return <SuppliersList initial={first} initialArchived={archived} canCreate={viewerMay('CreateSupplier', viewer.permissionCodes)} />;
 }

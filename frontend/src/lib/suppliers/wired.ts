@@ -6,9 +6,10 @@ import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { wholeNumberOrText } from '../forms/wholeNumberOrText';
 import { isSupplier, loadSupplier } from './load';
-import { SUPPLIER_FIELDS, type RestoreSupplierAction, type SaveSupplierAction, type SupplierChange } from './results';
+import { CREATE_SUPPLIER_FIELDS, SUPPLIER_FIELDS, type CreateSupplierAction, type RestoreSupplierAction, type SaveSupplierAction, type SupplierChange } from './results';
 
-// The supplier page's Save and Restore over the BFF (Revision 8 R8-2; the lib/items/wired.ts shape). Neither takes an
+// The supplier page's Save and Restore, and the create page's Create (S-2, at the end), over the BFF (Revision 8 R8-2;
+// the lib/items/wired.ts shape). Neither Save nor Restore takes an
 // Idempotency-Key: the update is a merge patch (a repeat finds nothing to change) and the restore is guarded by
 // `deleted_at` (a repeat is refused S8). One deadline covers each request AND its GetSupplier re-read. No refusal code is
 // compared on the page: a refusal is followed by a re-read, and what the re-read shows decides (archived after a refused
@@ -132,6 +133,45 @@ export function supplierRestore(w: SupplierWiring): RestoreSupplierAction {
         w.onRereadFailed(again.kind, s);
       }
       return { kind: 'restored', supplier: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Create supplier over the BFF (suppliers-plan.md §R1-4 S-2; the `warehouseCreate` / `itemCreate` shape). `CreateSupplier`
+// requires an Idempotency-Key but does not replay on it (a repeat is refused by the live code unique, UX S-2
+// `interrupted`), so a fresh key is minted for EVERY submit (`newKey`) and never stored. The body is the five fields copied
+// by name (never a spread); Payment terms becomes a JSON number through `wholeNumberOrText` only (R9-2). No re-read: the
+// page navigates to the new supplier, which reads it. No refusal code is compared.
+export function supplierCreate(caller: ApiCaller, newKey: () => string = () => crypto.randomUUID()): CreateSupplierAction {
+  return async (values) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.supplierCreate);
+    try {
+      const body = {
+        code: values.code,
+        name: values.name,
+        country_code: values.country_code,
+        currency_code: values.currency_code,
+        payment_terms_days: wholeNumberOrText(values.payment_terms_days),
+      };
+      const r = await caller.call('CreateSupplier', {}, body, { signal: deadline.signal, idempotencyKey: newKey() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused':
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, CREATE_SUPPLIER_FIELDS) };
+            return r;
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isSupplier(r.body) ? { kind: 'created', supplier: r.body } : { kind: 'server-error' };
     } finally {
       deadline.cancel();
     }

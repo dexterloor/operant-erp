@@ -55,6 +55,7 @@ const MIRRORED = {
   'Item.CreateItemInput': ['Item.CreateItemInput'],
   'Item.UpdateItemInput.jsonMergePatch': ['Item.UpdateItemInput.jsonMergePatch'],
   Supplier: ['Supplier'],
+  'Supplier.CreateSupplierInput': ['Supplier.CreateSupplierInput'],
   'Supplier.UpdateSupplierInput.jsonMergePatch': ['Supplier.UpdateSupplierInput.jsonMergePatch'],
 };
 

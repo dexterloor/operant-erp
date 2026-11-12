@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { DateTime } from '@/components/ui/DateTime';
@@ -20,11 +21,15 @@ const load = async (read: Read, archived: boolean, page: PageRequest, signal: Ab
 const ARCHIVED_VIEW = { order: 'as-served', caption: SUPPLIERS_LIST.archivedCaption, rows: 'struck' } as const;
 const SEARCH = { label: SUPPLIERS_LIST.searchFor, placeholder: SUPPLIERS_LIST.searchPlaceholder, hint: SUPPLIERS_LIST.searchHint };
 
+/** UX S-2's Create supplier empty-state action: a link to `/suppliers/new`, shown only with `CreateSupplier`'s codes. */
+const createAction = (canCreate: boolean) => (canCreate ? <Link href="/suppliers/new">{SUPPLIERS_LIST.createSupplier}</Link> : null);
+
 /**
- * ST-9a's five rows (UX S-1). S-1 offers no create action anywhere: the create page arrives at S-2, so `noneYet` and
- * `allArchived` name none (UX `noneYet` "no action until S-2").
+ * ST-9a's five rows (UX S-1). From S-2, **Create supplier** joins the two live, unsearched rows (`noneYet`, `allArchived`)
+ * for a viewer holding `CreateSupplier`'s codes only; never on a search with no match or in the Archived view (the items
+ * R1-16 precedent).
  */
-export const empty: EmptyState = ({ archived, q, tenantHasRows, clearSearch, switchTo }) => {
+export const emptyFor = (canCreate: boolean): EmptyState => ({ archived, q, tenantHasRows, clearSearch, switchTo }) => {
   if (q !== '') {
     const clear = (
       <Button size="sm" onClick={clearSearch}>
@@ -38,25 +43,43 @@ export const empty: EmptyState = ({ archived, q, tenantHasRows, clearSearch, swi
     return {
       heading: SUPPLIERS_LIST.allArchived,
       actions: (
-        <Button size="sm" onClick={() => switchTo(true)}>
-          {SUPPLIERS_LIST.viewArchived}
-        </Button>
+        <>
+          {createAction(canCreate)}
+          <Button size="sm" onClick={() => switchTo(true)}>
+            {SUPPLIERS_LIST.viewArchived}
+          </Button>
+        </>
       ),
     };
   }
-  return { heading: SUPPLIERS_LIST.noneYet };
+  const create = createAction(canCreate);
+  return create !== null ? { heading: SUPPLIERS_LIST.noneYet, actions: create } : { heading: SUPPLIERS_LIST.noneYet };
 };
 
-/** **Archived** in the live view; **Back to suppliers** replaces it in the Archived view, and only once a view has loaded (R3-1). */
-export function header({ archived, busy, loaded, switchTo, viewControlRef }: HeaderView) {
-  if (!archived) return <ArchivedToggle ref={viewControlRef} archived={false} busy={busy} onClick={() => switchTo(true)} label={SUPPLIERS_LIST.archived} />;
-  if (!loaded) return null;
-  return (
-    <Button ref={viewControlRef} loading={busy} onClick={() => switchTo(false)}>
-      {SUPPLIERS_LIST.backToList}
-    </Button>
-  );
-}
+/**
+ * **New supplier** (with `CreateSupplier`'s codes, from S-2) then **Archived** in the live view; **Back to suppliers**
+ * replaces both in the Archived view, and only once a view has loaded (R3-1).
+ */
+export const headerFor = (canCreate: boolean) =>
+  function header({ archived, busy, loaded, switchTo, viewControlRef }: HeaderView) {
+    if (!archived) {
+      const toggle = <ArchivedToggle ref={viewControlRef} archived={false} busy={busy} onClick={() => switchTo(true)} label={SUPPLIERS_LIST.archived} />;
+      return canCreate ? (
+        <>
+          <Link href="/suppliers/new">{SUPPLIERS_LIST.newSupplier}</Link>
+          {toggle}
+        </>
+      ) : (
+        toggle
+      );
+    }
+    if (!loaded) return null;
+    return (
+      <Button ref={viewControlRef} loading={busy} onClick={() => switchTo(false)}>
+        {SUPPLIERS_LIST.backToList}
+      </Button>
+    );
+  };
 
 /**
  * The paged list's words (R8-1; UX S-1 `SUPPLIERS_PAGING`). The page sentence's position cue is per view: the live view
@@ -87,7 +110,9 @@ export function pagingFor(timeZone: string): Paging<Supplier> {
  * name is the row's link. Paged and searched by the server (R8-1): the box sends `q` as typed (a name prefix ignoring
  * capitals, or a code prefix as stored). No sort control (suppliers-plan.md §0): the order is the served default.
  */
-export function SuppliersList({ initial, initialArchived = false }: { initial: SuppliersLoad; initialArchived?: boolean }) {
+export function SuppliersList({ initial, initialArchived = false, canCreate = false }: { initial: SuppliersLoad; initialArchived?: boolean; canCreate?: boolean }) {
+  const header = useMemo(() => headerFor(canCreate), [canCreate]);
+  const empty = useMemo(() => emptyFor(canCreate), [canCreate]);
   const timeZone = useViewerTimeZone();
   const onViewLoaded = useArchivedAddress();
   const name: Column<Supplier> = { header: SUPPLIERS_LIST.name, cell: (s) => <Link href={`/suppliers/${s.id}`}>{s.name}</Link> };

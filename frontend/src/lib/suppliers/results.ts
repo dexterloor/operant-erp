@@ -1,7 +1,7 @@
 // Typed results of the supplier page's injected actions (Revision 7 A-19 item 5, Revision 8 R8-2), on the shared kinds
 // in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { Supplier, UpdateSupplierInput } from '../api/suppliers';
+import type { CreateSupplierInput, Supplier, UpdateSupplierInput } from '../api/suppliers';
 import type { FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -46,3 +46,28 @@ export type RestoreSupplierResult = RestoreResult<{ supplier: Supplier }>;
 
 /** The archived page's Restore supplier. Caller contract: `restored` resolves after the re-read supplier is committed. */
 export type RestoreSupplierAction = () => Promise<RestoreSupplierResult>;
+
+/**
+ * `/suppliers/new`'s fields, in screen order (the first field with a 422 sentence takes focus). A name the mirrored create
+ * input lacks is a type error.
+ */
+export const CREATE_SUPPLIER_FIELDS = ['code', 'name', 'country_code', 'currency_code', 'payment_terms_days'] as const satisfies readonly (keyof CreateSupplierInput & string)[];
+export type CreateSupplierField = (typeof CREATE_SUPPLIER_FIELDS)[number];
+/** What the create form hands over: every field as typed (Payment terms as text; `supplierCreate` converts it, R9-2). */
+export type CreateSupplierValues = Record<CreateSupplierField, string>;
+
+/**
+ * `POST /suppliers` (fresh Idempotency-Key per submit; the create does not replay on it). `created` carries the 201 body;
+ * `invalid` a 422 mapped onto the form; `refused` a 409 (S2 code taken, S4 name taken, P1), shown as sent.
+ */
+export type CreateSupplierResult =
+  | { kind: 'created'; supplier: Supplier }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<CreateSupplierField>; formErrors: string[] }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type CreateSupplierAction = (values: CreateSupplierValues) => Promise<CreateSupplierResult>;

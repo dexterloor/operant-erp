@@ -41,6 +41,8 @@ export const ACTION_DEADLINES_MS = {
   supplierSave: 30_000,
   /** Restore a supplier: the request + the GetSupplier re-read. */
   supplierRestore: 30_000,
+  /** Create a supplier: the request alone (the page navigates to the new supplier, which reads it). */
+  supplierCreate: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

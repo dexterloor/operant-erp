@@ -346,8 +346,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Items I-1 added: components/items/ItemForm.tsx.
   // Items I-2 (Revision 8 R8-5) added: components/ui/SelectField.tsx (KindField.tsx stays, a thin caller) and
   // components/items/ItemCreateForm.tsx.
-  // Suppliers S-1 added: components/suppliers/SupplierForm.tsx.
-  'src/components': 64,
+  // Suppliers S-1 added: components/suppliers/SupplierForm.tsx. Suppliers S-2 added: components/suppliers/SupplierCreateForm.tsx.
+  'src/components': 65,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
   'src/lib/api': 9,
   'src/lib/roles': 11,
@@ -364,7 +364,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/items': 2,
   // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
   'src/lib/suppliers': 3,
-  'src/components/suppliers': 1,
+  // Suppliers S-2 added: SupplierCreateForm.tsx (the create page's form).
+  'src/components/suppliers': 2,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -417,7 +418,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Items I-2 added: app/(app)/items/new/{page,NewItemPage}.tsx.
   // Suppliers S-1 added: app/(app)/suppliers/{page,SuppliersList,SupplierStates}.tsx,
   // app/(app)/suppliers/[id]/{page,SupplierPage,not-found}.tsx.
-  'src/app': 65,
+  // Suppliers S-2 added: app/(app)/suppliers/new/{page,NewSupplierPage}.tsx.
+  'src/app': 67,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -1364,6 +1366,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       // Items I-2 (G-F2 row): the create page's form.
       'src/components/items/ItemCreateForm.tsx',
       'src/components/items/ItemForm.tsx',
+      // Suppliers S-2 (G-F2 row): the create page's form.
+      'src/components/suppliers/SupplierCreateForm.tsx',
       // Suppliers S-1 (G-F2 row): the supplier page's editor.
       'src/components/suppliers/SupplierForm.tsx',
       // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.

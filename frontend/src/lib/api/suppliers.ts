@@ -1,8 +1,8 @@
 // Hand-mirrored from `backend/src/Modules/Suppliers/ApiResource/SupplierResource.php` (served schemas `Supplier` and
 // `Supplier.UpdateSupplierInput.jsonMergePatch` in `contracts/openapi.json`). Checked both ways by C-1
 // (`test/contract/wireParity.test.ts`; names only). This file imports nothing (A-18). Wire field names stay snake_case,
-// as served. Suppliers S-1 mirrors the two the editor reads and sends; the create input follows at S-2, the catalogue's
-// shapes at S-3 (suppliers-plan.md §R1-3).
+// as served. Suppliers S-1 mirrors the two the editor reads and sends; S-2 the create input; the catalogue's shapes follow
+// at S-3 (suppliers-plan.md §R1-3).
 
 /** `GetSupplier` / `ListSuppliers` item / `UpdateSupplier` and `RestoreSupplier`'s 200 body. */
 export interface Supplier {
@@ -22,6 +22,22 @@ export interface Supplier {
  * (read-only until S-6, suppliers-plan.md §R1-10).
  */
 export interface UpdateSupplierInput {
+  code?: string;
+  name?: string;
+  country_code?: string;
+  currency_code?: string;
+  /**
+   * A typed non-integer is sent as typed so the server's own sentence shows (suppliers-red M-1); the served schema says
+   * integer.
+   */
+  payment_terms_days?: number | string;
+}
+
+/**
+ * `CreateSupplier`'s body (served `Supplier.CreateSupplierInput`). The create page sends all five, as typed (Country and
+ * Currency upper-cased as typed); the four text members are served nullable but never sent `null`.
+ */
+export interface CreateSupplierInput {
   code?: string;
   name?: string;
   country_code?: string;

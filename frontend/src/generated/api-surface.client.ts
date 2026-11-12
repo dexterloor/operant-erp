@@ -83,6 +83,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['storage_location.create'],
     },
   },
+  CreateSupplier: {
+    method: 'POST',
+    template: '/api/v1/suppliers',
+    pathParams: [],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.create'],
+    },
+  },
   CreateWarehouse: {
     method: 'POST',
     template: '/api/v1/warehouses',
@@ -471,6 +481,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'StorageLocation.CreateStorageLocationInput': ['code', 'kind'],
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['code', 'kind'],
   Supplier: ['archived_at', 'code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days'],
+  'Supplier.CreateSupplierInput': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
   'Supplier.UpdateSupplierInput.jsonMergePatch': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
   SupplierReference: ['id', 'name'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],

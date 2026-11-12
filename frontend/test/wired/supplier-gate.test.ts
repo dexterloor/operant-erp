@@ -146,3 +146,48 @@ describe('/suppliers — the list page', () => {
     expect(((await ListPage({ searchParams: Promise.resolve({}) })) as ReactElement).type).toBe(SuppliersDenied);
   });
 });
+
+// Suppliers S-2 (suppliers-plan.md §R1-4 S-2): the list offers the create link on CreateSupplier, and `/suppliers/new`
+// checks GetSupplier first (a creator who cannot view suppliers would land on ST-4b right after a create: the warehouse
+// 4.3 RED M-1 precedent), then CreateSupplier (ST-4b naming new suppliers).
+const { default: NewPage, metadata: newMetadata } = await import('@/app/(app)/suppliers/new/page');
+const { SupplierCreateDenied } = await import('@/app/(app)/suppliers/SupplierStates');
+const { NewSupplierPage } = await import('@/app/(app)/suppliers/new/NewSupplierPage');
+
+describe('S-2 — the create gates', () => {
+  it('the list passes canCreate from CreateSupplier alone', async () => {
+    v.list = 'ok';
+    for (const [granted, expected] of [[true, true], [false, false]] as const) {
+      v.byOperation = (op) => op === 'ListSuppliers' || (granted && op === 'CreateSupplier');
+      try {
+        const el = (await ListPage({ searchParams: Promise.resolve({}) })) as ReactElement;
+        expect(el.type).toBe(SuppliersList);
+        expect((el.props as { canCreate: boolean }).canCreate).toBe(expected);
+      } finally {
+        v.byOperation = null;
+      }
+    }
+  });
+
+  it('/suppliers/new: title New supplier; without GetSupplier → ST-4b for suppliers (even with CreateSupplier); without CreateSupplier → ST-4b for new suppliers; with both → the page', async () => {
+    expect(newMetadata.title).toBe('New supplier');
+    const at = async (ops: string[]) => {
+      v.byOperation = (op) => ops.includes(op);
+      try {
+        return ((await NewPage()) as ReactElement).type;
+      } finally {
+        v.byOperation = null;
+      }
+    };
+    expect(await at(['CreateSupplier'])).toBe(SuppliersDenied);
+    expect(await at(['GetSupplier'])).toBe(SupplierCreateDenied);
+    expect(await at(['GetSupplier', 'CreateSupplier'])).toBe(NewSupplierPage);
+  });
+
+  it('the default viewer shape (supplier.view alone) is refused the create page; the buyer shape (view + create) reaches it', async () => {
+    v.codes = ['supplier.view'];
+    expect(((await NewPage()) as ReactElement).type).toBe(SupplierCreateDenied);
+    v.codes = ['supplier.view', 'supplier.create'];
+    expect(((await NewPage()) as ReactElement).type).toBe(NewSupplierPage);
+  });
+});

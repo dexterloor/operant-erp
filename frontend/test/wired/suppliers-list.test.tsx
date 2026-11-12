@@ -85,16 +85,55 @@ describe('/suppliers — the live view (UX S-1 SUPPLIERS_LIST)', () => {
     expect(box).toHaveAccessibleDescription("Capitals don't matter for names. For codes they do, and so do spaces.");
   });
 
-  it('S-1 has no create page: no link to /suppliers/new, no New supplier / Create supplier, with rows or in any empty state; no sort control', () => {
+  it('no sort control, with rows or in any empty state', () => {
+    for (const initial of [ok([ACME]), ok([], { tenantHasRows: false }), ok([], { tenantHasRows: true })]) {
+      const { unmount } = renderWired(<SuppliersList initial={initial} canCreate />);
+      expect(screen.queryByRole('combobox')).toBeNull();
+      expect(screen.queryByText(/sort by/i)).toBeNull();
+      unmount();
+    }
+  });
+
+  // S-2 (UX S-2 `newSupplier` · `createSupplier`): the create link for a CreateSupplier holder only.
+  it('S-2 — without CreateSupplier: no link to /suppliers/new and no New supplier / Create supplier, with rows or in any empty state', () => {
     for (const initial of [ok([ACME]), ok([], { tenantHasRows: false }), ok([], { tenantHasRows: true })]) {
       const { unmount } = renderWired(<SuppliersList initial={initial} />);
       expect(document.querySelector('a[href="/suppliers/new"]')).toBeNull();
       expect(screen.queryByRole('link', { name: /new supplier|create supplier/i })).toBeNull();
       expect(screen.queryByRole('button', { name: /new supplier|create supplier/i })).toBeNull();
-      expect(screen.queryByRole('combobox')).toBeNull();
-      expect(screen.queryByText(/sort by/i)).toBeNull();
       unmount();
     }
+  });
+
+  it('S-2 — with CreateSupplier: New supplier in the live header (before Archived); Create supplier on "none yet" and "all archived"', () => {
+    const live = renderWired(<SuppliersList initial={ok([ACME])} canCreate />);
+    const newLink = screen.getByRole('link', { name: 'New supplier' });
+    expect(newLink).toHaveAttribute('href', '/suppliers/new');
+    expect(newLink.compareDocumentPosition(screen.getByRole('button', { name: 'Archived' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Create supplier' })).toBeNull();
+    live.unmount();
+    for (const initial of [ok([], { tenantHasRows: false }), ok([], { tenantHasRows: true })]) {
+      const { unmount } = renderWired(<SuppliersList initial={initial} canCreate />);
+      expect(screen.getByRole('link', { name: 'Create supplier' })).toHaveAttribute('href', '/suppliers/new');
+      unmount();
+    }
+  });
+
+  it('S-2 — with CreateSupplier: no Create supplier on a search with no match', async () => {
+    const calls = stubFetch([json(200, page([], { tenant_has_rows: true })), json(200, page([]))]);
+    const u = userEvent.setup();
+    renderWired(<SuppliersList initial={ok([ACME])} canCreate />);
+    await u.type(screen.getByRole('searchbox'), 'wid');
+    await settle();
+    await waitFor(() => expect(screen.getByText("No supplier's name or code starts with “wid”.", { selector: 'p' })).toBeInTheDocument());
+    expect(screen.queryByRole('link', { name: 'Create supplier' })).toBeNull();
+    expect(listRequests(calls)).toEqual([{ q: 'wid' }]);
+  });
+
+  it('S-2 — the Archived view offers neither New supplier nor Create supplier', () => {
+    renderWired(<SuppliersList initial={ok([])} initialArchived canCreate />);
+    expect(screen.getByText('No archived suppliers. Suppliers that are deleted appear here and can be restored from here.', { selector: 'p' })).toBeInTheDocument();
+    expect(document.querySelector('a[href="/suppliers/new"]')).toBeNull();
   });
 
   // Test 4 (ST-9a's five rows): live none yet / live all archived / live no match / archived none / archived no match.
