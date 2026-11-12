@@ -147,7 +147,8 @@ interface Violation {
 
 /** The only importers of `src/lib/api/problems.ts` (A-18 S-1): a new one is a deliberate edit here. */
 // Revision 8 R8-4: one importer per family, each pinned. Items I-1 (items-i1-red.md L-3, second option) added lib/items/wired.ts.
-const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/warehouses/wired.ts'];
+// Suppliers S-1 (suppliers-plan.md Revision 0 §3, PROBLEMS_IMPORTERS row) added lib/suppliers/wired.ts (P1 on Save/Restore).
+const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/suppliers/wired.ts', 'src/lib/warehouses/wired.ts'];
 
 /** The import rules. `files` is any set of {file, source}; returns every breach. */
 function importViolations(files: readonly SourceFile[]): Violation[] {
@@ -192,6 +193,9 @@ const LITERAL_SCAN_DIRS = [
   // Revision 8 R8-3 (items I-1): the item logic and components.
   'src/lib/items',
   'src/components/items',
+  // Suppliers S-1 (Revision 8 R8-2, R8-3 completeness): the supplier logic and components.
+  'src/lib/suppliers',
+  'src/components/suppliers',
   'src/components/roles',
   'src/components/permissions',
   'src/components/bulk',
@@ -317,13 +321,16 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   // Revision 7 step 4.1 added: copy/warehouses.ts.
   // Items I-1 (Revision 8 R8-2) added: copy/items.ts.
-  'src/copy': 10,
+  // Suppliers S-1 (Revision 8 R8-2) added: copy/suppliers.ts.
+  'src/copy': 11,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
   // Revision 7 step 4.6 added: lib/api/problems.ts (PLATFORM_REFUSAL, its first consumer is Delete; A-18 S-1).
   // Items I-1 (Revision 8 R8-2) added: lib/api/items.ts, lib/format/quantity.ts, lib/items/{load,results,wired}.ts.
-  'src/lib': 65,
+  // Suppliers S-1 added: lib/api/suppliers.ts, lib/suppliers/{load,results,wired}.ts (R8-2) and
+  // lib/forms/wholeNumberOrText.ts (Revision 9 R9-2).
+  'src/lib': 70,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -339,21 +346,25 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Items I-1 added: components/items/ItemForm.tsx.
   // Items I-2 (Revision 8 R8-5) added: components/ui/SelectField.tsx (KindField.tsx stays, a thin caller) and
   // components/items/ItemCreateForm.tsx.
-  'src/components': 63,
-  // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts.
-  'src/lib/api': 8,
+  // Suppliers S-1 added: components/suppliers/SupplierForm.tsx.
+  'src/components': 64,
+  // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
+  'src/lib/api': 9,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
   'src/lib/people': 4,
-  // Revision 7 step 3 (A-19 item 4): the forms helpers.
-  'src/lib/forms': 1,
+  // Revision 7 step 3 (A-19 item 4): the forms helpers. Revision 9 R9-2 (suppliers S-1) added: wholeNumberOrText.ts.
+  'src/lib/forms': 2,
   // Revision 7 step 4.1 added: the warehouse loaders, results and Save.
   'src/lib/warehouses': 3,
   // Items I-1 (Revision 8 R8-2, R8-3) added: the item loaders, results, Save and Restore; the item page's editor.
   'src/lib/items': 3,
   // Items I-2 added: ItemCreateForm.tsx (the create page's form).
   'src/components/items': 2,
+  // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
+  'src/lib/suppliers': 3,
+  'src/components/suppliers': 1,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -404,7 +415,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.4 added: app/(app)/warehouses/[id]/LocationsSection.tsx (a section of the page, no route).
   // Items I-1 added: app/(app)/items/{page,ItemsList,ItemStates}.tsx, app/(app)/items/[id]/{page,ItemPage,not-found}.tsx.
   // Items I-2 added: app/(app)/items/new/{page,NewItemPage}.tsx.
-  'src/app': 59,
+  // Suppliers S-1 added: app/(app)/suppliers/{page,SuppliersList,SupplierStates}.tsx,
+  // app/(app)/suppliers/[id]/{page,SupplierPage,not-found}.tsx.
+  'src/app': 65,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -648,6 +661,8 @@ const NETWORK_SCAN_DIRS = [
   'src/components/records',
   // Items I-1 (Revision 8 R8-3): the item page's editor.
   'src/components/items',
+  // Suppliers S-1 (Revision 8 R8-3 completeness): the supplier page's editor.
+  'src/components/suppliers',
   'src/components/auth',
   'src/components/shell',
   'src/components/states',
@@ -849,6 +864,8 @@ const BULK_LITERAL_DIRS = [
   'src/lib/warehouses',
   // Items I-1 (Revision 8 R8-3): the item family's logic (`inventory_item` is a bulk key, G-3).
   'src/lib/items',
+  // Suppliers S-1 (suppliers-plan.md Revision 0 §1.5, G-3): `supplier` is a bulk key.
+  'src/lib/suppliers',
   'src/lib/api',
   'src/lib/auth',
   'src/lib/format',
@@ -880,6 +897,17 @@ function bulkLiteralViolations(files: readonly SourceFile[], keys: readonly stri
 describe('architecture — G-3: no typed bulk resource key or bulk cap (A-8)', () => {
   const keys = bulkResources();
   const cap = bulkMaxIds();
+
+  // Suppliers S-1 test 13 (suppliers-plan.md Revision 0 §1.5): `supplier` is a bulk key, so lib/suppliers is scanned and
+  // a typed 'supplier' there goes red; the real lib/suppliers holds none.
+  it("suppliers S-1: lib/suppliers is scanned, holds no 'supplier' literal, and a planted one goes red", () => {
+    expect(keys).toContain('supplier');
+    const real = walk('src/lib/suppliers');
+    expect(real.map((f) => f.file)).toEqual(['src/lib/suppliers/load.ts', 'src/lib/suppliers/results.ts', 'src/lib/suppliers/wired.ts']);
+    expect(bulkLiteralViolations(real, keys, cap)).toEqual([]);
+    const planted: SourceFile[] = [{ file: 'src/lib/suppliers/load.ts', source: "export const r = 'supplier';" }];
+    expect(bulkLiteralViolations(planted, keys, cap).map((v) => `${v.file} — ${v.detail}`)).toEqual(["src/lib/suppliers/load.ts — literal 'supplier'"]);
+  });
 
   it('reads a non-empty key set and a cap from the generated surface', () => {
     expect(keys.length).toBeGreaterThan(0);
@@ -1336,6 +1364,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       // Items I-2 (G-F2 row): the create page's form.
       'src/components/items/ItemCreateForm.tsx',
       'src/components/items/ItemForm.tsx',
+      // Suppliers S-1 (G-F2 row): the supplier page's editor.
+      'src/components/suppliers/SupplierForm.tsx',
       // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
       // Revision 7 step 4.3: the create page's form.
       // Revision 7 step 4.4 (R3-7 "Silent", G-F2 row): the code-only Edit location dialog is a <form>, so it joins here.
@@ -1952,35 +1982,36 @@ const REAL_GUARD_LISTS: GuardLists = {
 describe('architecture — guard enrolment is complete (items-red.md M-2, items I-0a)', () => {
   it('every folder under src/components and src/lib is in each applicable guard list, or exempt with a reason', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items']));
+    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items', 'src/components/suppliers', 'src/lib/suppliers']));
     expect(folders.length).toBeGreaterThan(15);
     expect(enrolmentGaps(folders, REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([]);
   });
 
   it('planted controls: an unlisted new folder, a dropped enrolment and a stale exemption all go red', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    // A new folder nobody enrolled. It was the items family's folders until I-1 enrolled them; now a family that does not
-    // exist yet (suppliers), so the control still names folders absent from every list.
-    expect(enrolmentGaps([...folders, 'src/components/suppliers', 'src/lib/suppliers'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
-      'literal: src/components/suppliers is in no list and has no exemption',
-      'literal: src/lib/suppliers is in no list and has no exemption',
-      'network: src/components/suppliers is in no list and has no exemption',
-      'bulk: src/lib/suppliers is in no list and has no exemption',
-      'counts: src/components/suppliers is in no list and has no exemption',
-      'counts: src/lib/suppliers is in no list and has no exemption',
+    // A new folder nobody enrolled. It was the items family's folders until I-1 enrolled them, then the suppliers family's
+    // until S-1 enrolled those; now a family that does not exist yet (customers), so the control still names folders
+    // absent from every list.
+    expect(enrolmentGaps([...folders, 'src/components/customers', 'src/lib/customers'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
+      'literal: src/components/customers is in no list and has no exemption',
+      'literal: src/lib/customers is in no list and has no exemption',
+      'network: src/components/customers is in no list and has no exemption',
+      'bulk: src/lib/customers is in no list and has no exemption',
+      'counts: src/components/customers is in no list and has no exemption',
+      'counts: src/lib/customers is in no list and has no exemption',
     ]);
     // records/ dropped from one list (the move silently unscanning the dialogs, M-2's last bullet).
     const dropped: GuardLists = { ...REAL_GUARD_LISTS, network: NETWORK_SCAN_DIRS.filter((d) => d !== RECORDS_DIR) };
     expect(enrolmentGaps(folders, dropped, GUARD_EXEMPT)).toEqual(['network: src/components/records is in no list and has no exemption']);
     // An exemption with no reason (an empty or near-empty string) is a gap, not an exemption (RED L-1).
-    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/suppliers': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/suppliers': '  tbd  ' } };
-    expect(enrolmentGaps([...folders, 'src/components/suppliers', 'src/lib/suppliers'], REAL_GUARD_LISTS, unreasoned)).toEqual([
-      "literal: src/components/suppliers's exemption has no reason",
-      'literal: src/lib/suppliers is in no list and has no exemption',
-      'network: src/components/suppliers is in no list and has no exemption',
-      "bulk: src/lib/suppliers's exemption has no reason",
-      'counts: src/components/suppliers is in no list and has no exemption',
-      'counts: src/lib/suppliers is in no list and has no exemption',
+    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/customers': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/customers': '  tbd  ' } };
+    expect(enrolmentGaps([...folders, 'src/components/customers', 'src/lib/customers'], REAL_GUARD_LISTS, unreasoned)).toEqual([
+      "literal: src/components/customers's exemption has no reason",
+      'literal: src/lib/customers is in no list and has no exemption',
+      'network: src/components/customers is in no list and has no exemption',
+      "bulk: src/lib/customers's exemption has no reason",
+      'counts: src/components/customers is in no list and has no exemption',
+      'counts: src/lib/customers is in no list and has no exemption',
     ]);
     // An exemption left behind after enrolment, and one naming a folder that does not exist.
     const stale = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/records': 'x', 'src/lib/nowhere': 'y' } };

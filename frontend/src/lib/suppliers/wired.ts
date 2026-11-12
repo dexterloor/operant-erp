@@ -1,0 +1,139 @@
+import type { Supplier } from '../api/suppliers';
+import { PLATFORM_REFUSAL } from '../api/problems';
+import type { ApiCaller } from '../bff/apiCall';
+import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
+import { readOf, type ReadFailure } from '../bff/reads';
+import { fieldErrorsFrom } from '../forms/fieldErrors';
+import { wholeNumberOrText } from '../forms/wholeNumberOrText';
+import { isSupplier, loadSupplier } from './load';
+import { SUPPLIER_FIELDS, type RestoreSupplierAction, type SaveSupplierAction, type SupplierChange } from './results';
+
+// The supplier page's Save and Restore over the BFF (Revision 8 R8-2; the lib/items/wired.ts shape). Neither takes an
+// Idempotency-Key: the update is a merge patch (a repeat finds nothing to change) and the restore is guarded by
+// `deleted_at` (a repeat is refused S8). One deadline covers each request AND its GetSupplier re-read. No refusal code is
+// compared on the page: a refusal is followed by a re-read, and what the re-read shows decides (archived after a refused
+// Save; live after a refused Restore). The ONE rule compared here is P1 (`PLATFORM_REFUSAL.contention`, R8-4: this file
+// is the suppliers family's one `lib/api/problems` importer): a contention refusal is always returned as `refused`,
+// never `refused-archived`, because its sentence says "try again".
+//
+// Payment terms (Revision 9 R9-2): the form hands the field as typed; it becomes a JSON number here, through
+// `wholeNumberOrText` only, when it is 1–15 digits, and is otherwise sent as typed so the server's own sentence shows
+// beside the field (suppliers-red.md M-1). No other supplier file converts a typed number.
+//
+// Blind spot, stated (the items precedent): C-2's body-key check reads object-literal bodies only; the Save body is built
+// by `changedFields` over `SUPPLIER_FIELDS` and copied by name below, which is what keeps `currency_code` out of it.
+//
+// Stamps (items-i3-design.md Revision 1 — FINAL §0a, the page's rule): every action here takes its stamp from `stamp()`
+// immediately before it sends its re-read, after the write's answer has arrived, and passes it to every commit or
+// failure that follows, the fallback answer body included. The page drops anything older than what it shows.
+
+export interface SupplierWiring {
+  readonly caller: ApiCaller;
+  readonly id: string;
+  /** The page's next stamp: taken when a re-read is sent. */
+  readonly stamp: () => number;
+  /** Sets the re-read supplier (under the stamp of the re-read) and resolves after the commit that shows it. */
+  readonly setSupplier: (supplier: Supplier, asOf: number) => Promise<void>;
+  /** A re-read after a write did not answer a supplier: the page shows its region error, or swaps (ST-4b / ST-5). */
+  readonly onRereadFailed: (failure: ReadFailure, asOf: number) => void;
+}
+
+export function supplierSave(w: SupplierWiring): SaveSupplierAction {
+  return async (changes) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.supplierSave);
+    try {
+      // The changed members only, copied by name from the editable fields, never from a spread: nothing else is sent.
+      const body: SupplierChange = {};
+      const copy = <K extends (typeof SUPPLIER_FIELDS)[number]>(k: K) => {
+        if (changes[k] !== undefined) body[k] = changes[k];
+      };
+      for (const f of SUPPLIER_FIELDS) copy(f);
+      if (typeof body.payment_terms_days === 'string') body.payment_terms_days = wholeNumberOrText(body.payment_terms_days);
+      const r = await w.caller.call('UpdateSupplier', { id: w.id }, body, { signal: deadline.signal });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, SUPPLIER_FIELDS) };
+            // 4.4 RED M-1: a refusal may prove the page stale (S5: archived elsewhere). Re-read under the same deadline;
+            // only a supplier that now reads archived is committed (the page turns read-only and shows the sentence). A
+            // live re-read is NOT committed, so the person's edits stay for another press (P1, S2, S4).
+            const s = w.stamp();
+            const again = await loadSupplier(readOf(w.caller), w.id, deadline.signal);
+            if (again.kind === 'ok' && again.supplier.archived_at !== null) {
+              await w.setSupplier(again.supplier, s);
+              // P1 says "try again": it is never shown as the page's archived-elsewhere refusal.
+              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message };
+            }
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
+            return r;
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      if (!isSupplier(r.body)) return { kind: 'server-error' };
+      const s = w.stamp();
+      const again = await loadSupplier(readOf(w.caller), w.id, deadline.signal);
+      if (again.kind === 'ok') await w.setSupplier(again.supplier, s);
+      else {
+        // The 200 body is the server's new state: commit it, so the page shows what was saved (Restore's rule).
+        await w.setSupplier(r.body, s);
+        w.onRereadFailed(again.kind, s);
+      }
+      return { kind: 'saved', supplier: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Restore supplier (the itemRestore precedent): after any refusal the supplier is re-read; one that reads live was
+// restored already and the page turns live (`already-live`); otherwise the refusal is returned as sent and Restore stays.
+export function supplierRestore(w: SupplierWiring): RestoreSupplierAction {
+  return async () => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.supplierRestore);
+    try {
+      const r = await w.caller.call('RestoreSupplier', { id: w.id }, undefined, { signal: deadline.signal });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            const s = w.stamp();
+            const again = await loadSupplier(readOf(w.caller), w.id, deadline.signal);
+            if (again.kind === 'ok' && again.supplier.archived_at === null) {
+              await w.setSupplier(again.supplier, s);
+              return { kind: 'already-live', supplier: again.supplier, message: r.message };
+            }
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
+            return r;
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      if (!isSupplier(r.body)) return { kind: 'server-error' };
+      const s = w.stamp();
+      const again = await loadSupplier(readOf(w.caller), w.id, deadline.signal);
+      if (again.kind === 'ok') await w.setSupplier(again.supplier, s);
+      else {
+        // The 200 body is the server's new state: commit it, so the page never says "restored" over the archived banner.
+        await w.setSupplier(r.body, s);
+        w.onRereadFailed(again.kind, s);
+      }
+      return { kind: 'restored', supplier: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}

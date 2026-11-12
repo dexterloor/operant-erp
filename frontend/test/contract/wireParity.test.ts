@@ -5,6 +5,7 @@ import type { RoleGrantProposal, UserDisplayReference } from '@/lib/api/proposal
 import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
+import type { Supplier, UpdateSupplierInput } from '@/lib/api/suppliers';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
@@ -75,6 +76,9 @@ const MIRRORED: Record<string, string[]> = {
   SupplierReference: keysOf<SupplierReference>()({ id: true, name: true }),
   'Item.CreateItemInput': keysOf<CreateItemInput>()({ sku: true, name: true, unit_of_measure_code: true, supplier_id: true, reorder_point: true, reorder_quantity: true, safety_stock: true }),
   'Item.UpdateItemInput.jsonMergePatch': keysOf<UpdateItemInput>()({ sku: true, name: true, unit_of_measure_code: true, supplier_id: true, reorder_point: true, reorder_quantity: true, safety_stock: true }),
+  // Suppliers S-1 (suppliers-plan.md §R1-3): the supplier and its update input. The create input follows at S-2.
+  Supplier: keysOf<Supplier>()({ id: true, code: true, name: true, country_code: true, currency_code: true, payment_terms_days: true, archived_at: true }),
+  'Supplier.UpdateSupplierInput.jsonMergePatch': keysOf<UpdateSupplierInput>()({ code: true, name: true, country_code: true, currency_code: true, payment_terms_days: true }),
 };
 
 describe('C-1 — wire parity of the hand-written lib/api types', () => {

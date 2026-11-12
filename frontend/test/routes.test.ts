@@ -112,10 +112,19 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
   });
   // Items I-1 owner notice (items-plan.md Final owner list item 8; UX B-11): with /items built, it is first in the menu, so
   // every viewer holding inventory_item.view starts there; a viewer without it (finance's shape) keeps the next built page.
-  it('items I-1: the start page moves to /items for an inventory_item.view holder, and only for one', () => {
-    expect(BUILT_PAGE_HREFS).toEqual(['/items', '/warehouses', '/admin/users', '/admin/roles']);
+  it('items I-1: the start page moves to /items for an inventory_item.view holder without supplier.view, and only for one', () => {
     expect(startDestination(['inventory_item.view', 'warehouse.view', 'app_user.view'])).toBe('/items');
     expect(startDestination(['inventory_item.view'])).toBe('/items');
     expect(startDestination(['warehouse.view', 'invoice.view'])).toBe('/warehouses');
+  });
+  // Suppliers S-1 test 12 (suppliers-plan.md §R1-4 S-1, owner notice N-1): Purchasing comes before Inventory in the menu,
+  // so with /suppliers built every supplier.view holder starts there; a holder of inventory_item.view without it keeps
+  // /items. Navigation order decides, never the order of BUILT_PAGE_HREFS (pinned below with /suppliers listed last).
+  it('suppliers S-1: the start page moves to /suppliers for a supplier.view holder, in navigation order', () => {
+    expect(BUILT_PAGE_HREFS).toEqual(['/suppliers', '/items', '/warehouses', '/admin/users', '/admin/roles']);
+    expect(startDestination(['supplier.view', 'inventory_item.view', 'warehouse.view', 'app_user.view'])).toBe('/suppliers');
+    expect(startDestination(['supplier.view'])).toBe('/suppliers');
+    expect(startDestination(['inventory_item.view', 'warehouse.view'])).toBe('/items');
+    expect(startDestination(['supplier.view', 'inventory_item.view'], ['/items', '/warehouses', '/suppliers'])).toBe('/suppliers');
   });
 });

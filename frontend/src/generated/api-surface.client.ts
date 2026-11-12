@@ -153,6 +153,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.view'],
     },
   },
+  GetSupplier: {
+    method: 'GET',
+    template: '/api/v1/suppliers/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.view'],
+    },
+  },
   GetUser: {
     method: 'GET',
     template: '/api/v1/users/{id}',
@@ -233,6 +243,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['storage_location.view'],
     },
   },
+  ListSuppliers: {
+    method: 'GET',
+    template: '/api/v1/suppliers',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.view'],
+    },
+  },
   ListUsers: {
     method: 'GET',
     template: '/api/v1/users',
@@ -293,6 +313,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['storage_location.delete'],
     },
   },
+  RestoreSupplier: {
+    method: 'POST',
+    template: '/api/v1/suppliers/{id}/restoration',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.delete'],
+    },
+  },
   RestoreUser: {
     method: 'POST',
     template: '/api/v1/users/{id}/restoration',
@@ -351,6 +381,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['storage_location.edit'],
+    },
+  },
+  UpdateSupplier: {
+    method: 'PATCH',
+    template: '/api/v1/suppliers/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.edit'],
     },
   },
   UpdateWarehouse: {
@@ -430,6 +470,8 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   StorageLocation: ['archived_at', 'code', 'id', 'kind'],
   'StorageLocation.CreateStorageLocationInput': ['code', 'kind'],
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['code', 'kind'],
+  Supplier: ['archived_at', 'code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days'],
+  'Supplier.UpdateSupplierInput.jsonMergePatch': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
   SupplierReference: ['id', 'name'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],
   'User.roles[]': ['id', 'name'],

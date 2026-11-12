@@ -37,6 +37,10 @@ export const ACTION_DEADLINES_MS = {
   itemDelete: 30_000,
   /** Create an item: the request alone (the page navigates to the new item, which reads it). */
   itemCreate: 30_000,
+  /** Save a supplier: the request + the GetSupplier re-read (also after a refusal, to see whether the page was stale). */
+  supplierSave: 30_000,
+  /** Restore a supplier: the request + the GetSupplier re-read. */
+  supplierRestore: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */
