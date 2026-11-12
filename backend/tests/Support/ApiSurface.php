@@ -111,9 +111,11 @@ final class ApiSurface
             preg_match_all('/\{([^}]*)\}/', $data['path'], $matches);
             $inTemplate = $matches[1];
             $declared = [];
+            $declaredSchemas = [];
             foreach ($data['operation']['parameters'] ?? [] as $parameter) {
                 if ('path' === ($parameter['in'] ?? null)) {
                     $declared[] = (string) ($parameter['name'] ?? '');
+                    $declaredSchemas[] = [(string) ($parameter['name'] ?? ''), \is_array($parameter['schema'] ?? null) ? $parameter['schema'] : []];
                 }
             }
             $sortedTemplate = $inTemplate;
@@ -126,6 +128,18 @@ final class ApiSurface
                 if (1 !== preg_match(self::PATH_PARAMETER_SHAPE, $name)) {
                     $problems[] = \sprintf('%s has a path variable {%s} that does not name a record id; the web app would validate it as a uuid.', $operationId, $name);
                     continue;
+                }
+                // BK-18 R18-d: `pathParameters.format` below is a checked fact, not a literal -- every declared path
+                // parameter must be served as exactly {type: string, format: uuid}. A template-only name has no schema to
+                // judge; the template/declared mismatch above reports it.
+                foreach ($declaredSchemas as [$declaredName, $schema]) {
+                    if ($declaredName !== $name) {
+                        continue;
+                    }
+                    ksort($schema);
+                    if (['format' => 'uuid', 'type' => 'string'] !== $schema) {
+                        $problems[] = \sprintf('%s serves {%s} as %s; the web app validates it as a uuid.', $operationId, $name, json_encode($schema));
+                    }
                 }
                 $names[$name] = true;
             }

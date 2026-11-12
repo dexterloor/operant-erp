@@ -21,6 +21,8 @@ use App\Tests\Support\ContractDocument;
 use App\Tests\Support\GeneratedSpec;
 use App\Tests\Support\PhpSourceScan;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\Routing\Route;
+use Symfony\Component\Routing\RouterInterface;
 use Symfony\Component\Serializer\Attribute\Context;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
@@ -813,7 +815,7 @@ final class OpenApiContractTest extends ApiTestCase
      * removed reports exactly that root.
      *
      * Not covered:
-     * - Path parameters (`{id}`, `{lineId}` …) stay `{type: string}`: BK-18 R18-d, due before 2b — not this test.
+     * - Path parameters are held to `{type: string, format: uuid}` by `everyRecordIdPathParameterIsServedAsAUuid` (BK-18 R18-d).
      * - A root that drops `id` entirely shrinks both derivations; ResponseShapeTest's derivation holds that.
      * - Whether the served VALUES are canonical uuids: {@see ResponseShapeTest::noResponseCarriesATenantIdentifier}.
      * - That roots list no `required`: BK-18 R18-c.
@@ -950,6 +952,206 @@ final class OpenApiContractTest extends ApiTestCase
         }
 
         return $notUuid;
+    }
+
+    /**
+     * BK-18 R18-d: every record-id path parameter (`{id}`, `{lineId}`, `{roleId}` …) is served as exactly
+     * `{type: string, format: uuid}` (API.md D-12), and the router restricts none of them.
+     *
+     * Two derivations, held equal:
+     * - S, from the spec: every `(operationId, name)` with `in: path`, across all methods.
+     * - R, from the router: every route whose `_api_resource_class` is under `App\` and whose controller is not the vendor's
+     *   not-exposed action ({@see ApiConfigurationTest} precedent), its compiled path variables minus `_format`, keyed by
+     *   the route name (= the operationId).
+     * S == R: the spec documents every path variable the server routes, and nothing else.
+     *
+     * For each pair in S the schema must be exactly the uuid schema, unless the pair is listed in
+     * {@see self::PATH_PARAMETERS_THAT_ARE_NOT_UUIDS}. For each route in R no path variable but `_format` may carry a
+     * requirement: a requirement makes the router refuse a malformed id with 404 BEFORE authentication, turning 401/403 and
+     * the owner refusals into "not found" (BK-18 R18-d §3 (a)). Today a malformed id reaches the reader and gets the read's
+     * 404 or the earlier refusal; {@see UuidPathParametersTest} holds that no uri variable carries constraints or a default.
+     *
+     * Positive controls, in this test: the uuid predicate over a copy of S with the first `lineId`'s `format` removed
+     * reports exactly that pair; the requirement predicate over a copy of the first route with a planted requirement
+     * reports exactly that route.
+     */
+    #[Test]
+    public function everyRecordIdPathParameterIsServedAsAUuid(): void
+    {
+        $spec = $this->regenerate();
+        $s = self::pathParametersInTheSpec($spec);
+        $routes = self::apiRoutes();
+        $r = self::pathVariablesInTheRouter($routes);
+
+        self::assertNotSame([], $s, 'Anti-vacuity: the spec declares no path parameter, so this test had no subject.');
+        self::assertNotSame([], $r, 'Anti-vacuity: the router holds no App route with a path variable.');
+        foreach (['id', 'lineId'] as $name) {
+            self::assertNotSame([], array_filter(array_keys($s), static fn (string $k): bool => str_ends_with($k, '.'.$name)),
+                'Anti-vacuity: no path parameter named {'.$name.'} in the spec ('.\count($s).' path parameters derived).');
+        }
+
+        $failures = [];
+        $notUuid = self::pathParametersNotAUuid($s);
+        foreach ($notUuid as $key) {
+            if (!\array_key_exists($key, self::PATH_PARAMETERS_THAT_ARE_NOT_UUIDS)) {
+                [$operationId, $name] = explode('.', $key, 2);
+                $failures[] = $operationId.' serves path parameter {'.$name.'} as '.json_encode($s[$key]).', not a uuid';
+            }
+        }
+        foreach (array_keys(self::PATH_PARAMETERS_THAT_ARE_NOT_UUIDS) as $key) {
+            if (!\array_key_exists($key, $s)) {
+                $failures[] = $key.' is listed in PATH_PARAMETERS_THAT_ARE_NOT_UUIDS but is not a path parameter in the spec';
+            } elseif (!\in_array($key, $notUuid, true)) {
+                $failures[] = $key.' is listed in PATH_PARAMETERS_THAT_ARE_NOT_UUIDS but is served as a uuid';
+            }
+        }
+        foreach (self::routesThatRestrictAPathVariable($routes) as $key) {
+            [$operationId, $name] = explode('.', $key, 2);
+            $failures[] = $operationId.' restricts {'.$name.'} in the router; a malformed id would be refused before authentication (BK-18 R18-d §3 (a))';
+        }
+
+        // The failures are asserted before the controls, so a regression names every offending pair rather than failing on
+        // "the control has nothing to plant on".
+        self::assertSame([], $failures, "A record-id path parameter is not served as {type: string, format: uuid}, or the router restricts one:\n"
+            .implode("\n", $failures));
+
+        // Positive control 1: a uuid predicate that cannot fail cannot pass.
+        $control = null;
+        foreach (array_keys($s) as $key) {
+            if (str_ends_with($key, '.lineId') && !\in_array($key, $notUuid, true)) {
+                $control = $key;
+                break;
+            }
+        }
+        self::assertNotNull($control, 'No {lineId} path parameter passes, so the positive control has nothing to plant on.');
+        $planted = $s;
+        unset($planted[$control]['format']);
+        self::assertSame([$control], array_values(array_diff(self::pathParametersNotAUuid($planted), $notUuid)),
+            'The positive control: removing '.$control.'\'s format was not reported.');
+
+        // Positive control 2: a requirement predicate that cannot fail cannot pass.
+        $firstName = array_key_first($routes);
+        self::assertNotNull($firstName, 'No App route, so the requirement control has nothing to plant on.');
+        $firstRoute = clone $routes[$firstName];
+        $variable = array_values(array_diff($firstRoute->compile()->getPathVariables(), ['_format']))[0] ?? null;
+        self::assertNotNull($variable, $firstName.' has no path variable to plant a requirement on.');
+        $firstRoute->setRequirement($variable, '[0-9a-f-]{36}');
+        self::assertSame([$firstName.'.'.$variable], self::routesThatRestrictAPathVariable([$firstName => $firstRoute]),
+            'The positive control: a requirement planted on '.$firstName.'.{'.$variable.'} was not reported.');
+
+        $sk = array_keys($s);
+        $rk = array_keys($r);
+        self::assertSame($sk, $rk, 'The path parameters in the spec ('.\count($sk).') and the path variables the router serves ('.\count($rk).") differ:\n"
+            .'spec only: '.implode(', ', array_diff($sk, $rk))."\nrouter only: ".implode(', ', array_diff($rk, $sk)));
+    }
+
+    /**
+     * BK-18 R18-d: path parameters deliberately not served as a uuid, as `'OperationId.name' => 'reason'`. Pinned two-way
+     * (each entry is a path parameter in the spec and fails the uuid check; every failing pair is listed). Expected empty:
+     * every path variable is a row uuid. Read by `UuidPathParametersTest`; one list for spec and metadata.
+     *
+     * An entry here cannot land alone: `ApiSurface` refuses any non-uuid path parameter until `api-surface.json` gains a
+     * per-parameter format and the web app stops validating that variable as a uuid. That is a frontend design change
+     * (FE-LEAD), not a list edit.
+     *
+     * @var array<string, string>
+     */
+    public const PATH_PARAMETERS_THAT_ARE_NOT_UUIDS = [];
+
+    /**
+     * @param array<mixed> $spec
+     *
+     * @return array<string, array<mixed>> `'OperationId.name' => schema` for every `in: path` parameter, sorted by key
+     */
+    private static function pathParametersInTheSpec(array $spec): array
+    {
+        $out = [];
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            foreach ($data['operation']['parameters'] ?? [] as $parameter) {
+                if ('path' !== ($parameter['in'] ?? null)) {
+                    continue;
+                }
+                $out[$data['operation']['operationId'].'.'.$parameter['name']] = \is_array($parameter['schema'] ?? null) ? $parameter['schema'] : [];
+            }
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    /**
+     * @param array<string, array<mixed>> $parameters
+     *
+     * @return list<string> the keys whose schema is not exactly `{type: string, format: uuid}`
+     */
+    private static function pathParametersNotAUuid(array $parameters): array
+    {
+        $out = [];
+        foreach ($parameters as $key => $schema) {
+            if (['type' => 'string', 'format' => 'uuid'] !== self::sortedKeys($schema)) {
+                $out[] = $key;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return array<string, Route> the routes of `App\` resources, minus the vendor's not-exposed ones, by name */
+    private static function apiRoutes(): array
+    {
+        $router = self::getContainer()->get(RouterInterface::class);
+        \assert($router instanceof RouterInterface);
+        $out = [];
+        foreach ($router->getRouteCollection() as $name => $route) {
+            $resourceClass = $route->getDefault('_api_resource_class');
+            if (!\is_string($resourceClass) || !str_starts_with($resourceClass, 'App\\')
+                || 'api_platform.action.not_exposed' === $route->getDefault('_controller')) {
+                continue;
+            }
+            $out[(string) $name] = $route;
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    /**
+     * @param array<string, Route> $routes
+     *
+     * @return array<string, true> `'RouteName.variable' => true` for every compiled path variable but `_format`, sorted
+     */
+    private static function pathVariablesInTheRouter(array $routes): array
+    {
+        $out = [];
+        foreach ($routes as $name => $route) {
+            foreach ($route->compile()->getPathVariables() as $variable) {
+                if ('_format' !== $variable) {
+                    $out[$name.'.'.$variable] = true;
+                }
+            }
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    /**
+     * @param array<string, Route> $routes
+     *
+     * @return list<string> `'RouteName.variable'` for every path variable but `_format` that carries a router requirement
+     */
+    private static function routesThatRestrictAPathVariable(array $routes): array
+    {
+        $out = [];
+        foreach ($routes as $name => $route) {
+            foreach ($route->compile()->getPathVariables() as $variable) {
+                if ('_format' !== $variable && null !== $route->getRequirement($variable)) {
+                    $out[] = $name.'.'.$variable;
+                }
+            }
+        }
+
+        return $out;
     }
 
     /** A class not served as a resource, with an `id`, whose every public member is a non-nullable `string`. */
