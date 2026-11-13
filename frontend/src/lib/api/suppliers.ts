@@ -51,7 +51,7 @@ export interface CreateSupplierInput {
 
 /**
  * `SupplierProduct`'s `inventory_item` (served `SupplierItemReference`, PC-15 display fields): the item's id, SKU and name.
- * No unit is served on it (BK-31 is not landed), so the catalogue shows the minimum order without one (QR-8 interim).
+ * No unit is carried on it: the unit is on the entry, served (BK-31) but not shown until S-4 (M-8 interim), so the catalogue shows the minimum order without one (QR-8 interim).
  */
 export interface SupplierItemReference {
   id: string;
@@ -72,4 +72,6 @@ export interface SupplierProduct {
   currency_code: string;
   lead_time_days: number;
   minimum_order_quantity: string;
+  /** The unit `minimum_order_quantity` is in (BK-31, `0b9f574`; one of the served `UnitsOfMeasure` codes, never null). Mirrored only: no screen reads it before S-4/S-5. */
+  unit_of_measure_code: string;
 }

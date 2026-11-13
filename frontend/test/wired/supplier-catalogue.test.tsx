@@ -13,7 +13,7 @@ import { held, json, problem, renderWired, stubFetch, textsOf, type Reply } from
 // M-2; §R1-10; Revision 0 §2.3; suppliers-ux-copy.md Revision 1 — FINAL S-3 `CATALOGUE`, `archivedParent` as replaced by
 // final RED M-1): the catalogue section on the supplier page, read-only for everyone. A plain section (ARCH (a)), not the
 // paged list core: one table over the served entries in served order, money as the served value and the entry's code
-// (`renderMoney`, the m2 interim), the minimum order QR-2 trimmed with no unit (BK-31 not landed), the item linked only for
+// (`renderMoney`, the m2 interim), the minimum order QR-2 trimmed with no unit (served (BK-31) but not shown until S-4 (M-8 interim)), the item linked only for
 // a GetItem holder, a partial notice when the read answers with a cursor (G-42), the S-3 archived-parent note following
 // the page's supplier (same mount), a 403 → `denied`, a failed read → the section's own region error and Retry. The count
 // is spoken only when the section's first SUCCESSFUL load happens in the browser — a Retry after a failed first load —
@@ -36,6 +36,7 @@ const entry = (id: string, sku: string, over: Partial<SupplierProduct> = {}): Su
   currency_code: 'GBP',
   lead_time_days: 7,
   minimum_order_quantity: '1.000000',
+  unit_of_measure_code: 'EA',
   ...over,
 });
 const E1 = entry('e0000000-0000-4000-8000-000000000001', 'A-100', { unit_cost: '12.5000', currency_code: 'GBP', lead_time_days: 7, minimum_order_quantity: '2.500000' });

@@ -494,7 +494,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'Supplier.CreateSupplierInput': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
   'Supplier.UpdateSupplierInput.jsonMergePatch': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
   SupplierItemReference: ['id', 'name', 'sku'],
-  SupplierProduct: ['currency_code', 'id', 'inventory_item', 'lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost'],
+  SupplierProduct: ['currency_code', 'id', 'inventory_item', 'lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost', 'unit_of_measure_code'],
   SupplierReference: ['id', 'name'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],
   'User.roles[]': ['id', 'name'],
@@ -526,5 +526,8 @@ export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonl
   },
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': {
     kind: ['bin', 'shelf', 'zone', 'staging', 'quarantine'],
+  },
+  SupplierProduct: {
+    unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },
 };

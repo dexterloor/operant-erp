@@ -82,7 +82,7 @@ const MIRRORED: Record<string, string[]> = {
   // S-2: the create input.
   'Supplier.CreateSupplierInput': keysOf<CreateSupplierInput>()({ code: true, name: true, country_code: true, currency_code: true, payment_terms_days: true }),
   // Suppliers S-3: the catalogue's two read shapes (suppliers-plan.md §R1-3).
-  SupplierProduct: keysOf<SupplierProduct>()({ id: true, supplier_sku: true, inventory_item: true, unit_cost: true, currency_code: true, lead_time_days: true, minimum_order_quantity: true }),
+  SupplierProduct: keysOf<SupplierProduct>()({ id: true, supplier_sku: true, inventory_item: true, unit_cost: true, currency_code: true, lead_time_days: true, minimum_order_quantity: true, unit_of_measure_code: true }),
   SupplierItemReference: keysOf<SupplierItemReference>()({ id: true, sku: true, name: true }),
 };
 

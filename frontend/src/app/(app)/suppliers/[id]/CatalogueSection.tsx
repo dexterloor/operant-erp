@@ -33,7 +33,7 @@ export interface CatalogueSectionProps {
  * Revision 1 — FINAL S-3 `CATALOGUE`; suppliers-final-red.md M-1, M-2), read-only for everyone in S-3: no Actions column,
  * no Add, no Remove. A plain section (ARCH (a): no paged list core, no view control, no sort): one table over the served
  * entries in served order (supplier SKU), the whole catalogue in one answer (G-42). Unit cost through `renderMoney` (the
- * m2 interim); Minimum order QR-2 trimmed with no unit (none is served until BK-31; the column header says which unit).
+ * m2 interim); Minimum order QR-2 trimmed with no unit (served (BK-31) but not shown until S-4 (M-8 interim); the column header says which unit).
  *
  * States: an initial 403 → `denied`; a failed first read → the section's own region error (not focused on first paint,
  * ST-2a) with Retry; a partial answer (`next_cursor` non-null) → `partial(n)` above the rows, which stay; an empty answer →
