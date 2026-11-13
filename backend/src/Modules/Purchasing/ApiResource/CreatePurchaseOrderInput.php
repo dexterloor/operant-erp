@@ -57,9 +57,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreatePurchaseOrderInput
 {
     #[SerializedName('supplier_id')]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $supplierId = null;
 
     #[SerializedName('warehouse_id')]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $warehouseId = null;
 
     /**
@@ -114,6 +116,7 @@ final class CreatePurchaseOrderInput
         'items' => [
             'type' => 'object',
             'additionalProperties' => false,
+            'required' => ['inventory_item_id', 'quantity', 'unit_cost'],
             'properties' => [
                 'inventory_item_id' => ['type' => 'string', 'format' => 'uuid'],
                 'quantity' => ['type' => 'string'],

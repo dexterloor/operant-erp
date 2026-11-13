@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -29,10 +30,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreateSalesOrderLineInput
 {
     #[SerializedName('inventory_item_id')]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $inventoryItemId = null;
 
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $quantity = null;
 
     #[SerializedName('unit_price')]
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $unitPrice = null;
 }

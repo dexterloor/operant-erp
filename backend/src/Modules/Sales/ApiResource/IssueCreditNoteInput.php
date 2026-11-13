@@ -15,22 +15,23 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class IssueCreditNoteInput
 {
     /** One of `CreditNoteWriter::ISSUE_REASONS` (`goods_returned`). */
-    #[ApiProperty(schema: ['type' => 'string', 'enum' => CreditNoteWriter::ISSUE_REASONS])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'enum' => CreditNoteWriter::ISSUE_REASONS])]
     public mixed $reason = null;
 
     /** Required: the return this note credits (Q-A = B′; a credit without a return is `IssueAdjustmentCreditNote`). */
     #[SerializedName('sales_return_id')]
-    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $salesReturnId = null;
 
     /** @var array<mixed>|null */
-    #[ApiProperty(schema: [
+    #[ApiProperty(required: true, schema: [
         'type' => 'array',
         'minItems' => 1,
         'maxItems' => CreditNoteWriter::MAXIMUM_LINES,
         'items' => [
             'type' => 'object',
             'additionalProperties' => false,
+            'required' => ['fulfilment_line_id', 'quantity'],
             'properties' => [
                 'fulfilment_line_id' => ['type' => 'string', 'format' => 'uuid'],
                 'quantity' => ['type' => 'string'],

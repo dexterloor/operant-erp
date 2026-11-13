@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -35,8 +36,10 @@ final class ChangePasswordInput
 {
     public function __construct(
         #[SerializedName('current_password')]
+        #[ApiProperty(required: true)]
         public string $currentPassword,
         #[SerializedName('new_password')]
+        #[ApiProperty(required: true)]
         public string $newPassword,
     ) {
     }

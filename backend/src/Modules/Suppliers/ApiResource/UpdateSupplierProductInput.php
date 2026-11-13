@@ -16,9 +16,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class UpdateSupplierProductInput
 {
     #[SerializedName('supplier_sku')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $supplierSku;
 
     #[SerializedName('unit_cost')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $unitCost;
 
     #[SerializedName('lead_time_days')]
@@ -26,6 +28,7 @@ final class UpdateSupplierProductInput
     public mixed $leadTimeDays;
 
     #[SerializedName('minimum_order_quantity')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $minimumOrderQuantity;
 
     private const WIRE = [

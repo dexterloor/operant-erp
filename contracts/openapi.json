@@ -600,6 +600,10 @@
                                     "type": "string"
                                 }
                             },
+                            "required": [
+                                "fulfilment_line_id",
+                                "quantity"
+                            ],
                             "type": "object"
                         },
                         "maxItems": 200,
@@ -614,6 +618,10 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "reason",
+                    "lines"
+                ],
                 "type": "object"
             },
             "CreditNote.IssueCreditNoteInput": {
@@ -631,6 +639,10 @@
                                     "type": "string"
                                 }
                             },
+                            "required": [
+                                "fulfilment_line_id",
+                                "quantity"
+                            ],
                             "type": "object"
                         },
                         "maxItems": 200,
@@ -648,6 +660,11 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "reason",
+                    "sales_return_id",
+                    "lines"
+                ],
                 "type": "object"
             },
             "CreditNoteCollection": {
@@ -750,61 +767,43 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "country_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "currency_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "payment_terms_days": {
                         "type": "integer"
                     }
                 },
+                "required": [
+                    "code",
+                    "name",
+                    "country_code",
+                    "currency_code"
+                ],
                 "type": "object"
             },
             "Customer.UpdateCustomerInput.jsonMergePatch": {
                 "additionalProperties": false,
                 "properties": {
                     "code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "country_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "currency_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "payment_terms_days": {
                         "type": "integer"
@@ -840,70 +839,47 @@
                 "additionalProperties": false,
                 "properties": {
                     "city": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "country_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "kind": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "line": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "postal_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "kind",
+                    "line",
+                    "city",
+                    "postal_code",
+                    "country_code"
+                ],
                 "type": "object"
             },
             "CustomerAddress.UpdateCustomerAddressInput.jsonMergePatch": {
                 "additionalProperties": false,
                 "properties": {
                     "city": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "country_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "kind": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "line": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "postal_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -1000,10 +976,7 @@
                         "type": "boolean"
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "phone": {
                         "type": [
@@ -1012,6 +985,9 @@
                         ]
                     }
                 },
+                "required": [
+                    "name"
+                ],
                 "type": "object"
             },
             "CustomerContact.UpdateCustomerContactInput.jsonMergePatch": {
@@ -1027,10 +1003,7 @@
                         "type": "boolean"
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "phone": {
                         "type": [
@@ -1279,6 +1252,11 @@
                                     "type": "string"
                                 }
                             },
+                            "required": [
+                                "quantity",
+                                "sales_order_line_id",
+                                "storage_location_id"
+                            ],
                             "type": "object"
                         },
                         "maxItems": 200,
@@ -1292,6 +1270,9 @@
                         ]
                     }
                 },
+                "required": [
+                    "lines"
+                ],
                 "type": "object"
             },
             "FulfilmentCollection": {
@@ -1454,6 +1435,11 @@
                                     "type": "string"
                                 }
                             },
+                            "required": [
+                                "purchase_order_line_id",
+                                "quantity",
+                                "storage_location_id"
+                            ],
                             "type": "object"
                         },
                         "maxItems": 200,
@@ -1467,6 +1453,9 @@
                         ]
                     }
                 },
+                "required": [
+                    "lines"
+                ],
                 "type": "object"
             },
             "GoodsReceiptCollection": {
@@ -1614,24 +1603,24 @@
                 "additionalProperties": false,
                 "properties": {
                     "reason": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "reason"
+                ],
                 "type": "object"
             },
             "Invoice.VoidInvoiceInput": {
                 "additionalProperties": false,
                 "properties": {
                     "reason": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "reason"
+                ],
                 "type": "object"
             },
             "InvoiceCollection": {
@@ -1848,10 +1837,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "reorder_point": {
                         "type": [
@@ -1872,12 +1858,10 @@
                         ]
                     },
                     "sku": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "supplier_id": {
+                        "format": "uuid",
                         "type": [
                             "string",
                             "null"
@@ -1894,42 +1878,33 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "sku",
+                    "name",
+                    "unit_of_measure_code"
+                ],
                 "type": "object"
             },
             "Item.UpdateItemInput.jsonMergePatch": {
                 "additionalProperties": false,
                 "properties": {
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "reorder_point": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "reorder_quantity": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "safety_stock": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "sku": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "supplier_id": {
+                        "format": "uuid",
                         "type": [
                             "string",
                             "null"
@@ -2110,6 +2085,10 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "current_password",
+                    "new_password"
+                ],
                 "type": "object"
             },
             "PasswordReset.CreatePasswordResetInput": {
@@ -2122,6 +2101,10 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "workspace",
+                    "email"
+                ],
                 "type": "object"
             },
             "PasswordResetRedemption": {
@@ -2142,6 +2125,10 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "token",
+                    "password"
+                ],
                 "type": "object"
             },
             "PermissionCollection": {
@@ -2555,6 +2542,11 @@
                                     "type": "string"
                                 }
                             },
+                            "required": [
+                                "inventory_item_id",
+                                "quantity",
+                                "unit_cost"
+                            ],
                             "type": "object"
                         },
                         "maxItems": 200,
@@ -2565,18 +2557,18 @@
                         ]
                     },
                     "supplier_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "warehouse_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "supplier_id",
+                    "warehouse_id"
+                ],
                 "type": "object"
             },
             "PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch": {
@@ -2589,16 +2581,12 @@
                         ]
                     },
                     "supplier_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "warehouse_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -2683,40 +2671,31 @@
                 "additionalProperties": false,
                 "properties": {
                     "inventory_item_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "quantity": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "unit_cost": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "inventory_item_id",
+                    "quantity",
+                    "unit_cost"
+                ],
                 "type": "object"
             },
             "PurchaseOrderLine.UpdatePurchaseOrderLineInput.jsonMergePatch": {
                 "additionalProperties": false,
                 "properties": {
                     "quantity": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "unit_cost": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -2912,12 +2891,13 @@
                 "additionalProperties": false,
                 "properties": {
                     "role_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "role_id"
+                ],
                 "type": "object"
             },
             "Role.CreateRoleInput": {
@@ -2939,6 +2919,10 @@
                         "type": "array"
                     }
                 },
+                "required": [
+                    "name",
+                    "permission_codes"
+                ],
                 "type": "object"
             },
             "Role.UpdateRoleInput.jsonMergePatch": {
@@ -3056,12 +3040,13 @@
                 "additionalProperties": false,
                 "properties": {
                     "role_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "role_id"
+                ],
                 "type": "object"
             },
             "RoleGrantProposal.RejectRoleGrantProposalInput": {
@@ -3253,10 +3238,8 @@
                         ]
                     },
                     "customer_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "lines": {
                         "items": {
@@ -3273,6 +3256,11 @@
                                     "type": "string"
                                 }
                             },
+                            "required": [
+                                "inventory_item_id",
+                                "quantity",
+                                "unit_price"
+                            ],
                             "type": "object"
                         },
                         "maxItems": 200,
@@ -3283,40 +3271,35 @@
                         ]
                     },
                     "ship_to_address_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "warehouse_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "customer_id",
+                    "warehouse_id",
+                    "ship_to_address_id"
+                ],
                 "type": "object"
             },
             "SalesOrder.UpdateSalesOrderInput.jsonMergePatch": {
                 "additionalProperties": false,
                 "properties": {
                     "customer_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "ship_to_address_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "warehouse_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3384,40 +3367,31 @@
                 "additionalProperties": false,
                 "properties": {
                     "inventory_item_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "quantity": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "unit_price": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "inventory_item_id",
+                    "quantity",
+                    "unit_price"
+                ],
                 "type": "object"
             },
             "SalesOrderLine.UpdateSalesOrderLineInput.jsonMergePatch": {
                 "additionalProperties": false,
                 "properties": {
                     "quantity": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "unit_price": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3807,6 +3781,9 @@
                         ]
                     }
                 },
+                "required": [
+                    "kind"
+                ],
                 "type": "object"
             },
             "SalesReturn.CreateSalesReturnInput": {
@@ -3831,6 +3808,10 @@
                                     ]
                                 }
                             },
+                            "required": [
+                                "fulfilment_line_id",
+                                "quantity"
+                            ],
                             "type": "object"
                         },
                         "maxItems": 200,
@@ -3855,6 +3836,10 @@
                         ]
                     }
                 },
+                "required": [
+                    "reason",
+                    "lines"
+                ],
                 "type": "object"
             },
             "SalesReturnCollection": {
@@ -4094,6 +4079,13 @@
                         ]
                     }
                 },
+                "required": [
+                    "inventory_item_id",
+                    "storage_location_id",
+                    "counted_quantity",
+                    "version",
+                    "note"
+                ],
                 "type": "object"
             },
             "StockMovement.CreateStockTransferInput": {
@@ -4121,6 +4113,12 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "inventory_item_id",
+                    "source_storage_location_id",
+                    "destination_storage_location_id",
+                    "quantity"
+                ],
                 "type": "object"
             },
             "StockMovementCollection": {
@@ -4181,10 +4179,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "kind": {
                         "default": "bin",
@@ -4198,16 +4193,16 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "code"
+                ],
                 "type": "object"
             },
             "StorageLocation.UpdateStorageLocationInput.jsonMergePatch": {
                 "additionalProperties": false,
                 "properties": {
                     "code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "kind": {
                         "enum": [
@@ -4282,61 +4277,43 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "country_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "currency_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "payment_terms_days": {
                         "type": "integer"
                     }
                 },
+                "required": [
+                    "code",
+                    "name",
+                    "country_code",
+                    "currency_code"
+                ],
                 "type": "object"
             },
             "Supplier.UpdateSupplierInput.jsonMergePatch": {
                 "additionalProperties": false,
                 "properties": {
                     "code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "country_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "currency_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "payment_terms_days": {
                         "type": "integer"
@@ -4421,33 +4398,28 @@
                 "additionalProperties": false,
                 "properties": {
                     "inventory_item_id": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "format": "uuid",
+                        "type": "string"
                     },
                     "lead_time_days": {
                         "type": "integer"
                     },
                     "minimum_order_quantity": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "supplier_sku": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "unit_cost": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "inventory_item_id",
+                    "supplier_sku",
+                    "unit_cost",
+                    "lead_time_days"
+                ],
                 "type": "object"
             },
             "SupplierProduct.UpdateSupplierProductInput.jsonMergePatch": {
@@ -4457,22 +4429,13 @@
                         "type": "integer"
                     },
                     "minimum_order_quantity": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "supplier_sku": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "unit_cost": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -4546,6 +4509,11 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "workspace",
+                    "email",
+                    "password"
+                ],
                 "type": "object"
             },
             "User": {
@@ -4604,6 +4572,10 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "email",
+                    "display_name"
+                ],
                 "type": "object"
             },
             "User.UpdateUserInput.jsonMergePatch": {
@@ -4688,46 +4660,33 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "country_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
+                "required": [
+                    "code",
+                    "name",
+                    "country_code"
+                ],
                 "type": "object"
             },
             "Warehouse.UpdateWarehouseInput.jsonMergePatch": {
                 "additionalProperties": false,
                 "properties": {
                     "code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "country_code": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     },
                     "name": {
-                        "type": [
-                            "string",
-                            "null"
-                        ]
+                        "type": "string"
                     }
                 },
                 "type": "object"

@@ -12,7 +12,8 @@ use PHPUnit\Framework\TestCase;
  * Revision 1 D-6, `demo-seed-2a-roles.md` A-4, `demo-seed-2a-roles-red.md` M-2).
  *
  * Every test that empties tables does it through {@see TenancyTestCase::truncateTenantTables()} — `setUp` calls it, and so
- * does `TenantClaimProbeTest` directly — so the check lives inside that method. Two halves, both pure (no database):
+ * does `TenantClaimProbeTest` directly — so the check lives inside that method; plus the two pre-auth TRUNCATEs in
+ * `AuthTestCase::setUp` and `RequestBodySchemaProbeTest`, both after `setUp()`'s check. Two halves, both pure (no database):
  *   1. the decision: only the comment `erp-local-gate` passes; `erp-local-demo`, no comment at all (a volume created before
  *      the init script wrote one) and any other value are refused with the one fixed line;
  *   2. the order: the method's body calls the check BEFORE its first string token containing `TRUNCATE` (both string

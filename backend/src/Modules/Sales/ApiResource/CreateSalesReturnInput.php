@@ -22,17 +22,18 @@ final class CreateSalesReturnInput
     public ?string $returnedAt = null;
 
     /** One of `SalesReturnWriter::REASONS`. Checked by the writer, so an unknown value is a 422 naming the field. */
-    #[ApiProperty(schema: ['type' => 'string', 'enum' => SalesReturnWriter::REASONS])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'enum' => SalesReturnWriter::REASONS])]
     public mixed $reason = null;
 
     /** @var array<mixed>|null */
-    #[ApiProperty(schema: [
+    #[ApiProperty(required: true, schema: [
         'type' => 'array',
         'minItems' => 1,
         'maxItems' => SalesReturnWriter::MAXIMUM_LINES,
         'items' => [
             'type' => 'object',
             'additionalProperties' => false,
+            'required' => ['fulfilment_line_id', 'quantity'],
             'properties' => [
                 'fulfilment_line_id' => ['type' => 'string', 'format' => 'uuid'],
                 'quantity' => ['type' => 'string'],

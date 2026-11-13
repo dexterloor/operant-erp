@@ -17,7 +17,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateRoleInput
 {
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public mixed $name = null;
 
     #[ApiProperty(schema: ['type' => ['string', 'null']])]
@@ -25,6 +25,6 @@ final class CreateRoleInput
     public mixed $description = null;
 
     #[SerializedName('permission_codes')]
-    #[ApiProperty(schema: ['type' => 'array', 'items' => ['type' => 'string']])]
+    #[ApiProperty(required: true, schema: ['type' => 'array', 'items' => ['type' => 'string']])]
     public mixed $permissionCodes = null;
 }

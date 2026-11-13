@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -46,9 +47,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateSalesOrderLineInput
 {
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $quantity;
 
     #[SerializedName('unit_price')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $unitPrice;
 
     /**

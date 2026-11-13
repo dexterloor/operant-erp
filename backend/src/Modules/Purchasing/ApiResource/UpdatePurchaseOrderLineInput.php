@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -22,8 +23,10 @@ final class UpdatePurchaseOrderLineInput
 {
     use SubmittedFields;
 
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $quantity;
 
     #[SerializedName('unit_cost')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $unitCost;
 }

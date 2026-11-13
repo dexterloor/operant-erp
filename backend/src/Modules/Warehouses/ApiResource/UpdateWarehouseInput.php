@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Warehouses\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -13,11 +14,14 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateWarehouseInput
 {
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $code;
 
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $name;
 
     #[SerializedName('country_code')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $countryCode;
 
     private const WIRE = [

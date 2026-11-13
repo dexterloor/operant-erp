@@ -16,6 +16,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateCustomerContactInput
 {
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $name;
 
     public ?string $email;

@@ -15,6 +15,7 @@ use App\Modules\Warehouses\Application\Contract\LocationKinds;
  */
 final class CreateStorageLocationInput
 {
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $code = null;
 
     /**

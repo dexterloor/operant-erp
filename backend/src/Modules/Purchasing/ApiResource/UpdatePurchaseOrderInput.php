@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -28,9 +29,11 @@ final class UpdatePurchaseOrderInput
     use SubmittedFields;
 
     #[SerializedName('supplier_id')]
+    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $supplierId;
 
     #[SerializedName('warehouse_id')]
+    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $warehouseId;
 
     #[SerializedName('expected_at')]

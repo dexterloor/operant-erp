@@ -17,17 +17,18 @@ use App\Modules\Sales\Application\CreditNoteWriter;
 final class IssueAdjustmentCreditNoteInput
 {
     /** One of `CreditNoteWriter::ADJUST_REASONS` (`damaged_goods_kept`, `short_shipped`). */
-    #[ApiProperty(schema: ['type' => 'string', 'enum' => CreditNoteWriter::ADJUST_REASONS])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'enum' => CreditNoteWriter::ADJUST_REASONS])]
     public mixed $reason = null;
 
     /** @var array<mixed>|null */
-    #[ApiProperty(schema: [
+    #[ApiProperty(required: true, schema: [
         'type' => 'array',
         'minItems' => 1,
         'maxItems' => CreditNoteWriter::MAXIMUM_LINES,
         'items' => [
             'type' => 'object',
             'additionalProperties' => false,
+            'required' => ['fulfilment_line_id', 'quantity'],
             'properties' => [
                 'fulfilment_line_id' => ['type' => 'string', 'format' => 'uuid'],
                 'quantity' => ['type' => 'string'],

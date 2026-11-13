@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Customers\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -13,16 +14,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateCustomerAddressInput
 {
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $kind;
 
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $line;
 
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $city;
 
     #[SerializedName('postal_code')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $postalCode;
 
     #[SerializedName('country_code')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $countryCode;
 
     private const WIRE = [
