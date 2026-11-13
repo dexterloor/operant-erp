@@ -7,7 +7,7 @@ namespace App\Modules\Inventory\Application\Port\Suppliers;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
- * **Whether any catalogue (price-list) entry names an item — one leg of "this item's unit is in use"** (BK-24, items
+ * **Whether any supplier catalogue entry names an item — one leg of "this item's unit is in use"** (BK-24, items
  * batch C3, 2026-11-10; `docs/session13/items-batch-design.md` "Revision 1 — FINAL" C3, `items-batch-sec-arch.md`
  * A-1/A-4). `UpdateItem` (`ItemWriter::update()`) asks it, only when the submitted unit differs from the stored one;
  * **Suppliers answers it**, because only Suppliers may read `supplier_product` (A-2). The split-port form: its own

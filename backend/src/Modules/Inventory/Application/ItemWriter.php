@@ -147,11 +147,13 @@ final readonly class ItemWriter
     public const OWN_LEGS = UnitInUseLegs::OWN;
 
     /**
-     * `inventory_item.unit_in_use`'s sentence (`docs/design/items-owner-items.md` H-2's draft, no remedy; `UX` TO CONFIRM).
+     * `inventory_item.unit_in_use`'s sentence (`docs/design/items-owner-items.md` H-2's draft, no remedy). Its noun was re-worded
+     * from "price lists" to "supplier catalogues" by `PO`, `docs/design/items-i4-po.md` item 2 (BK-30), and the new text is
+     * carried unchanged by `UX`'s BE-S8 row (`suppliers-ux-copy.md` Revision 1 — FINAL). `UX` TO CONFIRM.
      * It names no leg, no count and no document (`SEC`, `items-batch-sec-arch.md` S-8): the caller may hold none of the
      * stock, order or catalogue views.
      */
-    public const UNIT_IN_USE = 'This item\'s unit can\'t be changed because stock, orders or price lists already record quantities in it.';
+    public const UNIT_IN_USE = 'This item\'s unit can\'t be changed because stock, orders or supplier catalogues already record quantities in it.';
 
     /**
      * The bulk-only stock read (G5-C2, {@see self::archiveUnlessStocked()}): any non-zero on-hand in any location, any kind,
