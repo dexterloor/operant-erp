@@ -27,13 +27,14 @@ final class CreateGoodsReceiptInput
     public ?string $receivedAt = null;
 
     /** @var array<mixed>|null */
-    #[ApiProperty(schema: [
+    #[ApiProperty(required: true, schema: [
         'type' => 'array',
         'minItems' => 1,
         'maxItems' => GoodsReceiptWriter::MAXIMUM_LINES,
         'items' => [
             'type' => 'object',
             'additionalProperties' => false,
+            'required' => ['purchase_order_line_id', 'quantity', 'storage_location_id'],
             'properties' => [
                 'purchase_order_line_id' => ['type' => 'string', 'format' => 'uuid'],
                 'quantity' => ['type' => 'string'],

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -16,5 +17,6 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class AssignRoleInput
 {
     #[SerializedName('role_id')]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $roleId = null;
 }

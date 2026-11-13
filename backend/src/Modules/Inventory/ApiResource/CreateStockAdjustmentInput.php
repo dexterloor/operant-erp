@@ -19,21 +19,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreateStockAdjustmentInput
 {
     #[SerializedName('inventory_item_id')]
-    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $inventoryItemId;
 
     #[SerializedName('storage_location_id')]
-    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $storageLocationId;
 
     #[SerializedName('counted_quantity')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public mixed $countedQuantity;
 
-    #[ApiProperty(schema: ['type' => ['integer', 'null']])]
+    #[ApiProperty(required: true, schema: ['type' => ['integer', 'null']])]
     public mixed $version;
 
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public mixed $note;
 
     /** @return array<string, mixed> wire name => value, for exactly the fields the body carried */

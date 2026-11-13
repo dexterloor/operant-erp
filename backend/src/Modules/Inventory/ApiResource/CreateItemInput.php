@@ -28,8 +28,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateItemInput
 {
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $sku = null;
 
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $name = null;
 
     /**
@@ -38,10 +40,11 @@ final class CreateItemInput
      * An annotation only; `ItemWriter` still looks the code up in `unit_of_measure`.
      */
     #[SerializedName('unit_of_measure_code')]
-    #[ApiProperty(schema: ['type' => 'string', 'enum' => UnitsOfMeasure::CODES])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'enum' => UnitsOfMeasure::CODES])]
     public ?string $unitOfMeasureCode = null;
 
     #[SerializedName('supplier_id')]
+    #[ApiProperty(schema: ['type' => ['string', 'null'], 'format' => 'uuid'])]
     public ?string $supplierId = null;
 
     #[SerializedName('reorder_point')]

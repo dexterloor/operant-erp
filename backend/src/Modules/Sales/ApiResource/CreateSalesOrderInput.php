@@ -70,9 +70,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreateSalesOrderInput
 {
     #[SerializedName('customer_id')]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $customerId = null;
 
     #[SerializedName('warehouse_id')]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $warehouseId = null;
 
     /**
@@ -94,6 +96,7 @@ final class CreateSalesOrderInput
 
     /** The `customer_address` row whose four address fields this order copies. See the class docblock. */
     #[SerializedName('ship_to_address_id')]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $shipToAddressId = null;
 
     /**
@@ -121,6 +124,7 @@ final class CreateSalesOrderInput
         'items' => [
             'type' => 'object',
             'additionalProperties' => false,
+            'required' => ['inventory_item_id', 'quantity', 'unit_price'],
             'properties' => [
                 'inventory_item_id' => ['type' => 'string', 'format' => 'uuid'],
                 'quantity' => ['type' => 'string'],

@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\HttpOperation;
 use ApiPlatform\Metadata\Operation;
 use App\Modules\Purchasing\Application\GoodsReceiptWriter;
 use App\Modules\Purchasing\Application\PurchaseOrderWriter;
@@ -1414,7 +1415,7 @@ final class OpenApiContractTest extends ApiTestCase
      * BK-13 T-5. Every `public mixed` property of a request input class declares its schema: none is left served as
      * string|null. BK-15 K2 (2026-11-02) typed the Customers, Suppliers and UserManagement fields; K3 typed the Inventory
      * and Sales fields and DELETED the not-yet-typed pin, so a new untyped `mixed` input is red here with no list to add
-     * it to. {@see MixedInputSchemaProbeTest} holds its probed cases equal to this reflected set.
+     * it to. {@see RequestBodySchemaProbeTest} probes every request field, these included (BK-18 R18-b).
      */
     #[Test]
     public function everyMixedInputPropertyDeclaresItsSchema(): void
@@ -1488,6 +1489,236 @@ final class OpenApiContractTest extends ApiTestCase
         }
 
         return $fields;
+    }
+
+    /**
+     * BK-18 R18-b. Every public property and promoted constructor parameter of every operation's `input:` class, one entry
+     * per (operation, field) — {@see self::mixedInputFields()} generalised to native and constructor fields: the operation
+     * name and HTTP method, the `Class::$property` key, the wire name, how the field is declared (`mixed`; `native` — a
+     * typed property; `constructor` — a promoted parameter), its PHP type name and nullability, whether it has a default
+     * (a property initialised to `null`, or a parameter with a default value), the `#[ApiProperty(schema:)]` it declares
+     * (or null) and whether it declares `required: true`. {@see RequestBodySchemaProbeTest} holds its probed top-level set
+     * equal to this one, two-way.
+     *
+     * @return list<array{operation: string, method: string, class: class-string, key: string, wire: string, declaration: 'mixed'|'native'|'constructor', phpType: string, phpNullable: bool, hasDefault: bool, schema: ?array<string, mixed>, required: bool}>
+     */
+    public static function requestInputFields(): array
+    {
+        $fields = [];
+        foreach (array_keys(self::apiResourceClasses()) as $class) {
+            $operations = [];
+            foreach ((new \ReflectionClass($class))->getAttributes() as $attribute) {
+                $instance = $attribute->newInstance();
+                if ($instance instanceof ApiResource) {
+                    $operations = [...$operations, ...iterator_to_array($instance->getOperations() ?? [])];
+                } elseif ($instance instanceof Operation) {
+                    $operations[] = $instance;
+                }
+            }
+            foreach ($operations as $operation) {
+                $input = $operation->getInput();
+                $inputClass = \is_array($input) ? ($input['class'] ?? null) : $input;
+                if (!\is_string($inputClass) || !class_exists($inputClass)) {
+                    continue;
+                }
+                $inputReflection = new \ReflectionClass($inputClass);
+                $parameters = [];
+                foreach ($inputReflection->getConstructor()?->getParameters() ?? [] as $parameter) {
+                    $parameters[$parameter->getName()] = $parameter;
+                }
+                foreach ($inputReflection->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+                    if ($property->isStatic()) {
+                        continue;
+                    }
+                    $type = $property->getType();
+                    if (!$type instanceof \ReflectionNamedType) {
+                        throw new \LogicException($inputReflection->getShortName().'::$'.$property->getName().' has no single named type: teach requestInputFields() about it.');
+                    }
+                    $declaration = $property->isPromoted() ? 'constructor' : ('mixed' === $type->getName() ? 'mixed' : 'native');
+                    $hasDefault = $property->isPromoted()
+                        ? $parameters[$property->getName()]->isDefaultValueAvailable()
+                        : $property->hasDefaultValue();
+                    $schema = null;
+                    foreach ($property->getAttributes(ApiProperty::class) as $attribute) {
+                        $schema = $attribute->newInstance()->getSchema() ?? $schema;
+                    }
+                    $required = self::declaresRequired($property);
+                    $wire = $property->getName();
+                    foreach ($property->getAttributes(SerializedName::class) as $attribute) {
+                        $wire = $attribute->newInstance()->serializedName;
+                    }
+                    $fields[] = [
+                        'operation' => (string) $operation->getName(),
+                        'method' => $operation instanceof HttpOperation ? strtoupper($operation->getMethod()) : '',
+                        'class' => $inputClass,
+                        'key' => $inputReflection->getShortName().'::$'.$property->getName(),
+                        'wire' => $wire,
+                        'declaration' => $declaration,
+                        'phpType' => $type->getName(),
+                        'phpNullable' => $type->allowsNull(),
+                        'hasDefault' => $hasDefault,
+                        'schema' => $schema,
+                        'required' => $required,
+                    ];
+                }
+            }
+        }
+
+        return $fields;
+    }
+
+    /** Whether a request property (or promoted parameter) declares `#[ApiProperty(required: true)]`. */
+    private static function declaresRequired(\ReflectionProperty $property): bool
+    {
+        foreach ($property->getAttributes(ApiProperty::class) as $attribute) {
+            if (true === $attribute->newInstance()->isRequired()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * BK-18 R18-b T-R2. In every request component and every line-item schema, each name in `required` is one of its
+     * properties, and none is listed twice. Anti-vacuity: the collector must report a non-property name planted into a
+     * copy before its answer on the real spec is trusted.
+     */
+    #[Test]
+    public function everyRequiredNameInARequestSchemaIsOneOfItsProperties(): void
+    {
+        $schemas = $this->requestSchemas($this->regenerate());
+
+        $planted = $schemas;
+        self::assertArrayHasKey('CreateSalesOrder', $planted);
+        $planted['CreateSalesOrder'][1]['properties']['lines']['items']['required'][] = 'zz_not_a_property';
+        self::assertContains('CreateSalesOrder.lines[]: required names zz_not_a_property, which is not one of its properties',
+            self::requiredNameDefects($planted)['defects'],
+            'The collector did not see a non-property name planted into a line-item `required`, so its answer below proves nothing.');
+
+        $found = self::requiredNameDefects($schemas);
+        self::assertSame([], $found['defects'], 'A request schema lists a `required` name that is not one of its properties, or lists one twice.');
+        self::assertGreaterThanOrEqual(30, $found['lists'], 'Anti-vacuity: too few `required` lists were visited.');
+    }
+
+    /**
+     * @param array<string, array{0: string, 1: array<string, mixed>}> $schemas {@see self::requestSchemas()}
+     *
+     * @return array{defects: list<string>, lists: int}
+     */
+    private static function requiredNameDefects(array $schemas): array
+    {
+        $defects = [];
+        $lists = 0;
+        $check = static function (string $where, array $schema) use (&$defects, &$lists): void {
+            if (!isset($schema['required'])) {
+                return;
+            }
+            ++$lists;
+            $names = (array) $schema['required'];
+            foreach (array_unique(array_diff_assoc($names, array_unique($names))) as $twice) {
+                $defects[] = $where.': required lists '.$twice.' twice';
+            }
+            foreach ($names as $name) {
+                if (!\array_key_exists($name, $schema['properties'] ?? [])) {
+                    $defects[] = $where.': required names '.$name.', which is not one of its properties';
+                }
+            }
+        };
+        foreach ($schemas as $operationId => [, $schema]) {
+            $check($operationId, $schema);
+            foreach ($schema['properties'] ?? [] as $name => $property) {
+                if ('object' === ($property['items']['type'] ?? null)) {
+                    $check($operationId.'.'.$name.'[]', $property['items']);
+                }
+            }
+        }
+
+        return ['defects' => $defects, 'lists' => $lists];
+    }
+
+    /**
+     * BK-18 R18-b T-R3. No PATCH operation's `input:` class declares `#[ApiProperty(required: true)]` on any field: API
+     * Platform drops every `required` from a merge-patch component, so it would be a claim the spec never makes (and no
+     * PATCH field is unconditionally required). Domain from the operations' metadata; anti-vacuity at least 15 PATCH
+     * inputs; the check must see a reflected stub that declares one.
+     */
+    #[Test]
+    public function noMergePatchInputDeclaresARequiredField(): void
+    {
+        $stub = new \ReflectionProperty(new class {
+            #[ApiProperty(required: true)]
+            public ?string $planted;
+        }, 'planted');
+        self::assertTrue(self::declaresRequired($stub), 'The reading did not see `required: true` on a reflected stub, so its answer below proves nothing.');
+
+        $patchInputs = [];
+        $declared = [];
+        foreach (self::requestInputFields() as $field) {
+            if ('PATCH' !== $field['method']) {
+                continue;
+            }
+            $patchInputs[$field['class']] = true;
+            if ($field['required']) {
+                $declared[] = $field['operation'].' '.$field['key'];
+            }
+        }
+
+        self::assertGreaterThanOrEqual(15, \count($patchInputs), 'Anti-vacuity: too few PATCH input classes were read.');
+        self::assertSame([], $declared, 'A PATCH input declares `required: true`; merge-patch drops it from the spec, so it describes nothing. Remove it.');
+    }
+
+    /** The JSON type a natively typed request field of each PHP type is served as (BK-18 R18-b T-R4). */
+    private const REQUEST_JSON_TYPE_OF_PHP = self::JSON_TYPE_OF_SCALAR + ['array' => 'array'];
+
+    /**
+     * BK-18 R18-b T-R4 (RED M-2). Every natively typed request field (a typed property or a promoted parameter, not
+     * `mixed`) serves, as its non-null base type, the JSON type of its PHP type: a hand-written `schema:` on it cannot
+     * retype it unseen. A PHP type the map does not name fails loudly (a new type is a design question). Anti-vacuity:
+     * at least 100 native fields, and the check must report a node retyped in a copy of the spec.
+     */
+    #[Test]
+    public function everyNativeRequestPropertyServesItsPhpType(): void
+    {
+        $schemas = $this->requestSchemas($this->regenerate());
+        $fields = array_values(array_filter(self::requestInputFields(), static fn (array $f): bool => 'mixed' !== $f['declaration']));
+        self::assertGreaterThanOrEqual(100, \count($fields), 'Anti-vacuity: too few native request fields were read.');
+
+        $planted = $schemas;
+        self::assertArrayHasKey('UpdateCustomer', $planted);
+        $planted['UpdateCustomer'][1]['properties']['country_code']['type'] = 'integer';
+        self::assertContains('UpdateCustomer.country_code: served type [integer], but the field is PHP string',
+            self::nativeTypeDefects($planted, $fields),
+            'The check did not see a node retyped in a copy of the spec, so its answer below proves nothing.');
+
+        self::assertSame([], self::nativeTypeDefects($schemas, $fields), 'A natively typed request field does not serve the JSON type of its PHP type.');
+    }
+
+    /**
+     * @param array<string, array{0: string, 1: array<string, mixed>}> $schemas
+     * @param list<array{operation: string, wire: string, key: string, phpType: string}> $fields
+     *
+     * @return list<string>
+     */
+    private static function nativeTypeDefects(array $schemas, array $fields): array
+    {
+        $defects = [];
+        foreach ($fields as $field) {
+            if (!isset(self::REQUEST_JSON_TYPE_OF_PHP[$field['phpType']])) {
+                throw new \LogicException(\sprintf('%s is PHP %s, which REQUEST_JSON_TYPE_OF_PHP does not map: a new request field type is a design question.', $field['key'], $field['phpType']));
+            }
+            $node = $schemas[$field['operation']][1]['properties'][$field['wire']] ?? null;
+            if (!\is_array($node)) {
+                $defects[] = $field['operation'].'.'.$field['wire'].': not served';
+                continue;
+            }
+            $served = array_values(array_diff((array) ($node['type'] ?? []), ['null']));
+            if ([self::REQUEST_JSON_TYPE_OF_PHP[$field['phpType']]] !== $served) {
+                $defects[] = $field['operation'].'.'.$field['wire'].': served type ['.implode(',', $served).'], but the field is PHP '.$field['phpType'];
+            }
+        }
+
+        return $defects;
     }
 
     /**

@@ -26,7 +26,7 @@ final class CreateAdjustmentDecisionInput
     #[ApiProperty(schema: ['type' => ['string', 'null'], 'format' => 'uuid'])]
     public mixed $creditNoteLineId = null;
 
-    #[ApiProperty(schema: ['type' => 'string', 'enum' => AdjustmentDecisionWriter::KINDS])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'enum' => AdjustmentDecisionWriter::KINDS])]
     public mixed $kind = null;
 
     #[ApiProperty(schema: ['type' => ['string', 'null']])]

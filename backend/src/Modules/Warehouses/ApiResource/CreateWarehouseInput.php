@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Warehouses\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -14,11 +15,14 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateWarehouseInput
 {
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $code = null;
 
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $name = null;
 
     #[SerializedName('country_code')]
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $countryCode = null;
 
     /** @return array<string, mixed> wire name => value */

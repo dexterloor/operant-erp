@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\UserManagement\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+
 /**
  * §4.2's `IssueToken` row, `Accepted request fields`: `workspace`; `email`;
  * `password`. **Exhaustive** — that column is the subject of §3.3's check, and
@@ -24,8 +26,11 @@ namespace App\Modules\UserManagement\ApiResource;
 final class IssueTokenInput
 {
     public function __construct(
+        #[ApiProperty(required: true)]
         public string $workspace,
+        #[ApiProperty(required: true)]
         public string $email,
+        #[ApiProperty(required: true)]
         public string $password,
     ) {
     }

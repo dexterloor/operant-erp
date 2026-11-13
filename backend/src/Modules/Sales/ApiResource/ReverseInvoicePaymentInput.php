@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
+
 /**
  * `ReverseInvoicePayment`'s body — §4.2's `Accepted request fields` cell is `reason` alone (sales step 6, C6).
  *
@@ -13,5 +15,6 @@ namespace App\Modules\Sales\ApiResource;
  */
 final class ReverseInvoicePaymentInput
 {
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $reason = null;
 }

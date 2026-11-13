@@ -22,13 +22,14 @@ final class CreateFulfilmentInput
     public ?string $shippedAt = null;
 
     /** @var array<mixed>|null */
-    #[ApiProperty(schema: [
+    #[ApiProperty(required: true, schema: [
         'type' => 'array',
         'minItems' => 1,
         'maxItems' => FulfilmentWriter::MAXIMUM_LINES,
         'items' => [
             'type' => 'object',
             'additionalProperties' => false,
+            'required' => ['quantity', 'sales_order_line_id', 'storage_location_id'],
             'properties' => [
                 'sales_order_line_id' => ['type' => 'string', 'format' => 'uuid'],
                 'quantity' => ['type' => 'string'],

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Sales\ApiResource;
 
+use ApiPlatform\Metadata\ApiProperty;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -61,12 +62,15 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class UpdateSalesOrderInput
 {
     #[SerializedName('customer_id')]
+    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $customerId;
 
     #[SerializedName('warehouse_id')]
+    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $warehouseId;
 
     #[SerializedName('ship_to_address_id')]
+    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $shipToAddressId;
 
     /**

@@ -17,19 +17,23 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreateSupplierProductInput
 {
     #[SerializedName('inventory_item_id')]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $inventoryItemId = null;
 
     #[SerializedName('supplier_sku')]
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $supplierSku = null;
 
     #[SerializedName('unit_cost')]
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public ?string $unitCost = null;
 
     #[SerializedName('lead_time_days')]
-    #[ApiProperty(schema: ['type' => 'integer'])]
+    #[ApiProperty(required: true, schema: ['type' => 'integer'])]
     public mixed $leadTimeDays = null;
 
     #[SerializedName('minimum_order_quantity')]
+    #[ApiProperty(schema: ['type' => 'string'])]
     public ?string $minimumOrderQuantity;
 
     /** @return array<string, mixed> wire name => value; `minimum_order_quantity` only when the body carried it */

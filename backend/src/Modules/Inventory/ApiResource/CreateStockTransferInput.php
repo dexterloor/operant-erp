@@ -19,18 +19,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreateStockTransferInput
 {
     #[SerializedName('inventory_item_id')]
-    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $inventoryItemId;
 
     #[SerializedName('source_storage_location_id')]
-    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $sourceStorageLocationId;
 
     #[SerializedName('destination_storage_location_id')]
-    #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $destinationStorageLocationId;
 
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string'])]
     public mixed $quantity;
 
     #[ApiProperty(schema: ['type' => ['string', 'null']])]
