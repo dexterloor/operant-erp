@@ -23,6 +23,8 @@ final readonly class SupplierProductView
         public string $unitCost,
         public int $leadTimeDays,
         public string $minimumOrderQuantity,
+        /** The item's unit, the unit `minimum_order_quantity` is in (BK-31); whether `unit_cost` is per this unit is `PO`'s and `UX`'s (final RED P-2 (I)). */
+        public string $unitOfMeasureCode,
         public string $currencyCode,
     ) {
     }

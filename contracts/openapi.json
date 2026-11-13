@@ -4390,6 +4390,16 @@
                     },
                     "unit_cost": {
                         "type": "string"
+                    },
+                    "unit_of_measure_code": {
+                        "enum": [
+                            "EA",
+                            "BOX",
+                            "KG",
+                            "L",
+                            "M"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"

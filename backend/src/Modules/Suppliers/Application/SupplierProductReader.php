@@ -29,12 +29,18 @@ use Symfony\Component\Uid\Uuid;
  * `SuppliersApplication` reach no `InventoryContract`), **archived items included**: a reference names the row it was
  * made against (PC-15 condition 3), and an archived item stays named. Every statement runs under `TenantContext::run()` on
  * the entity manager's own connection (`erp_app`, under RLS), never a `Doctrine\DBAL\Connection` (A-10).
+ *
+ * It also serves the item's unit of measure on the entry (BK-31): the item's unit, the unit `minimum_order_quantity` is in,
+ * never a supplier's own pack unit. It is a column of the existing `inventory_item` join; no new cross-module read (the ARCH
+ * owed sweep of undeclared cross-module SQL reads covers this join). While an entry exists the unit cannot change
+ * (`supplier_product` is a leg of `ItemWriter::UNIT_IN_USE_LEGS`, BK-24), so it is the unit the minimum order was entered in;
+ * only owner SQL bypasses that. Served under `PC-9`'s seventh exception (`SECURITY_MODEL.md`).
  */
 final readonly class SupplierProductReader
 {
     private const SELECT = <<<'SQL'
         SELECT sp.id, sp.inventory_item_id, i.sku AS item_sku, i.name AS item_name, sp.supplier_sku, sp.unit_cost,
-               sp.lead_time_days, sp.min_order_quantity, sp.currency_code
+               sp.lead_time_days, sp.min_order_quantity, i.unit_of_measure_code AS item_unit_of_measure_code, sp.currency_code
           FROM supplier_product sp
           JOIN inventory_item i ON i.tenant_id = sp.tenant_id AND i.id = sp.inventory_item_id
         SQL;
@@ -117,6 +123,7 @@ final readonly class SupplierProductReader
             unitCost: (string) $row['unit_cost'],
             leadTimeDays: (int) $row['lead_time_days'],
             minimumOrderQuantity: (string) $row['min_order_quantity'],
+            unitOfMeasureCode: (string) $row['item_unit_of_measure_code'],
             currencyCode: (string) $row['currency_code'],
         );
     }

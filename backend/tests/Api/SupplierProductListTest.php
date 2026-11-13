@@ -15,7 +15,7 @@ use Symfony\Component\Uid\Uuid;
  * The whole catalogue in one response, ordered `supplier_sku, id` (the id breaks a tie: `supplier_sku` is not unique), both
  * cursors null; no query parameter accepted; an archived supplier's catalogue is listed (§5.2a) and an archived item stays
  * named (PC-15 condition 3); an unknown or foreign supplier is the same 404; another supplier's entries never appear. The
- * read is a COST read (PC-12): `viewer` is refused, `buyer` reads it.
+ * read is a COST read (PC-12): `viewer` is refused, `buyer` reads it. Each entry serves its item's unit (BK-31).
  */
 final class SupplierProductListTest extends PurchaseOrderTestCase
 {
@@ -45,7 +45,7 @@ final class SupplierProductListTest extends PurchaseOrderTestCase
         self::assertSame([...$tied, $entries[$bolt]], array_column($body['items'], 'id'), 'Not ordered supplier_sku, id.');
         self::assertSame(['id' => $entries[$bolt], 'inventory_item' => ['id' => $bolt, 'sku' => 'SKU-BOLT', 'name' => 'SKU-BOLT'],
             'supplier_sku' => 'ZZ-SKU', 'unit_cost' => '1.0000', 'lead_time_days' => 7, 'minimum_order_quantity' => '1.000000',
-            'currency_code' => 'EUR'], $body['items'][2]);
+            'unit_of_measure_code' => 'EA', 'currency_code' => 'EUR'], $body['items'][2]);
         self::assertSame([null, null, true], [$body['next_cursor'], $body['previous_cursor'], $body['tenant_has_rows']]);
     }
 
@@ -64,6 +64,48 @@ final class SupplierProductListTest extends PurchaseOrderTestCase
         self::assertSame(200, $this->httpStatus());
         self::assertSame([$entry], array_column($this->json()['items'], 'id'));
         self::assertSame(['id' => $item, 'sku' => 'SKU-GONE', 'name' => 'SKU-GONE'], $this->json()['items'][0]['inventory_item']);
+    }
+
+    /**
+     * **BK-31: each entry serves its item's unit** (`bk31-design.md` Revision 1 step 7(a)) — the unit `minimum_order_quantity`
+     * is in, read through the entry's item join (PC-9's seventh exception). The two items are set to `BOX` and `KG`, never
+     * the fixture's `EA`, so a reader hard-coding `EA` (or serving one item's unit for every row) is visible here. The units
+     * are set BEFORE any entry exists (RED L-4): once an entry names an item, `UpdateItem` refuses a unit change (BK-24), so
+     * the order here is the only one the product allows; owner SQL is used, as the design accepts, so the fixture needs no
+     * ETag round trip. Then one item is archived through `DeleteItem`: the entry still lists it, with its unit (PC-15
+     * condition 3 by analogy — the reader has no `deleted_at` predicate on the item).
+     */
+    #[Test]
+    public function eachEntryServesItsItemsUnit(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Unit Catalogue');
+        $boxed = $this->seedItem(self::TENANT_A, 'SKU-BOXED');
+        $weighed = $this->seedItem(self::TENANT_A, 'SKU-WEIGHED');
+        $this->insertAsOwnerForTenant(self::TENANT_A, "UPDATE inventory_item SET unit_of_measure_code = 'BOX' WHERE id = ?::uuid", [$boxed]);
+        $this->insertAsOwnerForTenant(self::TENANT_A, "UPDATE inventory_item SET unit_of_measure_code = 'KG' WHERE id = ?::uuid", [$weighed]);
+        $entries = [
+            $this->seedSupplierProduct(self::TENANT_A, $supplier, $boxed) => 'BOX',
+            $this->seedSupplierProduct(self::TENANT_A, $supplier, $weighed) => 'KG',
+        ];
+        $this->actAs(self::TENANT_A);
+
+        $this->send('GET', '/suppliers/'.$supplier.'/products');
+
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $served = array_column($this->json()['items'], 'unit_of_measure_code', 'id');
+        ksort($served);
+        ksort($entries);
+        self::assertSame($entries, $served, "An entry does not serve its own item's unit.");
+
+        $this->send('DELETE', '/items/'.$boxed);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+
+        $this->send('GET', '/suppliers/'.$supplier.'/products');
+
+        self::assertSame(200, $this->httpStatus());
+        $served = array_column($this->json()['items'], 'unit_of_measure_code', 'id');
+        ksort($served);
+        self::assertSame($entries, $served, "An archived item's entry is no longer listed with its unit.");
     }
 
     /** API-22: an empty set probes the workspace. */
