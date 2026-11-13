@@ -336,7 +336,7 @@ describe('/suppliers/new — after a 201, until the new page takes over (L-1)', 
     vi.useRealTimers();
   });
   const TAKEN = () => refused('supplier.code_is_unique_per_workspace', 'Another supplier already uses this code.');
-  it('Create supplier stays busy: a second press and an Enter send nothing, and nothing says "Not created"', async () => {
+  it('Create supplier stays busy: a second press and an Enter send nothing, and nothing says "Not created", while Cancel still goes to the list', async () => {
     // A real client navigation takes hundreds of ms to seconds: let a minute pass, so a form that hands Create back after any
     // delay is caught (create-repress-red.md L-1).
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -356,6 +356,26 @@ describe('/suppliers/new — after a 201, until the new page takes over (L-1)', 
     expect(posts(calls)).toHaveLength(1);
     expect(screen.queryByText('Not created')).toBeNull();
     expect(nav.push).toHaveBeenCalledTimes(1);
+    // D-1 rests on this: while the form is held busy the person is not trapped, Cancel still goes to the list. There is no app
+    // router here, so a working link is one whose press nothing cancels (the browser follows its href); the window listener runs
+    // last, records that, then stops the document load jsdom cannot do.
+    const cancel = screen.getByRole('link', { name: 'Cancel' });
+    expect(cancel).toHaveAttribute('href', '/suppliers');
+    expect(cancel).not.toHaveAttribute('aria-disabled');
+    expect(cancel.closest('fieldset:disabled, [inert]')).toBeNull();
+    let followed: boolean | null = null;
+    const record = (e: Event) => {
+      followed = !e.defaultPrevented;
+      e.preventDefault();
+    };
+    window.addEventListener('click', record);
+    try {
+      await u.click(cancel);
+    } finally {
+      window.removeEventListener('click', record);
+    }
+    expect(followed).toBe(true);
+    expect(submit()).toHaveAttribute('aria-busy', 'true');
   });
 
   it('the form itself refuses a submit event after a 201, not only the button', async () => {
