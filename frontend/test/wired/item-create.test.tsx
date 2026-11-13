@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
@@ -10,7 +10,7 @@ import { unitSuffixSpoken } from '@/copy/items';
 import { wireEnum } from '@/lib/bff/surface';
 import { classify } from '@/lib/bff/problem';
 import { itemCreate } from '@/lib/items/wired';
-import { json, problem, refused, renderWired, stubFetch, testCaller, type Recorded } from './harness';
+import { json, problem, refused, renderWired, stubFetch, testCaller, type Recorded, type Reply } from './harness';
 
 // Items I-2 (items-i2-design.md Revision 1 — FINAL A-6…A-10, T-4, T-5, as amended by its Final RED FR-M1; items-ux-copy.md
 // B-4, R1-1): `/items/new` creates an item. SKU, Name, a Unit select over the SERVED units (no preselection, its prompt
@@ -557,14 +557,23 @@ describe('/items/new — a 201 without holds_stock (I-3 T-4)', () => {
 // form back, so a form that never clears busy fails here too.
 describe('/items/new — after a 201, until the new page takes over (L-1)', () => {
   // A function: a Response body can be read once, so each test needs its own.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   const TAKEN = () => refused('inventory_item.sku_is_unique_per_workspace', UX_I1);
   it('Create item stays busy: a second press and an Enter send nothing, and nothing says "Not created"', async () => {
+    // A real client navigation takes hundreds of ms to seconds: let a minute pass, so a form that hands Create back after any
+    // delay is caught (create-repress-red.md L-1).
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const calls = stubFetch([json(201, SERVED), TAKEN()]);
-    const u = userEvent.setup();
+    const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderWired(<NewItemPage />);
     await fill(u);
     await u.click(submit());
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/items/${IID}`));
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
     expect(submit()).toHaveAttribute('aria-busy', 'true');
     await u.click(submit());
     await u.type(field('Name'), '{Enter}');
@@ -587,13 +596,30 @@ describe('/items/new — after a 201, until the new page takes over (L-1)', () =
     expect(screen.queryByText('Not created')).toBeNull();
   });
 
-  it('any other answer gives the form back: after a 409 Create item is not busy and a second press sends', async () => {
-    const calls = stubFetch([TAKEN(), json(201, SERVED)]);
+  // Every answer the form can show other than `created`, each with the visible sign to wait for. A fresh Response per row (a
+  // body is read once). `session-ended` is not here: it renders nothing and the page goes to sign-in, so no Create is left.
+  const OTHER_ANSWERS: [string, () => Reply, string][] = [
+    ['409 refused', TAKEN, 'Not created'],
+    ['422 field-only', () => problem(422, 'validation-failed', { errors: [{ pointer: '/name', code: 'blank', message: BLANK }] }), BLANK],
+    ['422 banner-only', () => problem(422, 'validation-failed', { errors: [{ pointer: '', code: 'y', message: 'Out of form.' }] }), 'Not created'],
+    [
+      'lost connection',
+      () => () => {
+        throw new TypeError('offline');
+      },
+      "We couldn't reach the server.",
+    ],
+    ['500', () => problem(500, 'internal'), 'Something went wrong on our side.'],
+    ['403', () => problem(403, 'permission-denied'), 'Not created'],
+    ['404', () => problem(404, 'not-found'), 'Not created'],
+  ];
+  it.each(OTHER_ANSWERS)('any other answer gives the form back (%s): Create item is not busy and a second press sends', async (_name, reply, sign) => {
+    const calls = stubFetch([reply(), json(201, SERVED)]);
     const u = userEvent.setup();
     renderWired(<NewItemPage />);
     await fill(u);
     await u.click(submit());
-    expect(await screen.findByText('Not created')).toBeInTheDocument();
+    expect(await screen.findByText(sign)).toBeInTheDocument();
     expect(submit()).not.toHaveAttribute('aria-busy');
     await u.click(submit());
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/items/${IID}`));

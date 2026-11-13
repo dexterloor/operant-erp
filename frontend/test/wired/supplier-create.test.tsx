@@ -12,7 +12,7 @@ import { SupplierCreateDenied } from '@/app/(app)/suppliers/SupplierStates';
 import { RouteFocus } from '@/components/shell/RouteFocus';
 import { TooltipProvider } from '@/components/ui/Tooltip';
 import type { Supplier } from '@/lib/api/suppliers';
-import { SID, TZ, json, problem, refused, renderWired, stubFetch } from './harness';
+import { SID, TZ, json, problem, refused, renderWired, stubFetch, type Reply } from './harness';
 
 // Suppliers S-2 (suppliers-plan.md Revision 1 — FINAL §R1-4 S-2 over Revision 0 S-2; suppliers-ux-copy.md Revision 1 —
 // FINAL S-2; suppliers-final-red.md L-1): `/suppliers/new` creates a supplier with a fresh Idempotency-Key per submit
@@ -332,14 +332,23 @@ describe.each([
 // form back, so a form that never clears busy fails here too.
 describe('/suppliers/new — after a 201, until the new page takes over (L-1)', () => {
   // A function: a Response body can be read once, so each test needs its own.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   const TAKEN = () => refused('supplier.code_is_unique_per_workspace', 'Another supplier already uses this code.');
   it('Create supplier stays busy: a second press and an Enter send nothing, and nothing says "Not created"', async () => {
+    // A real client navigation takes hundreds of ms to seconds: let a minute pass, so a form that hands Create back after any
+    // delay is caught (create-repress-red.md L-1).
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const calls = stubFetch([json(201, ACME), TAKEN()]);
-    const u = userEvent.setup();
+    const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderWired(<NewSupplierPage />);
     await fill(u);
     await u.click(submit());
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/suppliers/${NEW_ID}`));
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
     expect(submit()).toHaveAttribute('aria-busy', 'true');
     await u.click(submit());
     await u.type(field('Name'), '{Enter}');
@@ -362,13 +371,30 @@ describe('/suppliers/new — after a 201, until the new page takes over (L-1)', 
     expect(screen.queryByText('Not created')).toBeNull();
   });
 
-  it('any other answer gives the form back: after a 409 Create supplier is not busy and a second press sends', async () => {
-    const calls = stubFetch([TAKEN(), json(201, ACME)]);
+  // Every answer the form can show other than `created`, each with the visible sign to wait for. A fresh Response per row (a
+  // body is read once). `session-ended` is not here: it renders nothing and the page goes to sign-in, so no Create is left.
+  const OTHER_ANSWERS: [string, () => Reply, string][] = [
+    ['409 refused', TAKEN, 'Not created'],
+    ['422 field-only', () => problem(422, 'validation-failed', { errors: [{ pointer: '/payment_terms_days', code: 'out_of_range', message: 'Payment terms must be a whole number of days from 0 to 3650.' }] }), 'Payment terms must be a whole number of days from 0 to 3650.'],
+    ['422 banner-only', () => problem(422, 'validation-failed', { errors: [{ pointer: '', code: 'y', message: 'Out of form.' }] }), 'Not created'],
+    [
+      'lost connection',
+      () => () => {
+        throw new TypeError('offline');
+      },
+      "We couldn't reach the server.",
+    ],
+    ['500', () => problem(500, 'internal'), 'Something went wrong on our side.'],
+    ['403', () => problem(403, 'permission-denied'), 'Not created'],
+    ['404', () => problem(404, 'not-found'), 'Not created'],
+  ];
+  it.each(OTHER_ANSWERS)('any other answer gives the form back (%s): Create supplier is not busy and a second press sends', async (_name, reply, sign) => {
+    const calls = stubFetch([reply(), json(201, ACME)]);
     const u = userEvent.setup();
     renderWired(<NewSupplierPage />);
     await fill(u);
     await u.click(submit());
-    expect(await screen.findByText('Not created')).toBeInTheDocument();
+    expect(await screen.findByText(sign)).toBeInTheDocument();
     expect(submit()).not.toHaveAttribute('aria-busy');
     await u.click(submit());
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/suppliers/${NEW_ID}`));

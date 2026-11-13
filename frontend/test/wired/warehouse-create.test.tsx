@@ -11,7 +11,7 @@ import { RouteFocus } from '@/components/shell/RouteFocus';
 import type { Warehouse } from '@/lib/api/warehouses';
 import { BffProvider } from '@/app/(app)/BffProvider';
 import { TooltipProvider } from '@/components/ui/Tooltip';
-import { SID, TZ, json, problem, refused, renderWired, stubFetch } from './harness';
+import { SID, TZ, json, problem, refused, renderWired, stubFetch, type Reply } from './harness';
 
 // warehouses-ux-copy.md B-4; Revision 7 §2 step 4.3, A-19 items 1, 6, 7 (S-5, R3-6): `/warehouses/new` creates a
 // warehouse with a fresh Idempotency-Key per submit, navigates to it, and the new page speaks "{code} was created."
@@ -286,14 +286,23 @@ describe('/warehouses/new (WarehouseCreateForm) — the mixed-422 line (I-2 foll
 // form back, so a form that never clears busy fails here too.
 describe('/warehouses/new — after a 201, until the new page takes over (L-1)', () => {
   // A function: a Response body can be read once, so each test needs its own.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   const TAKEN = () => refused('warehouse.code_is_unique_per_workspace', 'Another warehouse already uses this code. Choose a different code.');
   it('Create warehouse stays busy: a second press and an Enter send nothing, and nothing says "Not created"', async () => {
+    // A real client navigation takes hundreds of ms to seconds: let a minute pass, so a form that hands Create back after any
+    // delay is caught (create-repress-red.md L-1).
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     const calls = stubFetch([json(201, HUB), TAKEN()]);
-    const u = userEvent.setup();
+    const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderWired(<NewWarehousePage />);
     await fill(u);
     await u.click(submit());
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/warehouses/${WID}`));
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
     expect(submit()).toHaveAttribute('aria-busy', 'true');
     await u.click(submit());
     await u.type(field('Name'), '{Enter}');
@@ -316,13 +325,30 @@ describe('/warehouses/new — after a 201, until the new page takes over (L-1)',
     expect(screen.queryByText('Not created')).toBeNull();
   });
 
-  it('any other answer gives the form back: after a 409 Create warehouse is not busy and a second press sends', async () => {
-    const calls = stubFetch([TAKEN(), json(201, HUB)]);
+  // Every answer the form can show other than `created`, each with the visible sign to wait for. A fresh Response per row (a
+  // body is read once). `session-ended` is not here: it renders nothing and the page goes to sign-in, so no Create is left.
+  const OTHER_ANSWERS: [string, () => Reply, string][] = [
+    ['409 refused', TAKEN, 'Not created'],
+    ['422 field-only', () => problem(422, 'validation-failed', { errors: [{ pointer: '/country_code', code: 'unknown_reference', message: "This country isn't supported yet." }] }), "This country isn't supported yet."],
+    ['422 banner-only', () => problem(422, 'validation-failed', { errors: [{ pointer: '', code: 'y', message: 'Out of form.' }] }), 'Not created'],
+    [
+      'lost connection',
+      () => () => {
+        throw new TypeError('offline');
+      },
+      "We couldn't reach the server.",
+    ],
+    ['500', () => problem(500, 'internal'), 'Something went wrong on our side.'],
+    ['403', () => problem(403, 'permission-denied'), 'Not created'],
+    ['404', () => problem(404, 'not-found'), 'Not created'],
+  ];
+  it.each(OTHER_ANSWERS)('any other answer gives the form back (%s): Create warehouse is not busy and a second press sends', async (_name, reply, sign) => {
+    const calls = stubFetch([reply(), json(201, HUB)]);
     const u = userEvent.setup();
     renderWired(<NewWarehousePage />);
     await fill(u);
     await u.click(submit());
-    expect(await screen.findByText('Not created')).toBeInTheDocument();
+    expect(await screen.findByText(sign)).toBeInTheDocument();
     expect(submit()).not.toHaveAttribute('aria-busy');
     await u.click(submit());
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/warehouses/${WID}`));
