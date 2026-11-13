@@ -217,6 +217,11 @@ export const EDIT_LOCATION = {
   saveNothing: 'Nothing to save.',
   /** After (NEW). */
   saved: (code: string) => `${code} was saved.`,
+  /**
+   * NEW, locations-stale-banner-design.md Revision 1 (PO confirmed); shown in the section's stale banner and spoken in
+   * place of `saved` when the view re-read fails. The second sentence is `WAITING.listStale` word for word.
+   */
+  savedListStale: (code: string) => `${code} was saved. We couldn't load the list again, so it may be out of date.`,
   /** Interrupted (NEW): closing the dialog re-reads the section (L-8). */
   interrupted: (code: string) => `We can't tell whether your changes to ${code} were saved. Close this and check the location before you try again.`,
 } as const;
@@ -225,6 +230,11 @@ export const EDIT_LOCATION = {
 export const RESTORE_LOCATION = {
   action: 'Restore location',
   after: (code: string) => `${code} was restored.`,
+  /**
+   * NEW, locations-stale-banner-design.md Revision 1 (PO confirmed); shown in the section's stale banner and spoken in
+   * place of `after` when the view re-read fails. The second sentence is `WAITING.listStale` word for word.
+   */
+  afterListStale: (code: string) => `${code} was restored. We couldn't load the list again, so it may be out of date.`,
   interrupted: (code: string) => `We can't tell whether ${code} was restored. If it's still listed here, press Restore location to try again.`,
   /** On every other row's Restore location while one restore is in flight (NEW, placeholder: UX TO CONFIRM; RED L-6). */
   busyOther: 'Another location is being restored. Wait for it to finish.',
@@ -247,6 +257,11 @@ export const ADD_LOCATION = {
   cancel: 'Cancel',
   /** After (NEW). */
   after: (code: string) => `${code} was added.`,
+  /**
+   * NEW, locations-stale-banner-design.md Revision 1 (PO confirmed); shown in the section's stale banner and spoken in
+   * place of `after` when the view re-read fails. The second sentence is `WAITING.listStale` word for word.
+   */
+  afterListStale: (code: string) => `${code} was added. We couldn't load the list again, so it may be out of date.`,
   /** Interrupted (NEW, B-4's reason: the create does not replay). Closing the dialog re-reads the section. */
   interrupted: (code: string) => `We can't tell whether ${code} was added. Check this warehouse's locations before you try again.`,
 } as const;

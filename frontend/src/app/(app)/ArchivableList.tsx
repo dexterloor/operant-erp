@@ -28,12 +28,14 @@ const FIRST_PAGE: PageRequest = { q: '', cursor: null };
  * removed, browsers report `<body>`; the null and detached checks are belt-and-braces. A focused row removed by the new
  * view also counts as lost.
  */
-const focusWasLost = () => {
+export const focusWasLost = () => {
   const el = document.activeElement;
   return el === null || el === document.body || !el.isConnected;
 };
 const causeOf = (kind: string): Cause => (kind === 'unreachable' ? 'unreachable' : 'server-error');
 const headingOf = (c: Cause) => (c === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG);
+/** R1-1's heading for a failed read, by cause (the one copy of the rule; the Locations section's own re-read banner uses it). */
+export const refetchHeading = (kind: ReadFailure) => headingOf(causeOf(kind));
 const newestDeletedFirst = (a: { archived_at: string | null }, b: { archived_at: string | null }) => Date.parse(b.archived_at ?? '') - Date.parse(a.archived_at ?? '');
 const connected = <E extends HTMLElement>(el: E | null) => (el !== null && el.isConnected ? el : null);
 
@@ -152,8 +154,11 @@ interface BaseProps<T> {
   headingId?: string;
   empty: EmptyState;
   archivedView: ArchivedView;
-  /** One line above the rows, per view (ST-9b). */
-  notice?: (archived: boolean) => ReactNode;
+  /**
+   * One line above the rows, per view (ST-9b). `listBannerUp`: the list's own refetch banner is up (a failed switch or
+   * banner Retry). A notice that renders its own refetch banner hides it while this is true (locations-stale-banner H-1).
+   */
+  notice?: (archived: boolean, listBannerUp: boolean) => ReactNode;
   /** Under the table, given the rows on screen. */
   footer?: (rows: readonly T[]) => ReactNode;
   controller?: Ref<ArchivableListHandle>;
@@ -649,7 +654,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
       {shown ? (
         <>
           {refetchError ? <RefetchFailedBanner heading={headingOf(refetchError.cause)} body={LIST_STATES.refetchFailed} retrying={busy} onRetry={() => void fetchView(refetchError.archived, 'banner', refetchError.page)} /> : null}
-          {notice ? notice(archived) : null}
+          {notice ? notice(archived, refetchError !== null) : null}
           <Refetchable busy={busy}>
             {paging !== null && shown.endOfList ? (
               <EndOfList copy={paging.noMore(shown.archived)} headingRef={endHeading} onFirstPage={() => void fetchView(shown.archived, 'top', { q: settledQ.current, cursor: null })} />

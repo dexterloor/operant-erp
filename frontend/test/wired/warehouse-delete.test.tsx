@@ -6,7 +6,9 @@ const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { WarehousePage } from '@/app/(app)/warehouses/[id]/WarehousePage';
 import { WAITING } from '@/copy/roles';
-import { DELETE_LOCATION } from '@/copy/warehouses';
+import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
+import { LIST_STATES } from '@/copy/shell';
+import { DELETE_LOCATION, LOCATIONS_SECTION, RESTORE_LOCATION } from '@/copy/warehouses';
 import type { StorageLocation, Warehouse } from '@/lib/api/warehouses';
 import { empty, held, json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
 
@@ -958,6 +960,9 @@ describe('/warehouses/[id] — Delete location, the corrected "after" (FE-R8 loc
     await settle();
     expect(region().textContent).toBe('');
     expect(region().textContent).not.toContain('was deleted');
+    // locations-stale-banner T-3b: the failed re-read is shown (the generic body), never spoken (FE-R8 R-2).
+    const retry = within(section()).getByRole('button', { name: 'Retry' });
+    expect(bannerTexts(retry)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
   });
 
   // s3-fer8-final-red.md F-3 "Same text". Mutation M6 (compare the region's text, not a generation) → red.
@@ -977,6 +982,294 @@ describe('/warehouses/[id] — Delete location, the corrected "after" (FE-R8 loc
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Delete A1' })).toBeNull());
     await settle();
     expect(region().textContent).toBe(AFTER);
+  });
+});
+
+/** A banner's heading and body, from its Retry button (RefetchFailedBanner: heading `p`, body `p`, the action beside them). */
+function bannerTexts(retry: HTMLElement): (string | null)[] {
+  let el: HTMLElement | null = retry.parentElement;
+  while (el !== null && el.querySelectorAll('p').length < 2) el = el.parentElement;
+  return [...el!.querySelectorAll('p')].map((p) => p.textContent);
+}
+
+// locations-stale-banner-design.md "Revision 1 — FINAL" (F-1…F-9) as corrected by locations-stale-banner-final-red.md and
+// locations-stale-banner-po-arch.md (H-1 option (a′)): a write's view re-read that fails shows a warning banner in the
+// section, whose body is that write's stale sentence; its Retry re-reads the view.
+describe('/warehouses/[id] — Locations, the stale banner after a failed re-read', () => {
+  const STALE = DELETE_LOCATION.afterListStale('A1');
+  const STALE_Q1 = DELETE_LOCATION.afterListStale('Q1');
+  const B2 = loc('55555555-5555-4555-8555-555555555555', 'B2', 'bin', '2026-04-02T09:00:00Z');
+  const retries = () => within(section()).queryAllByRole('button', { name: 'Retry' });
+  const headingEl = () => document.getElementById('locations-heading');
+  const offline = () => {
+    throw new TypeError('Failed to fetch');
+  };
+  const settle = () =>
+    act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+  const deleteRow = async (u: ReturnType<typeof userEvent.setup>, code: string) => {
+    await u.click(screen.getByRole('button', { name: `Delete ${code}` }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete location' }));
+  };
+
+  // T-1. Mutations M-1 (never set the banner), M-4 (heading spoken on appearance), M-12 (no body attach) → red.
+  it('T-1 a 204 whose re-read answers 503: one banner, "Something went wrong on our side." over the stale sentence, with Retry; the region says the same; focus on the heading; A1 still listed', async () => {
+    stubFetch([empty(204), json(503, {})]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, STALE]);
+    await settle();
+    expect(region().textContent).toBe(STALE);
+    expect(headingEl()).toHaveFocus();
+    expect(within(section()).getByText('A1')).toBeInTheDocument();
+  });
+
+  // T-2. Mutation M-9 (not-found treated as forbidden) → red.
+  for (const [what, reply, heading] of [
+    ['unreachable', offline, COULD_NOT_REACH],
+    ['not found (404)', () => problem(404, 'not-found'), WENT_WRONG],
+  ] as const) {
+    it(`T-2 a re-read that fails ${what}: heading "${heading}", the same body`, async () => {
+      stubFetch([empty(204), reply]);
+      const u = userEvent.setup();
+      showSection();
+      await deleteRow(u, 'A1');
+      await waitFor(() => expect(retries()).toHaveLength(1));
+      expect(bannerTexts(retries()[0]!)).toEqual([heading, STALE]);
+      expect(region().textContent).toBe(STALE);
+    });
+  }
+
+  // T-3c (final RED L-4: the queued variant). Mutations M-13 (a failed read over an up banner resets the body) and M-16
+  // (an `await` between the delete's re-read and its body attach) → red.
+  it("T-3c a refusal's Close re-read queued behind the delete's: both fail, and the body is still the delete's stale sentence", async () => {
+    const r1 = held();
+    const r2 = held();
+    const calls = stubFetch([empty(204), r1.reply, refused('storage_location.holds_stock', L8), r2.reply]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(calls).toHaveLength(2));
+    await deleteRow(u, 'Q1');
+    await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
+    await u.click(within(dialog()).getByRole('button', { name: 'Close' }));
+    await settle();
+    expect(calls).toHaveLength(3);
+    r1.release(json(503, {}));
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, STALE]);
+    r2.release(json(503, {}));
+    await settle();
+    expect(retries()).toHaveLength(1);
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, STALE]);
+  });
+
+  // T-4. Mutation M-3 (no clear on ok) → red.
+  it('T-4 a later delete whose re-read succeeds clears the banner', async () => {
+    stubFetch([empty(204), json(503, {}), empty(204), json(200, coll([]))]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await deleteRow(u, 'Q1');
+    await waitFor(() => expect(within(section()).getByText('No locations in this warehouse yet.')).toBeInTheDocument());
+    expect(retries()).toHaveLength(0);
+  });
+
+  // T-5. Mutation M-8 (always focus the heading on success) → red on the variant.
+  it('T-5 Retry succeeds (live view): the banner goes, A1 goes, focus on the heading, the region says how many are shown', async () => {
+    const calls = stubFetch([empty(204), json(503, {}), json(200, coll([Q1]))]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(retries()[0]!);
+    await waitFor(() => expect(retries()).toHaveLength(0));
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.url).not.toContain('archived=true');
+    expect(within(section()).queryByText('A1')).toBeNull();
+    expect(headingEl()).toHaveFocus();
+    await waitFor(() => expect(region().textContent).toBe(LOCATIONS_SECTION.shown(1, '', false)));
+  });
+
+  it('T-5 Retry succeeds (Archived view, after a restore whose re-read failed): "2 locations shown. Archived."', async () => {
+    stubFetch([json(200, coll([B1, B2])), json(200, { ...B1, archived_at: null }), json(503, {}), json(200, coll([B2, { ...B1, id: '66666666-6666-4666-8666-666666666666', code: 'B3' }]))]);
+    const u = userEvent.setup();
+    showSection();
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await u.click(await screen.findByRole('button', { name: 'Restore location B1' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, RESTORE_LOCATION.afterListStale('B1')]);
+    await u.click(retries()[0]!);
+    await waitFor(() => expect(retries()).toHaveLength(0));
+    await waitFor(() => expect(region().textContent).toBe('2 locations shown. Archived.'));
+  });
+
+  it('T-5 Retry succeeds with no rows left: the region speaks the empty heading', async () => {
+    stubFetch([empty(204), json(503, {}), json(200, coll([]))]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(retries()[0]!);
+    await waitFor(() => expect(region().textContent).toBe(LOCATIONS_SECTION.noneLive));
+  });
+
+  it('T-5 variant: focus moved to another control before the Retry answers stays there', async () => {
+    const answer = held();
+    stubFetch([empty(204), json(503, {}), answer.reply]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(retries()[0]!);
+    const other = within(section()).getByRole('button', { name: 'Delete Q1' });
+    act(() => other.focus());
+    answer.release(json(200, coll([Q1])));
+    await waitFor(() => expect(retries()).toHaveLength(0));
+    await settle();
+    expect(other).toHaveFocus();
+  });
+
+  // T-6. Mutations M-6 (no blank at press) and M-7 (the banner keyed by a counter) → red. The banner unmounting during a
+  // Retry (a write's re-read clearing it first) is a declared review check (final RED L-9).
+  it('T-6 Retry fails twice: blank while the second is out, then the heading; focus stays on the same Retry; the body keeps the outcome', async () => {
+    const second = held();
+    stubFetch([empty(204), json(503, {}), json(503, {}), second.reply]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    const retry = retries()[0]!;
+    await u.click(retry);
+    await waitFor(() => expect(region().textContent).toBe(WENT_WRONG));
+    expect(retries()[0]).toBe(retry);
+    expect(retry).toHaveFocus();
+    await u.click(retry);
+    await waitFor(() => expect(region().textContent).toBe(''));
+    second.release(json(503, {}));
+    await waitFor(() => expect(region().textContent).toBe(WENT_WRONG));
+    expect(retries()).toHaveLength(1);
+    expect(retries()[0]).toBe(retry);
+    expect(retry).toHaveFocus();
+    expect(bannerTexts(retry)).toEqual([WENT_WRONG, STALE]);
+  });
+
+  // T-7. Mutation M-5 (Retry writes with plain announce) → red.
+  it("T-7 a delete that lands while Retry is out keeps its own sentence: the Retry's is dropped", async () => {
+    const answer = held();
+    const calls = stubFetch([empty(204), json(503, {}), answer.reply, empty(204), json(200, coll([]))]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(retries()[0]!);
+    await deleteRow(u, 'Q1');
+    await waitFor(() => expect(region().textContent).toBe(DELETE_LOCATION.after('Q1')));
+    answer.release(json(200, coll([Q1])));
+    await waitFor(() => expect(calls).toHaveLength(5));
+    await waitFor(() => expect(within(section()).getByText('No locations in this warehouse yet.')).toBeInTheDocument());
+    await settle();
+    expect(region().textContent).toBe(DELETE_LOCATION.after('Q1'));
+  });
+
+  // T-8 (+ final RED L-5's held-switch assertion).
+  it('T-8 the banner, then a failed switch: no banner while the switch is out, then exactly one (the list\'s)', async () => {
+    const toArchived = held();
+    stubFetch([empty(204), json(503, {}), toArchived.reply]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await waitFor(() => expect(retries()).toHaveLength(0));
+    toArchived.release(json(503, {}));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
+  });
+
+  it('T-8 the banner, then a successful switch: no banner, there or back', async () => {
+    stubFetch([empty(204), json(503, {}), json(200, coll([B1])), json(200, coll([Q1]))]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await screen.findByRole('heading', { level: 2, name: 'Archived locations' });
+    expect(retries()).toHaveLength(0);
+    await u.click(within(section()).getByRole('button', { name: 'Back to locations' }));
+    await screen.findByRole('heading', { level: 2, name: 'Locations' });
+    await settle();
+    expect(retries()).toHaveLength(0);
+  });
+
+  // T-8c (final RED M-3, ARCH (a′)). Mutation M-15 (`listBannerUp` latched once true) → red.
+  it("T-8c a failed switch, then the same switch succeeds (the list's banner goes), then a delete whose re-read fails: the section's banner shows", async () => {
+    stubFetch([json(503, {}), json(200, coll([B1])), json(200, coll([A1, Q1])), empty(204), json(503, {})]);
+    const u = userEvent.setup();
+    showSection();
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await screen.findByRole('heading', { level: 2, name: 'Archived locations' });
+    expect(retries()).toHaveLength(0);
+    await u.click(within(section()).getByRole('button', { name: 'Back to locations' }));
+    await screen.findByRole('heading', { level: 2, name: 'Locations' });
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, STALE]);
+  });
+
+  // T-9. Mutation M-3 (no clear on ok) → red on the first case.
+  it('T-9 queued re-reads, failed then ok: no banner', async () => {
+    const r1 = held();
+    const r2 = held();
+    stubFetch([empty(204), r1.reply, empty(204), r2.reply]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await deleteRow(u, 'Q1');
+    await waitFor(() => expect(region().textContent).toBe(DELETE_LOCATION.after('Q1')));
+    r1.release(json(503, {}));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    r2.release(json(200, coll([])));
+    await waitFor(() => expect(within(section()).getByText('No locations in this warehouse yet.')).toBeInTheDocument());
+    await settle();
+    expect(retries()).toHaveLength(0);
+  });
+
+  it("T-9 queued re-reads, ok then failed: the banner, with the later delete's sentence", async () => {
+    const r1 = held();
+    const r2 = held();
+    stubFetch([empty(204), r1.reply, empty(204), r2.reply]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await deleteRow(u, 'Q1');
+    await waitFor(() => expect(region().textContent).toBe(DELETE_LOCATION.after('Q1')));
+    r1.release(json(200, coll([Q1])));
+    await waitFor(() => expect(within(section()).queryByText('A1')).toBeNull());
+    r2.release(json(503, {}));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, STALE_Q1]);
+    expect(region().textContent).toBe(STALE_Q1);
+  });
+
+  // T-12 (final RED M-1). Mutation M-17 (no kind filter on the Retry failure path) → red.
+  it('T-12 a Retry answered 403 shows the denied sentence; the region stays blank, never "Something went wrong"', async () => {
+    stubFetch([empty(204), json(503, {}), problem(403, 'permission-denied')]);
+    const u = userEvent.setup();
+    showSection();
+    await deleteRow(u, 'A1');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(retries()[0]!);
+    await screen.findByText("You don't have access to this warehouse's locations.");
+    await settle();
+    expect(region().textContent).toBe('');
   });
 });
 
