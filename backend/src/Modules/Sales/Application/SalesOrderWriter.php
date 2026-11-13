@@ -1956,6 +1956,15 @@ final readonly class SalesOrderWriter
             }
         }
 
+        // Every column a line write touches is NOT NULL, so none may be cleared. Without this, `UpdateSalesOrderLine`
+        // with `"quantity": null` or `"unit_price": null` reached the `UPDATE` and answered 500 (23502) -- found by
+        // the request-body probe; the purchase twin always had it.
+        foreach (array_keys($values) as $property) {
+            if (null === $values[$property] && !\in_array($property, $required, true)) {
+                $errors[] = self::error($property, 'not_nullable', 'This field may not be cleared.');
+            }
+        }
+
         if (null !== ($values['inventoryItemId'] ?? null) && !Uuid::isValid($values['inventoryItemId'])) {
             $errors[] = self::error('inventoryItemId', 'not_a_uuid', 'This field must be a UUID naming an item in this workspace.');
         }

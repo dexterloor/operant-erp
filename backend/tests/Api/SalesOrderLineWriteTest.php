@@ -6,6 +6,7 @@ namespace App\Tests\Api;
 
 use App\Modules\Sales\Infrastructure\Entity\SalesOrder;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -245,6 +246,41 @@ final class SalesOrderLineWriteTest extends PurchaseOrderTestCase
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('4.000000', $this->json()['quantity']);
         self::assertSame('2.5000', $this->json()['unit_price']);
+    }
+
+    /**
+     * **Neither a line's quantity nor its price can be cleared: `null` is a 422 naming the field, and the line is
+     * unchanged.** Both columns are NOT NULL; before this refusal the `null` reached the `UPDATE` and answered 500
+     * (23502). Found by the request-body probe (next commit); `UpdatePurchaseOrderLine` already refused it the same way.
+     *
+     * @return iterable<string, array{string, string}>
+     */
+    public static function lineFieldsThatCannotBeCleared(): iterable
+    {
+        yield 'quantity' => ['quantity', '/quantity'];
+        yield 'unit_price' => ['unit_price', '/unit_price'];
+    }
+
+    #[Test]
+    #[DataProvider('lineFieldsThatCannotBeCleared')]
+    public function aLineFieldThatCannotBeClearedRefusesNullByName(string $field, string $pointer): void
+    {
+        $draft = $this->draftWithASecondItem();
+        $line = $this->seedSalesOrderLine(self::TENANT_A, $draft['order'], $draft['item'],
+            quantity: '4.000000', unitPrice: '2.5000');
+        $total = $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT total_amount FROM sales_order WHERE id = ?::uuid', [$draft['order']])[0]['total_amount'];
+
+        $this->send('PATCH', '/sales-orders/'.$draft['order'].'/lines/'.$line, [$field => null]);
+
+        self::assertSame(422, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $errors = $this->json()['errors'];
+        self::assertSame([['pointer' => $pointer, 'code' => 'not_nullable']], array_map(static fn (array $e): array => ['pointer' => $e['pointer'], 'code' => $e['code']], $errors));
+        self::assertSame('This field may not be cleared.', $errors[0]['message']);
+
+        self::assertSame([['quantity' => '4.000000', 'unit_price' => '2.5000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT quantity, unit_price FROM sales_order_line WHERE id = ?::uuid', [$line]));
+        self::assertSame([['total_amount' => $total]], $this->fetchAsOwnerForTenant(self::TENANT_A,
+            'SELECT total_amount FROM sales_order WHERE id = ?::uuid', [$draft['order']]), 'The order total moved.');
     }
 
     /**
