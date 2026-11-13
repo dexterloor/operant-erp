@@ -88,11 +88,11 @@ final class ItemUnitInUseTest extends PurchaseOrderTestCase
         self::assertSame([], $this->auditRowsOf(AuditEvent::INVENTORY_ITEM_UPDATED), 'A refused unit change wrote a trail row.');
     }
 
-    /** The literal UX sentence (`items-owner-items.md` H-2 draft; `UX` TO CONFIRM): names no leg, no count, no document (SEC S-8). */
+    /** The literal UX sentence (`items-owner-items.md` H-2 draft; `UX` TO CONFIRM; noun re-worded by `items-i4-po.md` item 2 (BK-30)): names no leg, no count, no document (SEC S-8). */
     #[Test]
     public function theRefusalSentenceIsPinned(): void
     {
-        self::assertSame('This item\'s unit can\'t be changed because stock, orders or price lists already record quantities in it.',
+        self::assertSame('This item\'s unit can\'t be changed because stock, orders or supplier catalogues already record quantities in it.',
             ItemWriter::UNIT_IN_USE);
     }
 
