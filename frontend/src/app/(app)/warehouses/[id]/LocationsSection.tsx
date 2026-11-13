@@ -141,8 +141,9 @@ interface Notice {
  * the outcome of the write that owns the read (`DELETE_LOCATION.afterListStale`, `EDIT_LOCATION.savedListStale`,
  * `ADD_LOCATION.afterListStale`, `RESTORE_LOCATION.afterListStale`, also spoken in place of the write's sentence), else
  * `LIST_STATES.refetchFailed` (a refused or interrupted dialog's Close: shown, not spoken, FE-R8 R-2). Only the `load`
- * wrapper sets or clears it, decided by reads in queue order; the one other write is the owning write's body attach, gated
- * on the read's number. While the list's own refetch banner is up (`listBannerUp`, a failed switch) this banner is
+ * wrapper sets it or clears it, decided by reads in queue order. Two other writes exist: the owning write's body attach,
+ * gated on the read's number, and Retry's own clear on `ok`. That clear repeats the wrapper's so the banner has unmounted
+ * before focus is checked. While the list's own refetch banner is up (`listBannerUp`, a failed switch) this banner is
  * hidden: the list's banner owns the screen. The banner is never keyed, so it stays one node and its Retry keeps focus.
  * With nothing on screen (a failed first load), `reread()` resolves `server-error` without reading: a write still speaks
  * its stale sentence, and no banner shows (the first-load region error is up; final RED L-11, accepted).
@@ -219,7 +220,7 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
    * The banner's Retry (F-5): re-read the view on screen. The press blanks the page's region (counted), so a repeat
    * heading is a text change. On success the banner unmounts, focus goes to the section heading only if it was lost,
    * then the settled sentence is spoken, only for the view the press was for (a switch in between spoke its own). On a
-   * failure the banner stays one node, focus stays on Retry, and the heading is spoken; a 403 (the denied state) and an
+   * failure the banner stays one node, focus stays on Retry, and the heading is spoken, again only for that view; a 403 (the denied state) and an
    * ended session say nothing more. A write that speaks meanwhile keeps its sentence. A Retry pressed while a write's
    * re-read is in flight supersedes that write's pending correction (FE-R8 (2)).
    */
@@ -242,7 +243,9 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
       return;
     }
     if (!isStale(r.kind)) return;
-    replaceIfCurrent(gen, refetchHeading(r.kind));
+    // Spoken only while the view on screen is still the one the press was for: a switch queued in between re-pointed the
+    // re-read at the switched view, and the switch spoke (L-10's rule on both paths; commit RED L-4 (a)).
+    if (onScreen.current === forView) replaceIfCurrent(gen, refetchHeading(r.kind));
     // Only when the banner unmounted during the Retry (a write's re-read cleared it first) and came back as a new node.
     if (focusWasLost()) heading.current?.focus();
   };

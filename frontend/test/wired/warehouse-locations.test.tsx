@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { WarehousePage } from '@/app/(app)/warehouses/[id]/WarehousePage';
-import { WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
 import { WAITING } from '@/copy/roles';
 import { LIST_STATES } from '@/copy/shell';
 import { ADD_LOCATION, EDIT_LOCATION, RESTORE_LOCATION } from '@/copy/warehouses';
@@ -471,18 +471,28 @@ describe('/warehouses/[id] — Locations, the stale banner after a failed re-rea
     return { calls, u };
   };
 
-  // T-3 (Edit). Mutations M-1 and M-14 (Edit keeps "saved") → red.
-  it('T-3 an Edit saved, then the re-read fails: the banner and the region both say savedListStale', async () => {
-    const saved = { ...A1, code: 'A2' };
-    stubFetch([json(200, saved), json(503, {})]);
-    const u = userEvent.setup();
-    show();
-    await editTo(u, 'A1', 'A2');
-    await waitFor(() => expect(retries()).toHaveLength(1));
-    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, EDIT_LOCATION.savedListStale('A2')]);
-    await settle();
-    expect(pageRegion().textContent).toBe(EDIT_LOCATION.savedListStale('A2'));
-  });
+  // T-3 (Edit), over every stale failure (commit RED L-3: Add and Restore share `staleAfter` and the same `isStale`).
+  // Mutations M-1, M-14 (Edit keeps "saved") and P5 (a 404 not stale on Edit) → red.
+  const offline = () => {
+    throw new TypeError('Failed to fetch');
+  };
+  for (const [what, reply, heading] of [
+    ['503', () => json(503, {}), WENT_WRONG],
+    ['offline', offline, COULD_NOT_REACH],
+    ['404', () => problem(404, 'not-found'), WENT_WRONG],
+  ] as const) {
+    it(`T-3 an Edit saved, then the re-read fails (${what}): the banner and the region both say savedListStale`, async () => {
+      const saved = { ...A1, code: 'A2' };
+      stubFetch([json(200, saved), reply]);
+      const u = userEvent.setup();
+      show();
+      await editTo(u, 'A1', 'A2');
+      await waitFor(() => expect(retries()).toHaveLength(1));
+      expect(bannerTexts(retries()[0]!)).toEqual([heading, EDIT_LOCATION.savedListStale('A2')]);
+      await settle();
+      expect(pageRegion().textContent).toBe(EDIT_LOCATION.savedListStale('A2'));
+    });
+  }
 
   it('T-3 an Add created, then the re-read fails: the banner and the region both say ADD_LOCATION.afterListStale', async () => {
     const kind = wireEnum('StorageLocation', 'kind')[0]!;
@@ -536,9 +546,6 @@ describe('/warehouses/[id] — Locations, the stale banner after a failed re-rea
   });
 
   it('T-3b an Edit interrupted (offline), then Escape, then the re-read fails: the generic banner; the region is not written', async () => {
-    const offline = () => {
-      throw new TypeError('Failed to fetch');
-    };
     stubFetch([offline, json(503, {})]);
     const u = userEvent.setup();
     show();
@@ -550,6 +557,42 @@ describe('/warehouses/[id] — Locations, the stale banner after a failed re-rea
     expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
     await settle();
     expect(pageRegion().textContent).toBe(before);
+  });
+
+  // T-3b's Add half (commit RED L-8; named in FE-R8 R-2's trigger). Mutation M-22 (a refused Add's Close speaks) → red.
+  it('T-3b-Add an Add refused (409), then Cancel, then the re-read fails: the generic banner; the region is not written', async () => {
+    const kind = wireEnum('StorageLocation', 'kind')[0]!;
+    stubFetch([refused('storage_location.code_is_unique_per_warehouse', 'Another location in this warehouse already uses this code. Choose a different code.'), json(503, {})]);
+    const u = userEvent.setup();
+    show({ canCreate: true });
+    await u.click(within(section()).getByRole('button', { name: 'Add location' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add a location to MAIN' });
+    await u.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'A1');
+    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), kind);
+    await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
+    await within(dialog).findByText('Not added');
+    const before = pageRegion().textContent;
+    await u.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
+    await settle();
+    expect(pageRegion().textContent).toBe(before);
+  });
+
+  // T-8b′ (commit RED L-1): the same in the Archived view. Mutation M-19 (`listBannerUp` ignored in the Archived view) → red.
+  it("T-8b′ in the Archived view, a failed Back to locations, then a Restore whose re-read fails: exactly one banner (the list's); the region says RESTORE_LOCATION.afterListStale", async () => {
+    stubFetch([json(200, coll([B1])), json(503, {}), json(200, { ...B1, archived_at: null }), json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await screen.findByRole('heading', { level: 2, name: 'Archived locations' });
+    await u.click(within(section()).getByRole('button', { name: 'Back to locations' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(within(section()).getByRole('button', { name: 'Restore location B1' }));
+    await waitFor(() => expect(pageRegion().textContent).toBe(RESTORE_LOCATION.afterListStale('B1')));
+    await settle();
+    expect(retries()).toHaveLength(1);
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
   });
 
   // T-8b. Mutation M-11 (ignore `listBannerUp`) → red.
