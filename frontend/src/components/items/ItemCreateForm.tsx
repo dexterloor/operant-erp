@@ -173,7 +173,9 @@ export function ItemCreateForm({ create, createCode, units, onCreated }: ItemCre
     } catch {
       r = { kind: 'unreachable' };
     }
-    setBusy(false);
+    // A 201 keeps the form busy: the page is already navigating to the new record, and a press before it lands would send
+    // a new key and be refused as a duplicate under "Not created" (suppliers-s2-red.md L-1). Every other answer gives it back.
+    if (r.kind !== 'created') setBusy(false);
     settle(r, body.sku);
   };
 

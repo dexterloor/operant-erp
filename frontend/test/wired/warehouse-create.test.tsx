@@ -1,5 +1,5 @@
 import { StrictMode, useState } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
@@ -276,5 +276,56 @@ describe('/warehouses/new (WarehouseCreateForm) — the mixed-422 line (I-2 foll
     await u.click(submit());
     expect(await screen.findByText('Refused here.')).toBeInTheDocument();
     expect(screen.queryByText(MIXED_LINE)).toBeNull();
+  });
+});
+
+// suppliers-s2-red.md L-1 (family-wide): `created` calls the page's `onCreated`, which navigates with `router.push`, and the
+// form is still on screen until the new page mounts. Here `nav.push` is a mock, so the page never leaves: the window is held
+// open. In it the form stays busy, so a press, an Enter or a submit event sends nothing: no second key is spent and no false
+// "Not created" appears (the code-taken 409 queued behind the 201 would say it). Every answer other than `created` gives the
+// form back, so a form that never clears busy fails here too.
+describe('/warehouses/new — after a 201, until the new page takes over (L-1)', () => {
+  // A function: a Response body can be read once, so each test needs its own.
+  const TAKEN = () => refused('warehouse.code_is_unique_per_workspace', 'Another warehouse already uses this code. Choose a different code.');
+  it('Create warehouse stays busy: a second press and an Enter send nothing, and nothing says "Not created"', async () => {
+    const calls = stubFetch([json(201, HUB), TAKEN()]);
+    const u = userEvent.setup();
+    renderWired(<NewWarehousePage />);
+    await fill(u);
+    await u.click(submit());
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/warehouses/${WID}`));
+    expect(submit()).toHaveAttribute('aria-busy', 'true');
+    await u.click(submit());
+    await u.type(field('Name'), '{Enter}');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+    expect(screen.queryByText('Not created')).toBeNull();
+    expect(nav.push).toHaveBeenCalledTimes(1);
+  });
+
+  it('the form itself refuses a submit event after a 201, not only the button', async () => {
+    const calls = stubFetch([json(201, HUB), TAKEN()]);
+    const u = userEvent.setup();
+    renderWired(<NewWarehousePage />);
+    await fill(u);
+    await u.click(submit());
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/warehouses/${WID}`));
+    fireEvent.submit(submit().closest('form')!);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+    expect(screen.queryByText('Not created')).toBeNull();
+  });
+
+  it('any other answer gives the form back: after a 409 Create warehouse is not busy and a second press sends', async () => {
+    const calls = stubFetch([TAKEN(), json(201, HUB)]);
+    const u = userEvent.setup();
+    renderWired(<NewWarehousePage />);
+    await fill(u);
+    await u.click(submit());
+    expect(await screen.findByText('Not created')).toBeInTheDocument();
+    expect(submit()).not.toHaveAttribute('aria-busy');
+    await u.click(submit());
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/warehouses/${WID}`));
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(2);
   });
 });
