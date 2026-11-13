@@ -9,8 +9,9 @@ namespace App\SharedKernel\Reference;
  *
  * The `unit_of_measure` table is reference data owned here (`SchemaManifest`: `SharedKernel\Reference`), seeded once by
  * `Version20260906000100` with exactly these five codes and never written by the application (`erp_app` holds SELECT
- * only). The API serves this list as the `enum` of every item `unit_of_measure_code` — the read shape and both inputs —
- * so the web app's unit picker reads it from the generated surface and never holds a copy.
+ * only). The API serves this list as the `enum` of every item `unit_of_measure_code` — the item read shape, both item
+ * inputs, and the supplier catalogue entry's `unit_of_measure_code` (BK-31) — so the web app's unit picker reads it from
+ * the generated surface and never holds a copy.
  *
  * The order is the seed's, and it is the order a picker shows (`UX` to confirm). The table, not this list, stays the
  * validator: `ItemWriter` still looks a submitted code up in `unit_of_measure` and refuses an unknown one

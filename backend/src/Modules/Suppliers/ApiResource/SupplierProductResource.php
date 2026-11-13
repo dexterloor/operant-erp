@@ -19,6 +19,7 @@ use App\Modules\Suppliers\Application\SupplierProductView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
+use App\SharedKernel\Reference\UnitsOfMeasure;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -29,7 +30,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * The shape is §4.4.3's derivation (API-23): the accepted fields `inventory_item_id` (expanded under API-23b to
  * `inventory_item = {id, sku, name}`), `supplier_sku`, `unit_cost`, `lead_time_days`, `minimum_order_quantity` (minus
  * `supplier_id`, implied by the path), then `id`; **no `archived_at`** (`supplier_product` is class `hard`); plus the
- * additions row's **`currency_code`**, copied from the supplier when the entry is added (owner Q-S4 (a)). Decimals are
+ * additions row's **`currency_code`**, copied from the supplier when the entry is added (owner Q-S4 (a)), plus the additions
+ * row's **`unit_of_measure_code`**: the item's unit, the unit `minimum_order_quantity` is in, never a supplier's pack unit
+ * (BK-31); not a member of the `inventory_item` reference, which stays `{id, sku, name}` (API-23b, owner Q-A). Decimals are
  * strings (S-12): `unit_cost` at scale 4, `minimum_order_quantity` at scale 6 (the column is `min_order_quantity`).
  *
  * **This is a cost read** (PC-12): `unit_cost` is classified `cost` (`MarginSources::columns()`), so from this commit
@@ -135,6 +138,10 @@ final class SupplierProductResource
         public int $leadTimeDays,
         #[SerializedName('minimum_order_quantity')]
         public string $minimumOrderQuantity,
+        /** One of {@see UnitsOfMeasure::CODES}, served as that enum (BK-31; BK-22's form): the item's unit, never null. */
+        #[SerializedName('unit_of_measure_code')]
+        #[ApiProperty(schema: ['type' => 'string', 'enum' => UnitsOfMeasure::CODES])]
+        public string $unitOfMeasureCode,
         #[SerializedName('currency_code')]
         public string $currencyCode,
     ) {
@@ -149,6 +156,7 @@ final class SupplierProductResource
             $view->unitCost,
             $view->leadTimeDays,
             $view->minimumOrderQuantity,
+            $view->unitOfMeasureCode,
             $view->currencyCode,
         );
     }

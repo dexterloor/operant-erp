@@ -15,9 +15,11 @@ use PHPUnit\Framework\Attributes\Test;
  * must be the server's `unit_of_measure` table. `StorageLocationKindSchemaTest` is the shape this follows (BK-19).
  *
  * Held here:
- *  - on `Item`, `Item.CreateItemInput` and the update patch, the served `enum` is exactly {@see UnitsOfMeasure::CODES},
- *    in order, and neither the type nor the enum admits `null` (create refuses a `null` unit `required`, update refuses it
- *    `not_nullable` — the writer accepts `null` for neither, so neither is served nullable);
+ *  - on `Item`, `Item.CreateItemInput`, the update patch, and the supplier catalogue entry `SupplierProduct` (BK-31; a
+ *    response schema, so `REQUEST_ENUMS` is not involved), the served `enum` is exactly {@see UnitsOfMeasure::CODES}, in
+ *    order, and neither the type nor the enum admits `null` (create refuses a `null` unit `required`, update refuses it
+ *    `not_nullable` — the writer accepts `null` for neither, so neither is served nullable; the catalogue entry reads the
+ *    item's `NOT NULL` column through an inner join);
  *  - no schema serves a `default` (a required picker starts unselected; an absent unit on a patch changes nothing);
  *  - the list is the set of codes in `unit_of_measure`, READ FROM THE SERVER as the application principal: a unit added to
  *    the table without the list, or to the list without the table, is red here in the same run;
@@ -29,10 +31,11 @@ final class ItemUnitSchemaTest extends ApiTestCase
         'Item',
         'Item.CreateItemInput',
         'Item.UpdateItemInput.jsonMergePatch',
+        'SupplierProduct',
     ];
 
     #[Test]
-    public function theServedUnitIsTheBackendsListOnAllThreeSchemasAndNeverNull(): void
+    public function theServedUnitIsTheBackendsListOnEverySchemaAndNeverNull(): void
     {
         $schemas = $this->spec()['components']['schemas'];
 

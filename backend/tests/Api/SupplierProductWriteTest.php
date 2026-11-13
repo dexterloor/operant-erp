@@ -53,7 +53,7 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
         self::assertTrue(Uuid::isValid($body['id']));
         self::assertSame(['id' => $body['id'], 'inventory_item' => ['id' => $item, 'sku' => 'SKU-BOLT', 'name' => 'SKU-BOLT'],
             'supplier_sku' => 'ACME-BOLT', 'unit_cost' => '12.5000', 'lead_time_days' => 9, 'minimum_order_quantity' => '1.000000',
-            'currency_code' => 'EUR'], $body, 'The MOQ omitted takes the column default 1; the currency is copied from the supplier.');
+            'unit_of_measure_code' => 'EA', 'currency_code' => 'EUR'], $body, 'The MOQ omitted takes the column default 1; the currency is copied from the supplier.');
         self::assertSame('/api/v1/suppliers/'.$supplier.'/products/'.$body['id'], $this->client()->getResponse()->headers->get('Location'));
 
         $this->send('GET', '/suppliers/'.$supplier.'/products');
@@ -63,6 +63,31 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
             $this->auditRowsOf(AuditEvent::SUPPLIER_PRODUCT_CREATED), 'A catalogue add must write exactly one supplier_product.created row naming its creator.');
         self::assertSame([], $this->fetchAsOwnerForTenant(self::TENANT_A, 'SELECT id FROM audit_log WHERE subject_id = ?::uuid', [$supplier]),
             'A catalogue add wrote a row on the supplier: the subject is the entry (D-C0-1).');
+    }
+
+    /**
+     * **BK-31: the write bodies serve the item's unit** (`bk31-design.md` Revision 1 step 7(b)): the 201 of
+     * `CreateSupplierProduct` and the 200 of `UpdateSupplierProduct` both read back through the reader, so both carry the
+     * item's unit. The item is set to `BOX` before the entry exists (owner SQL, RED L-4), never the fixture's `EA`.
+     */
+    #[Test]
+    public function theWriteBodiesServeTheItemsUnit(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Boxed Catalogue');
+        $item = $this->seedItem(self::TENANT_A, 'SKU-BOXED-WRITE');
+        $this->insertAsOwnerForTenant(self::TENANT_A, "UPDATE inventory_item SET unit_of_measure_code = 'BOX' WHERE id = ?::uuid", [$item]);
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::BUYER));
+
+        $this->create($supplier, ['inventory_item_id' => $item, 'supplier_sku' => 'ACME-BOXED', 'unit_cost' => '3', 'lead_time_days' => 4,
+            'minimum_order_quantity' => '10']);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('BOX', $this->json()['unit_of_measure_code'] ?? null, "The 201 does not carry the item's unit.");
+        $entry = $this->json()['id'];
+
+        $this->update($supplier, $entry, ['minimum_order_quantity' => '12']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['12.000000', 'BOX'], [$this->json()['minimum_order_quantity'], $this->json()['unit_of_measure_code'] ?? null],
+            "The 200 does not carry the item's unit.");
     }
 
     /** Every field is checked by shape before anything is read; nothing is written. */
@@ -224,7 +249,7 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame(['id' => $entry, 'inventory_item' => ['id' => $item, 'sku' => 'SKU-REP', 'name' => 'SKU-REP'],
             'supplier_sku' => 'SP-'.substr(md5($item), 0, 8), 'unit_cost' => '7.2500', 'lead_time_days' => 12, 'minimum_order_quantity' => '1.000000',
-            'currency_code' => 'EUR'], $this->json());
+            'unit_of_measure_code' => 'EA', 'currency_code' => 'EUR'], $this->json());
 
         $this->update($supplier, $entry, ['supplier_sku' => 'NEW-SKU', 'minimum_order_quantity' => '24']);
         self::assertSame(['NEW-SKU', '24.000000', '7.2500', 12], [$this->json()['supplier_sku'], $this->json()['minimum_order_quantity'],
