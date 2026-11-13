@@ -61,7 +61,7 @@ const withNumbers = (base: Item, [a, b, c]: string[]): Item => ({ ...base, reord
 const ddAfter = (label: string) => screen.getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement;
 const unit = () => screen.getByRole('combobox', { name: 'Unit of measure' });
 /** items-i4-ux.md U4-6 as ruled on the final RED's M-2 ("Final RED rulings"), verbatim. */
-const UNIT_HINT = "Once stock, orders or price lists record quantities of this item, its unit can't be changed. The three numbers below are in this unit, so check them when you change it.";
+const UNIT_HINT = "Once stock, orders or supplier catalogues record quantities of this item, its unit can't be changed. The three numbers below are in this unit, so check them when you change it.";
 /** A distinctive fixture for `ItemWriter::UNIT_IN_USE`: the page shows the server's sentence as sent, whatever it is. */
 const IN_USE = 'Fixture: this unit is in use, so it was refused.';
 

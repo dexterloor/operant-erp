@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 // with the viewer's codes as the only input. The list page: its gate, the address's view (`?archived=true` kept on
 // reload, never a cursor or a search), and 401 / 403 / 404 / a non-record id.
 
-const v = vi.hoisted(() => ({ byOperation: null as ((operation: string) => boolean) | null, codes: [] as string[], listCalls: [] as unknown[][], supplier: 'ok' as 'ok' | 'not-found' | 'session-ended' | 'forbidden', list: 'ok' as 'ok' | 'session-ended' | 'forbidden' }));
+const v = vi.hoisted(() => ({ byOperation: null as ((operation: string) => boolean) | null, codes: [] as string[], listCalls: [] as unknown[][], supplier: 'ok' as 'ok' | 'not-found' | 'session-ended' | 'forbidden', list: 'ok' as 'ok' | 'session-ended' | 'forbidden', catalogueReads: 0, catalogue: 'ok' as 'ok' | 'session-ended' | 'forbidden' }));
 vi.mock('@/app/(app)/currentViewer', async (actual) => ({
   ...(await actual<typeof import('@/app/(app)/currentViewer')>()),
   currentViewer: async () => ({ session: { sid: 's' }, viewer: { id: 'v', permissionCodes: v.codes } }),
@@ -30,6 +30,10 @@ vi.mock('@/lib/bff/surface', async (actual) => {
 });
 const SUPPLIER = { id: '6a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4e', code: 'ACME', name: 'Acme Supplies', country_code: 'GB', currency_code: 'GBP', payment_terms_days: 30, archived_at: null };
 vi.mock('@/lib/suppliers/load', () => ({
+  loadCatalogue: async () => {
+    v.catalogueReads += 1;
+    return v.catalogue === 'ok' ? { kind: 'ok', entries: [], nextCursor: null } : { kind: v.catalogue };
+  },
   loadSupplier: async () => (v.supplier === 'ok' ? { kind: 'ok', supplier: SUPPLIER } : { kind: v.supplier }),
   loadSuppliers: async (...args: unknown[]) => {
     v.listCalls.push(args);
@@ -103,6 +107,57 @@ describe('/suppliers/[id] — Save follows UpdateSupplier, Restore supplier foll
     expect((await generateMetadata({ params: Promise.resolve({ id: SUPPLIER.id }) })).title).toBe('ACME — Acme Supplies');
     v.codes = [];
     expect((await generateMetadata({ params: Promise.resolve({ id: SUPPLIER.id }) })).title).toBe('Suppliers');
+  });
+});
+
+// Suppliers S-3 test 1 (suppliers-plan.md Revision 1 — FINAL §R1-2, §R1-4 S-3 test 1; Revision 7 A-20; RED L-9): the
+// catalogue section is read and rendered only for a ListSupplierProducts holder (supplier_product.view); for anyone else
+// it is absent and not fetched — the viewer shape, and a composed role holding supplier_product.edit without .view. The
+// item link follows GetItem (inventory_item.view). Built from codes, never role names (A-20).
+describe('/suppliers/[id] — the catalogue section is gated on ListSupplierProducts (S-3 test 1)', () => {
+  type Cat = { initial: unknown; canOpenItem: boolean } | null;
+  const at = async (codes: string[]) => {
+    v.catalogueReads = 0;
+    v.catalogue = 'ok';
+    const el = await render(codes);
+    return { catalogue: (el.props as { catalogue: Cat }).catalogue, reads: v.catalogueReads };
+  };
+
+  it('viewer shape (supplier.view only): no section and no ListSupplierProducts read', async () => {
+    expect(await at(['supplier.view'])).toEqual({ catalogue: null, reads: 0 });
+  });
+
+  it('supplier_product.edit without supplier_product.view: no section and no read', async () => {
+    expect(await at(['supplier.view', 'supplier.edit', 'supplier_product.edit'])).toEqual({ catalogue: null, reads: 0 });
+  });
+
+  it('supplier_product.view: the section, read once; the item link only with inventory_item.view', async () => {
+    expect(await at(['supplier.view', 'supplier_product.view'])).toEqual({ catalogue: { initial: { kind: 'ok', entries: [], nextCursor: null }, canOpenItem: false }, reads: 1 });
+    expect((await at(['supplier.view', 'supplier_product.view', 'inventory_item.view'])).catalogue).toMatchObject({ canOpenItem: true });
+  });
+
+  it('the section follows ListSupplierProducts and the link GetItem, each on its own operation', async () => {
+    v.byOperation = (op) => op === 'GetSupplier';
+    try {
+      expect(await at([])).toEqual({ catalogue: null, reads: 0 });
+      v.byOperation = (op) => op === 'GetSupplier' || op === 'ListSupplierProducts';
+      expect(await at([])).toMatchObject({ catalogue: { canOpenItem: false }, reads: 1 });
+      v.byOperation = (op) => op === 'GetSupplier' || op === 'ListSupplierProducts' || op === 'GetItem';
+      expect((await at([])).catalogue).toMatchObject({ canOpenItem: true });
+    } finally {
+      v.byOperation = null;
+    }
+  });
+
+  it('a 401 on the section\'s read → the session-ended notice for this address; a 403 is handed to the section (its denied state)', async () => {
+    v.codes = ['supplier.view', 'supplier_product.view'];
+    v.supplier = 'ok';
+    v.catalogue = 'session-ended';
+    await expect(Page({ params: Promise.resolve({ id: SUPPLIER.id }) })).rejects.toThrow(encodeURIComponent(`/suppliers/${SUPPLIER.id}`));
+    v.catalogue = 'forbidden';
+    const el = (await Page({ params: Promise.resolve({ id: SUPPLIER.id }) })) as ReactElement;
+    expect((el.props as { catalogue: Cat }).catalogue).toMatchObject({ initial: { kind: 'forbidden' } });
+    v.catalogue = 'ok';
   });
 });
 

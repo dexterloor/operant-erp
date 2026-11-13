@@ -1,4 +1,4 @@
-import type { Supplier } from '../api/suppliers';
+import type { Supplier, SupplierProduct } from '../api/suppliers';
 import { pageQuery, type PageRequest, type Read, type ReadFailure } from '../bff/reads';
 
 // The supplier pages' loaders (the lib/items/load.ts shape): pure, run over the server transport on first render and
@@ -12,6 +12,8 @@ export type SuppliersLoad =
   | { readonly kind: 'ok'; readonly items: Supplier[]; readonly nextCursor: string | null; readonly previousCursor: string | null; readonly tenantHasRows: boolean }
   | { readonly kind: ReadFailure };
 export type SupplierLoad = { readonly kind: 'ok'; readonly supplier: Supplier } | { readonly kind: ReadFailure };
+/** `nextCursor` is non-null only when the answer is not the whole catalogue (G-42: today the read takes no `limit`). */
+export type CatalogueLoad = { readonly kind: 'ok'; readonly entries: SupplierProduct[]; readonly nextCursor: string | null } | { readonly kind: ReadFailure };
 
 const isObject = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object';
 const isCursor = (x: unknown): x is string | null => x === null || typeof x === 'string';
@@ -48,4 +50,34 @@ export async function loadSupplier(read: Read, id: string, signal?: AbortSignal)
   const a = await read('GetSupplier', { params: { id }, signal });
   if (a.kind !== 'ok') return a;
   return isSupplier(a.body) ? { kind: 'ok', supplier: a.body } : { kind: 'server-error' };
+}
+
+const isWholeNumber = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x);
+export const isSupplierProduct = (x: unknown): x is SupplierProduct =>
+  isObject(x) &&
+  typeof x.id === 'string' &&
+  typeof x.supplier_sku === 'string' &&
+  isObject(x.inventory_item) &&
+  typeof x.inventory_item.id === 'string' &&
+  typeof x.inventory_item.sku === 'string' &&
+  typeof x.inventory_item.name === 'string' &&
+  // Decimal strings, as served; a number here is a malformed body (QR-1: never a double).
+  typeof x.unit_cost === 'string' &&
+  typeof x.currency_code === 'string' &&
+  isWholeNumber(x.lead_time_days) &&
+  typeof x.minimum_order_quantity === 'string';
+
+/**
+ * `ListSupplierProducts` (suppliers-plan.md Revision 1 — FINAL §R1-4 S-3; G-42): the whole catalogue in one answer, in
+ * served order (supplier SKU). It sends the supplier id and nothing else — no `limit`, no cursor, no `q` — and reports the
+ * answer's `next_cursor`, so a later paging change shows the section's partial notice instead of truncating silently
+ * (§6 R-1). Run over the server transport on first render and the browser one for the section's Retry.
+ */
+export async function loadCatalogue(read: Read, supplierId: string, signal?: AbortSignal): Promise<CatalogueLoad> {
+  const a = await read('ListSupplierProducts', { params: { id: supplierId }, signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown; next_cursor?: unknown } | null;
+  const items = body?.items;
+  if (!Array.isArray(items) || !items.every(isSupplierProduct) || !isCursor(body?.next_cursor)) return { kind: 'server-error' };
+  return { kind: 'ok', entries: items, nextCursor: body.next_cursor };
 }

@@ -49,7 +49,7 @@ const ddAfter = (label: string) => screen.getByText(label, { selector: 'dt' }).n
 const IN_USE = 'Fixture: this unit is in use, so it was refused.';
 /** items-ux-copy.md FINAL F-1, verbatim (I3-2). */
 const BODY =
-  "It moves to the archived items. Until it's restored, it can't be added to orders or price lists, it isn't due for reordering, and any stock of it can't be counted or moved between locations. Orders that already name it keep showing it, and can still be received and shipped.";
+  "It moves to the archived items. Until it's restored, it can't be added to orders or supplier catalogues, it isn't due for reordering, and any stock of it can't be counted or moved between locations. Orders that already name it keep showing it, and can still be received and shipped.";
 /** items-i3-ux.md Revision 1 — FINAL F-1 stock line (L-2 as amended; the final RED §G chose it). */
 const HOLDS = 'This item still holds stock in at least one location. Stock in quarantine is included.';
 const AFTER = "A-1 was deleted. It's now in the archived items.";

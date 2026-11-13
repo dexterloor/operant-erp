@@ -11,6 +11,7 @@ import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { COULD_NOT_REACH, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
 import { RESTORE_SUPPLIER, SUPPLIER_FORBIDDEN, SUPPLIER_PAGE } from '@/copy/suppliers';
 import type { Supplier } from '@/lib/api/suppliers';
+import type { CatalogueLoad } from '@/lib/suppliers/load';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
@@ -21,6 +22,7 @@ import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import { useCommittedState } from '../../useCommittedState';
 import { SupplierNotFound, SuppliersDenied } from '../SupplierStates';
+import { CatalogueSection } from './CatalogueSection';
 import listStyles from '../../Lists.module.css';
 
 export interface SupplierPageProps {
@@ -30,6 +32,11 @@ export interface SupplierPageProps {
   canEdit: boolean;
   /** Holds RestoreSupplier's codes (from the contract): ST-4c. Without it an archived supplier shows its banner, no button. */
   canRestore: boolean;
+  /**
+   * The catalogue section (S-3), or null when the viewer does not hold ListSupplierProducts' codes: then it is absent and
+   * was not fetched (A-20). `canOpenItem` = GetItem's codes.
+   */
+  catalogue?: { initial: CatalogueLoad; canOpenItem: boolean } | null;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -45,10 +52,10 @@ type Cause = 'unreachable' | 'server-error';
  * remount. A refused Save whose re-read finds the supplier archived (S5 on a stale page) turns the page archived and
  * shows the server's sentence under **Not saved**, its heading focused — unless a newer live reading was committed first
  * (FE-R7): the refusal is not kept. A failed re-read → the region error (focus on its heading), Retry re-reads; 403 →
- * ST-4b; 404 → ST-5. After a create (S-2) the page speaks *"{code} was created."* once, in its region. No catalogue (S-3), no History. After a save's or restore's message is on screen the router cache is
+ * ST-4b; 404 → ST-5. After a create (S-2) the page speaks *"{code} was created."* once, in its region. The catalogue section (S-3, read-only) follows the editor for a ListSupplierProducts holder, its archived-parent note following the supplier on screen. No History. After a save's or restore's message is on screen the router cache is
  * refreshed once.
  */
-export function SupplierPage({ initial, canEdit, canRestore }: SupplierPageProps) {
+export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }: SupplierPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -206,6 +213,7 @@ export function SupplierPage({ initial, canEdit, canRestore }: SupplierPageProps
           <dd>{SUPPLIER_PAGE.days(supplier.payment_terms_days)}</dd>
         </dl>
       )}
+      {catalogue ? <CatalogueSection supplierId={id} initial={catalogue.initial} supplierArchived={archived} canOpenItem={catalogue.canOpenItem} announce={region.announce} clearRegion={region.clear} /> : null}
     </section>
   );
 }

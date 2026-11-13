@@ -132,10 +132,10 @@ export const NEW_SUPPLIER = {
   /** `deniedResource`: ST-4b's noun for `/suppliers/new` without `CreateSupplier`'s codes. */
   deniedResource: 'new suppliers',
   /**
-   * `currencyHintNew` AT S-2 (suppliers-final-red.md L-1): the first sentence only. The second ("This supplier's
-   * catalogue costs will be in this currency.") joins at S-3, when the catalogue is on the supplier page.
+   * `currencyHintNew` (suppliers-ux-copy.md Revision 1 S-2, full text from S-3 per suppliers-final-red.md L-1: S-2 shipped
+   * the first sentence only, before the catalogue was on the supplier page).
    */
-  currencyHintNew: 'Three letters, for example GBP.',
+  currencyHintNew: "Three letters, for example GBP. This supplier's catalogue costs will be in this currency.",
   /** `submit` · `cancel` (CONFIRMS). */
   submit: 'Create supplier',
   cancel: 'Cancel',
@@ -145,4 +145,40 @@ export const NEW_SUPPLIER = {
   interrupted: (code: string) => `We can't tell whether ${code} was created. Search the list for ${code} before you try again.`,
   /** `interruptedNoCode`: the code as sent is empty after trimming. */
   interruptedNoCode: "We can't tell whether the new supplier was created. Check the list of suppliers before you try again.",
+} as const;
+
+/**
+ * UX S-3 `CATALOGUE` (suppliers-ux-copy.md Revision 1 — FINAL S-3 over Revision 0 B-7; suppliers-final-red.md M-1, M-2):
+ * the catalogue section on the supplier page, read-only for everyone at S-3 (no Actions column, no Add, no `emptyNote`
+ * until the commits that ship them).
+ */
+export const CATALOGUE = {
+  /** `heading` (h2). On the supplier's own page "Catalogue" needs no owner. */
+  heading: 'Catalogue',
+  /** Columns, in order (M-8 interim: the minimum order is shown bare, so its header names the unit it is in). */
+  supplierSku: 'Supplier SKU',
+  item: 'Item',
+  unitCost: 'Unit cost',
+  leadTime: 'Lead time',
+  minimumOrder: "Minimum order (item's unit)",
+  /** Item cell: `{sku} — {name}` (the link text when the viewer may open the item). */
+  itemCell: (sku: string, name: string) => `${sku} — ${name}`,
+  /** Lead time cell: `{n} days` · `1 day` · `0 days`. */
+  days,
+  /**
+   * `count(n)` (final RED M-2): spoken only when the section's first SUCCESSFUL load happens in the browser — a Retry
+   * after a failed first load. Never on first paint, never on a re-read.
+   */
+  count: (n: number) => (n === 1 ? '1 item in this catalogue.' : `${n} items in this catalogue.`),
+  empty: "This supplier's catalogue is empty.",
+  /** `partial(n)` (L-11): the read answered with a non-null `next_cursor`; shown above the rows, which stay. */
+  partial: (n: number) => `Only the first ${n} items in this catalogue are shown.`,
+  loadFailed: "The catalogue couldn't be loaded.",
+  denied: "You don't have access to this supplier's catalogue.",
+  /**
+   * `archivedParent` AT S-3 (suppliers-final-red.md M-1): the catalogue is read-only for everyone here, so the sentence
+   * must not imply that restoring makes it changeable. S-4 replaces it with "This catalogue can't be changed while the
+   * supplier is archived. It comes back unchanged when the supplier is restored."
+   */
+  archivedParent: 'This supplier is archived. Its catalogue comes back unchanged when the supplier is restored.',
 } as const;

@@ -1,8 +1,8 @@
 // Hand-mirrored from `backend/src/Modules/Suppliers/ApiResource/SupplierResource.php` (served schemas `Supplier` and
 // `Supplier.UpdateSupplierInput.jsonMergePatch` in `contracts/openapi.json`). Checked both ways by C-1
 // (`test/contract/wireParity.test.ts`; names only). This file imports nothing (A-18). Wire field names stay snake_case,
-// as served. Suppliers S-1 mirrors the two the editor reads and sends; S-2 the create input; the catalogue's shapes follow
-// at S-3 (suppliers-plan.md §R1-3).
+// as served. Suppliers S-1 mirrors the two the editor reads and sends; S-2 the create input; S-3 the catalogue's two read
+// shapes, `SupplierProduct` and `SupplierItemReference` (suppliers-plan.md §R1-3).
 
 /** `GetSupplier` / `ListSuppliers` item / `UpdateSupplier` and `RestoreSupplier`'s 200 body. */
 export interface Supplier {
@@ -47,4 +47,29 @@ export interface CreateSupplierInput {
    * integer.
    */
   payment_terms_days?: number | string;
+}
+
+/**
+ * `SupplierProduct`'s `inventory_item` (served `SupplierItemReference`, PC-15 display fields): the item's id, SKU and name.
+ * No unit is served on it (BK-31 is not landed), so the catalogue shows the minimum order without one (QR-8 interim).
+ */
+export interface SupplierItemReference {
+  id: string;
+  sku: string;
+  name: string;
+}
+
+/**
+ * One catalogue entry (served `SupplierProduct`, the item of `ListSupplierProducts`' `SupplierProductCollection`).
+ * `unit_cost` and `minimum_order_quantity` are decimal strings and are never converted to numbers (QR-1; money via
+ * `lib/format/money.ts`, the quantity via `lib/format/quantity.ts`); `lead_time_days` is a whole number of days.
+ */
+export interface SupplierProduct {
+  id: string;
+  supplier_sku: string;
+  inventory_item: SupplierItemReference;
+  unit_cost: string;
+  currency_code: string;
+  lead_time_days: number;
+  minimum_order_quantity: string;
 }

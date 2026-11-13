@@ -330,7 +330,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Items I-1 (Revision 8 R8-2) added: lib/api/items.ts, lib/format/quantity.ts, lib/items/{load,results,wired}.ts.
   // Suppliers S-1 added: lib/api/suppliers.ts, lib/suppliers/{load,results,wired}.ts (R8-2) and
   // lib/forms/wholeNumberOrText.ts (Revision 9 R9-2).
-  'src/lib': 70,
+  // Suppliers S-3 added: lib/format/money.ts (renderMoney, Revision 9 R9-2).
+  'src/lib': 71,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -386,7 +387,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/preview': 5,
   'src/lib/auth': 2,
   // Items I-1 (Revision 8 R8-2) added: lib/format/quantity.ts (renderQuantity, the one screen-side QR-2).
-  'src/lib/format': 4,
+  // Suppliers S-3 added: lib/format/money.ts (renderMoney, the QR-6 interim's one home; Revision 9 R9-2).
+  'src/lib/format': 5,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx. Items I-2 (Revision 8 R8-5) added: SelectField.tsx.
   'src/components/ui': 13,
   [FIXTURE_DIR]: 4,
@@ -419,7 +421,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Suppliers S-1 added: app/(app)/suppliers/{page,SuppliersList,SupplierStates}.tsx,
   // app/(app)/suppliers/[id]/{page,SupplierPage,not-found}.tsx.
   // Suppliers S-2 added: app/(app)/suppliers/new/{page,NewSupplierPage}.tsx.
-  'src/app': 67,
+  // Suppliers S-3 added: app/(app)/suppliers/[id]/CatalogueSection.tsx (a section of the page, no route; ARCH (a)).
+  'src/app': 68,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -1817,9 +1820,12 @@ describe('architecture — R8-3: components/records is props-only and names no f
  * binary arithmetic (`x * 1`, `x - 0`) or a quantity under another name is not seen; the per-site DOM tests are what
  * catch those.
  */
-const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items'] as const;
-const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts'] as const;
-const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served/i;
+// Suppliers S-3 (suppliers-plan.md §R1-3 L-8, Revision 9 R9-2): the supplier dirs (the catalogue's minimum order is a
+// served quantity, its unit cost a served decimal) and `lib/format/money.ts` join the scan.
+const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers'] as const;
+const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts', 'src/lib/format/money.ts'] as const;
+// Suppliers S-3 RED L-7: widened to the money names (`amount`, `unit_cost`, `unitCost`) now that `money.ts` is scanned.
+const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served|amount|unit_cost|unitCost/i;
 
 function quantityNumberViolations(files: readonly SourceFile[]): Violation[] {
   const out: Violation[] = [];
@@ -1864,9 +1870,10 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
   it('the item dirs and the renderer hold no such token', () => {
     const files = scanned();
     // Positive control: the scan reads the item family and the renderer, not an empty set.
-    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx']));
-    // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8.
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1);
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx']));
+    // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8. Suppliers S-3 added the supplier
+    // dirs (src/app/(app)/suppliers: 9 files at S-3) and lib/format/money.ts (+1).
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 
@@ -1891,6 +1898,8 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
       { file: 'src/components/items/O.tsx', source: 'export const o = (q: string) => BigInt(q);' },
       { file: 'src/components/items/P.tsx', source: 'export const p = (q: number) => Math.floor(q);' },
       { file: 'src/lib/format/quantity.ts', source: 'export const renderQuantity = (served: string) => String(Number(served));' },
+      // Suppliers S-3 RED L-7: a unary `+` on a money value is seen (the name pattern covers amount / unit_cost / unitCost).
+      { file: 'src/lib/format/money.ts', source: 'export const r = (amount: string) => String(+amount);' },
       { file: 'src/components/items/Ok.tsx', source: "export const ok = (served: string, n: number) => served.slice(0, served.indexOf('.')) + String(n - 1);" },
     ];
     expect(quantityNumberViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
@@ -1914,6 +1923,7 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
       'src/components/items/O.tsx — BigInt(',
       'src/components/items/P.tsx — Math.floor(',
       'src/lib/format/quantity.ts — Number(',
+      'src/lib/format/money.ts — unary + on amount',
     ]);
   });
 });

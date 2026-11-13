@@ -17,7 +17,7 @@ import { SID, TZ, json, problem, refused, renderWired, stubFetch, type Reply } f
 // Suppliers S-2 (suppliers-plan.md Revision 1 — FINAL §R1-4 S-2 over Revision 0 S-2; suppliers-ux-copy.md Revision 1 —
 // FINAL S-2; suppliers-final-red.md L-1): `/suppliers/new` creates a supplier with a fresh Idempotency-Key per submit
 // (the create does not replay on it), Payment terms starts empty and is required on the client (H-2 (a)), the Currency
-// hint carries no catalogue sentence until the catalogue exists (L-1), and the new supplier's page speaks
+// hint carried no catalogue sentence until the catalogue existed (L-1; full text from S-3), and the new supplier's page speaks
 // "{code} was created." once, after RouteFocus has moved focus to its h1 (S-1 D-3).
 
 afterEach(() => {
@@ -56,10 +56,9 @@ describe('/suppliers/new — the form (UX S-2 NEW_SUPPLIER)', () => {
     expect(screen.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/suppliers');
   });
 
-  it('final RED L-1: the Currency hint is "Three letters, for example GBP." and nothing else — no catalogue sentence before the catalogue exists (S-3)', () => {
+  it('final RED L-1, from S-3: the Currency hint is the full Revision 1 text, now that the catalogue is on the supplier page', () => {
     renderWired(<NewSupplierPage />);
-    expect(field('Currency')).toHaveAccessibleDescription('Three letters, for example GBP.');
-    expect(document.body.textContent).not.toMatch(/catalogue/i);
+    expect(field('Currency')).toHaveAccessibleDescription("Three letters, for example GBP. This supplier's catalogue costs will be in this currency.");
   });
 
   it('H-2 (a): Payment terms starts empty (no prefilled 30); Country and Currency are upper-cased as typed', async () => {

@@ -33,7 +33,7 @@ const UX_I1 = 'Another live item in this workspace already uses this SKU.';
 const P1 = 'Some of the same records were being changed at the same moment. Nothing was saved; try again.';
 const BLANK = 'This field may not be blank.';
 /** items-i4-ux.md Revision 1 — FINAL U4-7 (`NEW_ITEM.unitHint`), verbatim. */
-const UNIT_HINT = "Once stock, orders or price lists record quantities of this item, its unit can't be changed.";
+const UNIT_HINT = "Once stock, orders or supplier catalogues record quantities of this item, its unit can't be changed.";
 const INTERRUPTED = (sku: string) => `We can't tell whether ${sku} was created. Search the list for ${sku} before you try again.`;
 
 const field = (name: string) => screen.getByRole('textbox', { name });

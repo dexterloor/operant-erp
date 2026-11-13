@@ -103,7 +103,7 @@ export const ITEM_PAGE = {
    * hint, edit only. REPLACES B-3's "Unit hint, edit only — meaning change" and R1-1's last bullet (never built). PO TO
    * CONFIRM.
    */
-  unitHint: "Once stock, orders or price lists record quantities of this item, its unit can't be changed. The three numbers below are in this unit, so check them when you change it.",
+  unitHint: "Once stock, orders or supplier catalogues record quantities of this item, its unit can't be changed. The three numbers below are in this unit, so check them when you change it.",
   /** The shared line under the three numbers (NEW). */
   numbersNote: "Leave both reorder numbers at 0 if this item isn't reordered. Use a point for decimals, for example 2.5, and no commas.",
   /** R1-9: an emptied number field on Save, beside the field; no request is sent. */
@@ -146,7 +146,7 @@ export const NEW_ITEM = {
    * items-i4-ux.md Revision 1 — FINAL (U4-7, NEW in I-4 = items-i3-ux.md L-10): the create form's Unit hint. REPLACES
    * items-i3-ux.md F-5 #3's "no Unit hint on the create form" (the "no suffix on create" half stays). PO TO CONFIRM.
    */
-  unitHint: "Once stock, orders or price lists record quantities of this item, its unit can't be changed.",
+  unitHint: "Once stock, orders or supplier catalogues record quantities of this item, its unit can't be changed.",
 } as const;
 
 /**
@@ -192,7 +192,7 @@ export const DELETE_ITEM = {
   title: (sku: string, name: string) => `Delete ${sku} — ${name}?`,
   holdsStock: 'This item still holds stock in at least one location. Stock in quarantine is included.',
   /** items-ux-copy.md FINAL F-1, verbatim (I3-2; PO confirmed as G-51's interim, items-i3-po-sec.md P-4). */
-  body: "It moves to the archived items. Until it's restored, it can't be added to orders or price lists, it isn't due for reordering, and any stock of it can't be counted or moved between locations. Orders that already name it keep showing it, and can still be received and shipped.",
+  body: "It moves to the archived items. Until it's restored, it can't be added to orders or supplier catalogues, it isn't due for reordering, and any stock of it can't be counted or moved between locations. Orders that already name it keep showing it, and can still be received and shipped.",
   confirm: 'Delete item',
   cancel: 'Cancel',
   /** ST-9b: after a refusal other than P1, a 403 or an interrupted press, the Delete button is removed and only this remains. */

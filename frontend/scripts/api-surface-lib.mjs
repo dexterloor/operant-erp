@@ -57,6 +57,8 @@ const MIRRORED = {
   Supplier: ['Supplier'],
   'Supplier.CreateSupplierInput': ['Supplier.CreateSupplierInput'],
   'Supplier.UpdateSupplierInput.jsonMergePatch': ['Supplier.UpdateSupplierInput.jsonMergePatch'],
+  SupplierProduct: ['SupplierProduct'],
+  SupplierItemReference: ['SupplierItemReference'],
 };
 
 const BANNER =
