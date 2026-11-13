@@ -324,6 +324,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
             forbidden: ITEM_FORBIDDEN,
           }}
           run={remove}
+          onDeleteStarted={region.clear}
           deleteCode={gateCode('DeleteItem')}
           onClose={(o) => void closeDelete(o)}
           fallbackFocusRef={h1}

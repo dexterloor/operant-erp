@@ -541,6 +541,24 @@ describe('/suppliers/[id] — archived, and Restore supplier (UX S-1 RESTORE_SUP
     expect(screen.queryByText(S5)).toBeNull();
     expect(within(document.body).queryByText('Not saved')).toBeNull();
   });
+
+  // fe-r9-deviations-red.md L-A (the P1 route on this page): no Save press at all. What keeps it from repeating is the
+  // shared Restore press emptying the region.
+  it('Restore (its re-read fails), an archive made elsewhere learned through Retry, Restore again: spoken both times', async () => {
+    const calls = stubFetch([json(200, ACME), json(500, {}), json(200, ARCHIVED), json(200, ACME), json(200, ACME)]);
+    const u = userEvent.setup();
+    show(ARCHIVED, true, true);
+    const rec = textsOf(region());
+    await u.click(restore());
+    await waitFor(() => expect(region()).toHaveTextContent('ACME was restored.'));
+    await u.click(await screen.findByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByText(/This supplier was archived on/)).toBeInTheDocument());
+    await u.click(restore());
+    await waitFor(() => expect(screen.queryByText(/This supplier was archived on/)).toBeNull());
+    await waitFor(() => expect(rec.texts).toEqual(['', 'ACME was restored.', '', 'ACME was restored.']));
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'GET', 'GET', 'POST', 'GET']);
+    rec.stop();
+  });
 });
 
 // fe-r6-saving-status-design.md Revision 1 — FINAL commit A (RED H-2; final RED A-1, A-3): the region is cleared at each

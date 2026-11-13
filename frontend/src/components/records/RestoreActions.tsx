@@ -110,6 +110,11 @@ export function RestoreActions<S>({ archivedAt, copy, canRestore, restore, resto
     if (busy) return;
     // An earlier refusal never survives a new press.
     setNotice(null);
+    // FE-R9: after the guard, before the request. Emptying the region here, in its own render before the answer, makes
+    // the after-sentence a change even when it repeats the last one word for word (a restore whose re-read failed, then
+    // an archive made elsewhere learned through Retry, which writes nothing), so it is given again. On the warehouse page
+    // `announce` is the page's counted writer, so the clear goes through it, never around it.
+    announce('');
     setBusy(true);
     let result: RestoreResult<S>;
     try {

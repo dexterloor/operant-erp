@@ -43,6 +43,12 @@ export interface DeleteDialogProps {
    */
   onClose: (o: { deleted: boolean; reread: boolean }) => void;
   fallbackFocusRef: RefObject<HTMLElement | null>;
+  /**
+   * Called once per Delete press that will send a request: after every guard, just before the request (FE-R9, the FE-R6
+   * commit A mechanism). The page empties its status region here, in its own render before the answer, so a second
+   * identical "… was deleted." is a change to the region and is given again (an equal string written over itself is no DOM change).
+   */
+  onDeleteStarted?: () => void;
 }
 
 interface Notice {
@@ -62,7 +68,7 @@ interface Notice {
  * Shared by families (Revision 8 R8-3, items plan I-0a; moved from `components/warehouses/`): props only, the family's
  * copy and result come in as props, and nothing here imports a family's `copy/` or `lib/` (architecture.test.ts).
  */
-export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef }: DeleteDialogProps) {
+export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef, onDeleteStarted }: DeleteDialogProps) {
   const cancel = useRef<HTMLButtonElement>(null);
   const bannerRef = useRef<HTMLParagraphElement>(null);
   const gen = useRef(0);
@@ -78,6 +84,7 @@ export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef 
 
   const confirm = async () => {
     if (busy || final) return;
+    onDeleteStarted?.();
     setBusy(true);
     let r: DeleteResult;
     try {

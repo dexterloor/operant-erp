@@ -142,6 +142,10 @@ export function RoleProposals({ proposals, canConfirm, actions, fallbackFocusRef
   const run = async (act: Act, proposal: RoleGrantProposal) => {
     if (busy) return;
     const marginBefore = marginExposure;
+    // FE-R9: after the guard, before the request. Emptying the group's status line here, in its own render before the
+    // answer, makes the done sentence a change even when it repeats the last one word for word (a second proposal of the
+    // same role rejected or withdrawn in turn), so it is given again; an equal string written over itself is no DOM change.
+    status.clear();
     setBusy({ id: proposal.id, act });
     setNotice(null); // R1-2: it clears on the next action in the group.
     let result: ActResult;

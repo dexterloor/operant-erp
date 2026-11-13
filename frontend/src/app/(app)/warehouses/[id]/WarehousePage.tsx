@@ -270,6 +270,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
         <DeleteDialog
           copy={{ title: DELETE_WAREHOUSE.title(warehouse.code, warehouse.name), body: DELETE_WAREHOUSE.body, confirm: DELETE_WAREHOUSE.confirm, cancel: DELETE_WAREHOUSE.cancel, close: DELETE_WAREHOUSE.close, interrupted: DELETE_WAREHOUSE.interrupted(warehouse.code), forbidden: WAREHOUSE_FORBIDDEN }}
           run={remove}
+          onDeleteStarted={() => announce('')}
           deleteCode={gateCode('DeleteWarehouse')}
           onClose={(o) => void closeDelete(o)}
           fallbackFocusRef={h1}

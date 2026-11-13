@@ -288,6 +288,10 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
   const runRestore = async (l: StorageLocation) => {
     if (restoring !== null) return;
     setNotice(null);
+    // FE-R9: after the guard, before the request, through the page's counted writer (never around it). The row's
+    // sentence is then a change even when it repeats the last one word for word (a row archived again elsewhere, seen
+    // through a view switch, which writes only to the list's own status line), so it is given again.
+    announce('');
     setRestoring(l.id);
     let r: RestoreLocationResult;
     try {
@@ -477,6 +481,7 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
           deleteCode={gateCode('DeleteStorageLocation')}
           onClose={(o) => void closeDelete(deleting, o)}
           fallbackFocusRef={heading}
+          onDeleteStarted={() => announce('')}
         />
       ) : null}
       {editing !== null && canEdit && !warehouseArchived ? <LocationForm key={editing.id} location={editing} kinds={wireEnum(UPDATE_INPUT, 'kind')} save={save} editCode={gateCode('UpdateStorageLocation')} onClose={(o) => void closeEdit(o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}

@@ -937,24 +937,27 @@ describe('/warehouses/[id] — Delete location, the corrected "after" (FE-R8 loc
     expect(region().textContent).toBe(AFTER);
   });
 
-  // fe-r8-location-red.md L-2: Restore warehouse can speak in the window (a refused Delete warehouse whose Close re-read
-  // reads it archived archives the page with no region write). Mutation ML-2 (RestoreActions given the raw region writer)
-  // → red. The arrival message cannot speak in the window: it is written by a 0 ms timer at mount, before any delete.
+  // fe-r8-location-red.md L-2: Restore warehouse can speak in the window. Re-routed by fe-r9-deviations-red.md L-B so the
+  // Restore press is the only region write in the window (since FE-R9 a Delete warehouse press empties the region through
+  // the counted writer, which would drop the correction whatever writer Restore holds): a page Restore whose re-read fails
+  // (live from the 200 body, region error) → location delete A1 (204, re-read held) → Retry reads the warehouse archived
+  // elsewhere (no region write) → Restore warehouse → the held re-read lands with A1 restored in between, so a correction
+  // is pending. Mutation ML-2 (RestoreActions given the raw region writer) → red. The arrival message cannot speak in the
+  // window: it is written by a 0 ms timer at mount, before any delete.
   it('Restore warehouse in the window speaks its own sentence → the location re-read leaves it', async () => {
     const reread = held();
-    const calls = stubFetch([empty(204), reread.reply, refused('warehouse.holds_stock', 'x'), json(200, ARCHIVED), json(200, MAIN), json(200, MAIN)]);
+    const calls = stubFetch([json(200, MAIN), json(500, {}), empty(204), reread.reply, json(200, ARCHIVED), json(200, MAIN), json(200, MAIN)]);
     const u = userEvent.setup();
     const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: true };
-    renderWired(<WarehousePage initial={MAIN} canEdit={false} canRestore canDelete locations={locations} />);
+    renderWired(<WarehousePage initial={ARCHIVED} canEdit={false} canRestore canDelete locations={locations} />);
+    await u.click(screen.getByRole('button', { name: 'Restore warehouse' }));
+    await waitFor(() => expect(region().textContent).toBe('MAIN was restored.'));
     await deleteA1(u);
     await waitFor(() => expect(region().textContent).toBe(AFTER));
-    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
-    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
-    await waitFor(() => expect(within(dialog()).getByText('Not deleted')).toHaveFocus());
-    await u.click(within(dialog()).getByRole('button', { name: 'Close' }));
+    await u.click(await screen.findByRole('button', { name: 'Retry' }));
     await u.click(await screen.findByRole('button', { name: 'Restore warehouse' }));
     await waitFor(() => expect(region().textContent).toBe('MAIN was restored.'));
-    expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'DELETE', 'GET', 'POST', 'GET']);
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'GET', 'DELETE', 'GET', 'GET', 'POST', 'GET']);
     reread.release(json(200, coll([A1, Q1])));
     await settle();
     await settle();
