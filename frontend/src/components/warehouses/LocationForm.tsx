@@ -28,6 +28,12 @@ export interface LocationFormProps {
   onClose: (outcome: { saved: StorageLocation | null; reread: boolean }) => void;
   /** Where focus goes on close when the row's Edit button is gone (the section's heading). */
   fallbackFocusRef: RefObject<HTMLElement | null>;
+  /**
+   * Called once per Save press that will send a request: after every guard, just before the request (FE-R6 commit A).
+   * The page empties its status region here, in its own render before the answer, so a second identical "… was saved."
+   * is a change to the region and is given again (an equal string written over itself is no DOM change).
+   */
+  onSaveStarted?: () => void;
 }
 
 interface Notice {
@@ -46,7 +52,7 @@ interface Notice {
  * dialog's refusal banner as sent (ST-3); the dialog stays open and Save stays available (B-7: P1 asks for another press).
  * An interruption says so; after it, or after any refusal, closing re-reads the section (L-8, RED M-1). A 401 renders nothing (the caller navigates).
  */
-export function LocationForm({ location, kinds, save, editCode, onClose, fallbackFocusRef }: LocationFormProps) {
+export function LocationForm({ location, kinds, save, editCode, onClose, fallbackFocusRef, onSaveStarted }: LocationFormProps) {
   const [code, setCode] = useState(location.code);
   const [kind, setKind] = useState(location.kind);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<LocationField>>({});
@@ -135,6 +141,7 @@ export function LocationForm({ location, kinds, save, editCode, onClose, fallbac
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy || nothing) return;
+    onSaveStarted?.();
     setBusy(true);
     let r: SaveLocationResult;
     try {

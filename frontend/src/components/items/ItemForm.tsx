@@ -34,6 +34,12 @@ export interface ItemFormProps {
   /** Called once per Save answered `saved`, after the message is written. */
   onSaved?: () => void;
   /**
+   * Called once per Save press that will send a request: after every guard, just before the request (FE-R6 commit A).
+   * The page empties its status region here, in its own render before the answer, so a second identical "… was saved."
+   * is a change to the region and is given again (an equal string written over itself is no DOM change).
+   */
+  onSaveStarted?: () => void;
+  /**
    * A refused Save whose re-read found the item archived (`refused-archived`): the page is already archived and read-only
    * (this form is gone), so the page shows the server's sentence under **Not saved** — unless its own Delete answered 204
    * after this Save was sent (`sentAsOf`, the stamp taken then; items-i4-ux.md M-4, T-17), or the page is live again: a
@@ -79,7 +85,7 @@ const NUMBER_LABELS: Record<(typeof QUANTITY_FIELDS)[number], { label: string; h
  * the region says *"{sku} was saved."* and focus goes to the `h1`; after a refusal to the banner heading; after `invalid`
  * (the server's, or the empty-number check) to the first field with an error, once that error is on screen.
  */
-export function ItemForm({ item, units, save, editCode, announce, fallbackFocusRef, onSaved, onRefusedArchived }: ItemFormProps) {
+export function ItemForm({ item, units, save, editCode, announce, fallbackFocusRef, onSaved, onSaveStarted, onRefusedArchived }: ItemFormProps) {
   const [loadedKey, setLoadedKey] = useState(item);
   const [values, setValues] = useState<Values>(() => valuesOf(item));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<ItemField>>({});
@@ -201,6 +207,7 @@ export function ItemForm({ item, units, save, editCode, announce, fallbackFocusR
       focusField(emptied[0]!);
       return;
     }
+    onSaveStarted?.();
     setBusy(true);
     let r: SaveItemResult;
     try {

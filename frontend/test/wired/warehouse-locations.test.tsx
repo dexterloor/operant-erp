@@ -12,7 +12,7 @@ import type { StorageLocation, Warehouse } from '@/lib/api/warehouses';
 import { wireEnum } from '@/lib/bff/surface';
 import type { LocationsLoad } from '@/lib/warehouses/load';
 import listStyles from '@/app/(app)/Lists.module.css';
-import { json, problem, refused, renderWired, stubFetch } from './harness';
+import { json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
 
 // Revision 7 §2 step 4.4 (R3-7, A-20, A-21), warehouses-ux-copy.md B-5 and STATES.md ST-9b: the Locations section on the
 // warehouse page. Columns Code · Kind (the label, or the value as sent); Edit changes the code only (Kind shown as a label,
@@ -642,5 +642,36 @@ describe('/warehouses/[id] — Locations, the stale banner after a failed re-rea
       expect(ADD_LOCATION.afterListStale(c)).toBe(`${ADD_LOCATION.after(c)} ${WAITING.listStale}`);
       expect(RESTORE_LOCATION.afterListStale(c)).toBe(`${RESTORE_LOCATION.after(c)} ${WAITING.listStale}`);
     }
+  });
+});
+
+// fe-r6-saving-status-design.md Revision 1 — FINAL commit A (RED H-2; final RED A-3): LocationsSection empties the page
+// region through the counted writer at each Edit Save press that sends a request, so a second identical
+// "{code} was saved." is given again.
+describe('Edit location — a second identical saved sentence is written again (FE-R6 commit A)', () => {
+  const SAVED = 'A1 was saved.';
+  const editKind = async (u: ReturnType<typeof userEvent.setup>, kind: string) => {
+    await u.click(within(section()).getByRole('button', { name: 'Edit A1' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit location A1' });
+    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), kind);
+    await u.click(within(dialog).getByRole('button', { name: 'Save' }));
+  };
+
+  // Mutation A-M4 (no call in LocationForm) → red.
+  it('two Edits of the same location in a row each say "A1 was saved.": the region empties at the second press', async () => {
+    // Two served kinds other than A1's own, so each Edit changes something (the served list, never typed).
+    const [k1, k2] = wireEnum('StorageLocation', 'kind').filter((k) => k !== A1.kind) as [string, string];
+    const one = { ...A1, kind: k1 };
+    const two = { ...A1, kind: k2 };
+    stubFetch([json(200, one), json(200, coll([one, Q1, P1])), json(200, two), json(200, coll([two, Q1, P1]))]);
+    const u = userEvent.setup();
+    show();
+    const rec = textsOf(pageRegion());
+    await editKind(u, k1);
+    await waitFor(() => expect(pageRegion().textContent).toBe(SAVED));
+    await waitFor(() => expect(within(section()).getByRole('button', { name: 'Edit A1' })).toHaveFocus());
+    await editKind(u, k2);
+    await waitFor(() => expect(rec.texts).toEqual(['', SAVED, '', SAVED]));
+    rec.stop();
   });
 });

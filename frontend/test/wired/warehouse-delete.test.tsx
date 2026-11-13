@@ -862,6 +862,38 @@ describe('/warehouses/[id] — Delete location, the corrected "after" (FE-R8 loc
     expect(region().textContent).toBe('MAIN was saved.');
   });
 
+  // fe-r6-saving-status-final-red.md A-2: a Save press empties the region through the page's COUNTED writer, so a pending
+  // Locations correction is superseded by the press itself, before the Save answers. Mutation A-M6 (raw `writeRegion('')`
+  // in WarehousePage) → red only here.
+  it('a warehouse Save pressed while the location re-read is held supersedes its correction at the press (FE-R6 commit A)', async () => {
+    const reread = held();
+    const patch = held();
+    const getAfter = held();
+    const calls = stubFetch([empty(204), reread.reply, patch.reply, getAfter.reply]);
+    const u = userEvent.setup();
+    const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: true };
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore={false} locations={locations} />);
+    await deleteA1(u);
+    await waitFor(() => expect(region().textContent).toBe(AFTER));
+    const rec = textsOf(region());
+    const name = screen.getByRole('textbox', { name: 'Name' });
+    await u.clear(name);
+    await u.type(name, 'Main 2');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'PATCH']));
+    reread.release(json(200, coll([A1, Q1])));
+    await settle();
+    await settle();
+    expect(rec.texts).not.toContain(RESTORED);
+    patch.release(json(200, { ...MAIN, name: 'Main 2' }));
+    await waitFor(() => expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'PATCH', 'GET']));
+    getAfter.release(json(200, { ...MAIN, name: 'Main 2' }));
+    await waitFor(() => expect(region().textContent).toBe('MAIN was saved.'));
+    expect(rec.texts).not.toContain(RESTORED);
+    expect(rec.texts).toEqual([AFTER, '', 'MAIN was saved.']);
+    rec.stop();
+  });
+
   // Every page writer goes through the page's wrapper (F-3): Delete warehouse too. Mutation M5′ (Delete warehouse writes
   // the region directly) → red.
   it('a Delete warehouse in the window speaks its own "after" → the location re-read leaves it', async () => {

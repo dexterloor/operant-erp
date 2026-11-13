@@ -27,6 +27,12 @@ export interface SupplierFormProps {
   /** Called once per Save answered `saved`, after the message is written. */
   onSaved?: () => void;
   /**
+   * Called once per Save press that will send a request: after every guard, just before the request (FE-R6 commit A).
+   * The page empties its status region here, in its own render before the answer, so a second identical "… was saved."
+   * is a change to the region and is given again (an equal string written over itself is no DOM change).
+   */
+  onSaveStarted?: () => void;
+  /**
    * A refused Save whose re-read found the supplier archived (`refused-archived`): the page is already archived and
    * read-only (this form is gone), so the page shows the server's sentence under **Not saved**.
    */
@@ -56,7 +62,7 @@ const valuesOf = (s: Supplier): Values => ({ code: s.code, name: s.name, country
  * a refusal to the banner heading; after `invalid`, to the first field with an error, once that error is on screen.
  * A 401 renders nothing (the caller navigates to sign-in).
  */
-export function SupplierForm({ supplier, save, editCode, announce, fallbackFocusRef, onSaved, onRefusedArchived }: SupplierFormProps) {
+export function SupplierForm({ supplier, save, editCode, announce, fallbackFocusRef, onSaved, onSaveStarted, onRefusedArchived }: SupplierFormProps) {
   const [loadedKey, setLoadedKey] = useState(supplier);
   const [values, setValues] = useState<Values>(() => valuesOf(supplier));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<SupplierField>>({});
@@ -174,6 +180,7 @@ export function SupplierForm({ supplier, save, editCode, announce, fallbackFocus
       focusField('payment_terms_days');
       return;
     }
+    onSaveStarted?.();
     setBusy(true);
     let r: SaveSupplierResult;
     try {

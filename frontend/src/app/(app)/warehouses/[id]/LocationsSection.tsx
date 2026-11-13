@@ -479,7 +479,7 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
           fallbackFocusRef={heading}
         />
       ) : null}
-      {editing !== null && canEdit && !warehouseArchived ? <LocationForm key={editing.id} location={editing} kinds={wireEnum(UPDATE_INPUT, 'kind')} save={save} editCode={gateCode('UpdateStorageLocation')} onClose={(o) => void closeEdit(o)} fallbackFocusRef={heading} /> : null}
+      {editing !== null && canEdit && !warehouseArchived ? <LocationForm key={editing.id} location={editing} kinds={wireEnum(UPDATE_INPUT, 'kind')} save={save} editCode={gateCode('UpdateStorageLocation')} onClose={(o) => void closeEdit(o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}
     </>
   );
 }

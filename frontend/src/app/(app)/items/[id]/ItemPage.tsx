@@ -291,7 +291,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
         />
       ) : null}
       {canEdit && !actionsArchived ? (
-        <ItemForm item={item} units={UNITS} save={save} editCode={gateCode('UpdateItem')} announce={announceSaved} fallbackFocusRef={h1} onSaved={onSaved} onRefusedArchived={onRefusedArchived} />
+        <ItemForm item={item} units={UNITS} save={save} editCode={gateCode('UpdateItem')} announce={announceSaved} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={region.clear} onRefusedArchived={onRefusedArchived} />
       ) : (
         <dl className={styles.fields}>
           <dt>{ITEM_PAGE.sku}</dt>

@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -6,7 +6,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) 
 import { SupplierPage } from '@/app/(app)/suppliers/[id]/SupplierPage';
 import type { Supplier } from '@/lib/api/suppliers';
 import { formatDate } from '@/lib/format/dates';
-import { TZ, held, json, problem, refused, renderWired, stubFetch } from './harness';
+import { TZ, held, json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
 
 // Suppliers S-1 (suppliers-plan.md §R1-4 S-1 tests 5–11 over Revision 0 §2.2 and §4 S-1; suppliers-ux-copy.md Revision 1
 // — FINAL S-1; suppliers-final-red.md R-2, L-9; b4-architecture.md Revision 9 R9-2). The supplier page is the editor (IA
@@ -540,5 +540,68 @@ describe('/suppliers/[id] — archived, and Restore supplier (UX S-1 RESTORE_SUP
     await waitFor(() => expect(region()).toHaveTextContent('ACME was restored.'));
     expect(screen.queryByText(S5)).toBeNull();
     expect(within(document.body).queryByText('Not saved')).toBeNull();
+  });
+});
+
+// fe-r6-saving-status-design.md Revision 1 — FINAL commit A (RED H-2; final RED A-1, A-3): the region is cleared at each
+// Save press that sends a request, so a second identical "{code} was saved." is a DOM change and is given again.
+describe('/suppliers/[id] — a second identical saved sentence is written again (FE-R6 commit A)', () => {
+  const SAVED = 'ACME was saved.';
+  const saveName = async (u: ReturnType<typeof userEvent.setup>, typed: string) => {
+    await u.type(field('Name'), typed);
+    await u.click(save());
+  };
+
+  // Mutations A-M2 (no call in SupplierForm) → red.
+  it('two Saves of the same supplier in a row each say "ACME was saved.": the region empties at the second press', async () => {
+    const one = { ...ACME, name: 'Acme Suppliesx' };
+    const two = { ...ACME, name: 'Acme Suppliesxy' };
+    stubFetch([json(200, one), json(200, one), json(200, two), json(200, two)]);
+    const u = userEvent.setup();
+    show();
+    const rec = textsOf(region());
+    await saveName(u, 'x');
+    await waitFor(() => expect(region().textContent).toBe(SAVED));
+    await waitFor(() => expect(field('Name')).toHaveValue('Acme Suppliesx'));
+    await saveName(u, 'y');
+    await waitFor(() => expect(rec.texts).toEqual(['', SAVED, '', SAVED]));
+    rec.stop();
+  });
+
+  // Final RED A-1: red under A-M10 (call before the emptied-terms return) only because the region holds a sentence at
+  // the press.
+  it('emptied Payment terms after a Save does not clear the region: nothing is sent, so nothing is cleared', async () => {
+    const one = { ...ACME, name: 'Acme Suppliesx' };
+    const calls = stubFetch([json(200, one), json(200, one)]);
+    const u = userEvent.setup();
+    show();
+    const rec = textsOf(region());
+    await saveName(u, 'x');
+    await waitFor(() => expect(region().textContent).toBe(SAVED));
+    await u.clear(field('Payment terms (days)'));
+    await u.click(save());
+    await waitFor(() => expect(field('Payment terms (days)')).toHaveAttribute('aria-invalid', 'true'));
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
+    expect(rec.texts).toEqual(['', SAVED]);
+    rec.stop();
+  });
+
+  // The busy/nothing guard: the aria-disabled Save's click is prevented by Button, so the submit is driven directly.
+  it('a submit with nothing changed after a Save does not clear the region', async () => {
+    const one = { ...ACME, name: 'Acme Suppliesx' };
+    const calls = stubFetch([json(200, one), json(200, one)]);
+    const u = userEvent.setup();
+    show();
+    const rec = textsOf(region());
+    await saveName(u, 'x');
+    await waitFor(() => expect(region().textContent).toBe(SAVED));
+    await waitFor(() => expect(save()).toHaveAttribute('aria-disabled', 'true'));
+    fireEvent.submit(save().closest('form')!);
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 20));
+    });
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
+    expect(rec.texts).toEqual(['', SAVED]);
+    rec.stop();
   });
 });

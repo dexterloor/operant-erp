@@ -1,5 +1,5 @@
 import { StrictMode, useState } from 'react';
-import { act, isInaccessible, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, isInaccessible, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -12,7 +12,7 @@ import { TooltipProvider } from '@/components/ui/Tooltip';
 import type { Item } from '@/lib/api/items';
 import { formatDate } from '@/lib/format/dates';
 import { wireEnum } from '@/lib/bff/surface';
-import { SID, TZ, atText, empty, expectSuffix, held, json, problem, refused, renderWired, shownText, stubFetch } from './harness';
+import { SID, TZ, atText, empty, expectSuffix, held, json, problem, refused, renderWired, shownText, stubFetch, textsOf } from './harness';
 
 // Items I-1 (items-plan.md §4 I-1 as amended by R1-1…R1-9 and Revision 1 — FINAL; items-ux-copy.md B-3, B-5 as amended
 // by R1-1, R1-2, R1-6, R1-9, R1-17, F-4; Revision 8 R8-2): the item page is the editor. SKU, Name, the Unit (since I-4,
@@ -1184,5 +1184,72 @@ describe('/items/[id] — S-3: the read-only and archived numbers say the unit b
       expect(isInaccessible(spoken)).toBe(false);
       expect(atText(dd)).toBe(`${served} ${word}`);
     }
+  });
+});
+
+// fe-r6-saving-status-design.md Revision 1 — FINAL commit A (RED H-2; final RED A-1, A-3): the region is cleared at each
+// Save press that sends a request, so a second identical "{sku} was saved." is a DOM change and is given again. The
+// recorder is `textsOf` (harness.tsx): the initial text, then each change.
+describe('/items/[id] — a second identical saved sentence is written again (FE-R6 commit A)', () => {
+  const SAVED = 'A-1 was saved.';
+  const saveName = async (u: ReturnType<typeof userEvent.setup>, typed: string) => {
+    await u.type(field('Name'), typed);
+    await u.click(save());
+  };
+
+  // Mutations A-M1 (no call in ItemForm), A-M5 (the page passes a no-op) and A-M8 (clear just before the sentence) → red.
+  it('two Saves of the same item in a row each say "A-1 was saved.": the region empties at the second press', async () => {
+    const one = { ...BOLT, name: 'Boltx' };
+    const two = { ...BOLT, name: 'Boltxy' };
+    stubFetch([json(200, one), json(200, one), json(200, two), json(200, two)]);
+    const u = userEvent.setup();
+    show();
+    const rec = textsOf(region());
+    await saveName(u, 'x');
+    await waitFor(() => expect(region().textContent).toBe(SAVED));
+    await waitFor(() => expect(field('Name')).toHaveValue('Boltx'));
+    await saveName(u, 'y');
+    await waitFor(() => expect(rec.texts).toEqual(['', SAVED, '', SAVED]));
+    rec.stop();
+  });
+
+  // Final RED A-1: red under A-M7 (clear before the emptied-number check) only because the region holds a sentence at
+  // the press; on a fresh page an emptied region cleared again is no change.
+  it('an emptied number after a Save does not clear the region: nothing is sent, so nothing is cleared', async () => {
+    const one = { ...BOLT, name: 'Boltx' };
+    const calls = stubFetch([json(200, one), json(200, one)]);
+    const u = userEvent.setup();
+    show();
+    const rec = textsOf(region());
+    await saveName(u, 'x');
+    await waitFor(() => expect(region().textContent).toBe(SAVED));
+    await u.clear(field('Safety stock'));
+    await u.click(save());
+    await waitFor(() => expect(field('Safety stock')).toHaveAttribute('aria-invalid', 'true'));
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
+    expect(rec.texts).toEqual(['', SAVED]);
+    rec.stop();
+  });
+
+  // Final RED A-1: red under A-M9 (call before the busy/nothing return) only because the region holds a sentence. The
+  // aria-disabled Save's click is prevented by Button (blocked), so the form's submit is driven directly: it is the only
+  // way that guard is reached.
+  it('a submit with nothing changed after a Save does not clear the region', async () => {
+    const one = { ...BOLT, name: 'Boltx' };
+    const calls = stubFetch([json(200, one), json(200, one)]);
+    const u = userEvent.setup();
+    show();
+    const rec = textsOf(region());
+    await saveName(u, 'x');
+    await waitFor(() => expect(region().textContent).toBe(SAVED));
+    await waitFor(() => expect(save()).toHaveAttribute('aria-disabled', 'true'));
+    await u.click(save());
+    fireEvent.submit(save().closest('form')!);
+    await act(async () => {
+      await new Promise((t) => setTimeout(t, 20));
+    });
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
+    expect(rec.texts).toEqual(['', SAVED]);
+    rec.stop();
   });
 });

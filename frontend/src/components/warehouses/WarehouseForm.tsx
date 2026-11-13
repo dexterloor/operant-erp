@@ -26,6 +26,12 @@ export interface WarehouseFormProps {
   fallbackFocusRef: RefObject<HTMLElement | null>;
   /** Called once per Save answered `saved`, after the message is written. */
   onSaved?: () => void;
+  /**
+   * Called once per Save press that will send a request: after every guard, just before the request (FE-R6 commit A).
+   * The page empties its status region here, in its own render before the answer, so a second identical "… was saved."
+   * is a change to the region and is given again (an equal string written over itself is no DOM change).
+   */
+  onSaveStarted?: () => void;
 }
 
 type Values = Required<Pick<UpdateWarehouseInput, WarehouseField>>;
@@ -46,7 +52,7 @@ const valuesOf = (w: Warehouse): Values => ({ code: w.code, name: w.name, countr
  * a refusal focus goes to the banner heading; after `invalid`, to the first field with an error (D-4, UX TO CONFIRM).
  * A 401 renders nothing (the caller navigates to sign-in).
  */
-export function WarehouseForm({ warehouse, save, editCode, announce, fallbackFocusRef, onSaved }: WarehouseFormProps) {
+export function WarehouseForm({ warehouse, save, editCode, announce, fallbackFocusRef, onSaved, onSaveStarted }: WarehouseFormProps) {
   const [loadedKey, setLoadedKey] = useState(warehouse);
   const [values, setValues] = useState<Values>(() => valuesOf(warehouse));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<WarehouseField>>({});
@@ -148,6 +154,7 @@ export function WarehouseForm({ warehouse, save, editCode, announce, fallbackFoc
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy || nothing) return;
+    onSaveStarted?.();
     setBusy(true);
     let r: SaveWarehouseResult;
     try {

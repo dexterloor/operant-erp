@@ -250,7 +250,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
         />
       ) : null}
       {canEdit && !actionsArchived ? (
-        <WarehouseForm warehouse={warehouse} save={save} editCode={gateCode('UpdateWarehouse')} announce={announce} fallbackFocusRef={h1} onSaved={onSaved} />
+        <WarehouseForm warehouse={warehouse} save={save} editCode={gateCode('UpdateWarehouse')} announce={announce} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={() => announce('')} />
       ) : (
         <dl className={styles.fields}>
           <dt>{WAREHOUSE_PAGE.code}</dt>

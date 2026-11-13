@@ -191,7 +191,7 @@ export function SupplierPage({ initial, canEdit, canRestore }: SupplierPageProps
         />
       ) : null}
       {canEdit && !archived ? (
-        <SupplierForm supplier={supplier} save={save} editCode={gateCode('UpdateSupplier')} announce={region.announce} fallbackFocusRef={h1} onSaved={onSaved} onRefusedArchived={onRefusedArchived} />
+        <SupplierForm supplier={supplier} save={save} editCode={gateCode('UpdateSupplier')} announce={region.announce} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={region.clear} onRefusedArchived={onRefusedArchived} />
       ) : (
         <dl className={styles.fields}>
           <dt>{SUPPLIER_PAGE.code}</dt>
