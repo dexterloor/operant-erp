@@ -6,7 +6,7 @@ import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { wholeNumberOrText } from '../forms/wholeNumberOrText';
 import { isSupplier, isSupplierProduct, loadSupplier } from './load';
-import { CREATE_ENTRY_FIELDS, CREATE_SUPPLIER_FIELDS, ENTRY_FIELDS, SUPPLIER_FIELDS, type CreateEntryAction, type CreateSupplierAction, type EntryChange, type RestoreSupplierAction, type SaveEntryAction, type SaveSupplierAction, type SupplierChange } from './results';
+import { CREATE_ENTRY_FIELDS, CREATE_SUPPLIER_FIELDS, ENTRY_FIELDS, SUPPLIER_FIELDS, type CreateEntryAction, type CreateSupplierAction, type DeleteEntryAction, type EntryChange, type RestoreSupplierAction, type SaveEntryAction, type SaveSupplierAction, type SupplierChange } from './results';
 
 // The supplier page's Save and Restore, and the create page's Create (S-2, at the end), over the BFF (Revision 8 R8-2;
 // the lib/items/wired.ts shape). Neither Save nor Restore takes an
@@ -22,7 +22,8 @@ import { CREATE_ENTRY_FIELDS, CREATE_SUPPLIER_FIELDS, ENTRY_FIELDS, SUPPLIER_FIE
 // beside the field (suppliers-red.md M-1). No other supplier file converts a typed number.
 //
 // Blind spot, stated (the items precedent): C-2's body-key check reads object-literal bodies only; the Save body is built
-// by `changedFields` over `SUPPLIER_FIELDS` and copied by name below, which is what keeps `currency_code` out of it.
+// by `changedFields` over `SUPPLIER_FIELDS` and copied by name below, so only a changed field is sent (Currency is one of
+// them from S-6; an untouched Currency is never sent).
 //
 // Stamps (items-i3-design.md Revision 1 — FINAL §0a, the page's rule): every action here takes its stamp from `stamp()`
 // immediately before it sends its re-read, after the write's answer has arrived, and passes it to every commit or
@@ -263,6 +264,39 @@ export function entryCreate(caller: ApiCaller, supplierId: string, newKey: () =>
         }
       }
       return isSupplierProduct(r.body) ? { kind: 'created', entry: r.body } : { kind: 'server-error' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Remove a catalogue entry over the BFF (suppliers-plan.md Revision 1 — FINAL §R1-4 S-6; the `locationDelete` shape for
+// the request, the `entrySave` shape for the refusal). No body, no Idempotency-Key: a repeat after a removal answers 404.
+// P1 is `contention` (the shared Delete dialog keeps Remove). After any other 409 the SUPPLIER is re-read under the same
+// deadline: archived → `refused-archived` (C1 on a stale page; the page re-reads the supplier itself when the dialog
+// closes, so nothing is committed here); otherwise the refusal as sent. No refusal code is compared but P1. No catalogue
+// re-read here: the section re-reads after the dialog closes.
+export function entryDelete(caller: ApiCaller, supplierId: string): DeleteEntryAction {
+  return async (entryId) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.entryDelete);
+    try {
+      const r = await caller.call('DeleteSupplierProduct', { id: supplierId, productId: entryId }, undefined, { signal: deadline.signal });
+      if (r.kind === 'ok') return { kind: 'deleted' };
+      switch (r.kind) {
+        case 'refused': {
+          if (r.rule === PLATFORM_REFUSAL.contention) return { kind: 'contention', message: r.message };
+          const again = await loadSupplier(readOf(caller), supplierId, deadline.signal);
+          return again.kind === 'ok' && again.supplier.archived_at !== null ? { kind: 'refused-archived', rule: r.rule, message: r.message } : r;
+        }
+        case 'not-found':
+        case 'forbidden':
+        case 'session-ended':
+        case 'unreachable':
+        case 'server-error':
+          return r;
+        default:
+          return { kind: 'server-error' };
+      }
     } finally {
       deadline.cancel();
     }

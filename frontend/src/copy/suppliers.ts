@@ -4,9 +4,10 @@
 // app in the commit that renders it (`STATES.md:161`): S-1 has the list, the Archived view, the supplier page (edit) and
 // Restore supplier; S-2 adds the create page (UX S-2); S-3 the catalogue section (read-only); S-4 Edit on a catalogue
 // entry (UX S-4, as overridden by bk31-placement-confirm.md Revision 1 — FINAL); S-5 Add to catalogue (UX S-5, as
-// overridden by the same FINAL and suppliers-final-red.md M-4). No Remove (S-6), no Delete supplier (S-7) — so no
-// sentence here names one. R1-E's "With cost" unit clause ships here without its last sentence, which names Remove; S-6
-// appends it (ux-r1e-confirm.md).
+// overridden by the same FINAL and suppliers-final-red.md M-4); S-6 Remove on a catalogue entry and Currency editable on
+// the supplier page (UX S-6, with suppliers-final-red.md M-8's Remove body). No Delete supplier (S-7) — so no sentence
+// here names one. R1-E's "With cost" unit clause shipped at S-5 without its last sentence, which names Remove; S-6, the
+// commit that ships Remove, appends it (ux-r1e-confirm.md).
 
 /** `{n} days` / `1 day` / `0 days` (UX S-1 "payment terms cell" and "read-only terms"). */
 const days = (n: number) => (n === 1 ? '1 day' : `${n} days`);
@@ -98,7 +99,13 @@ export const SUPPLIER_PAGE = {
   nameHint: 'Renaming also changes the name on every purchase order and item that already names this supplier.',
   /** `countryHint` (CONFIRMS `WAREHOUSE_PAGE.countryHint`). */
   countryHint: 'Two letters, for example GB.',
-  /** `termsHint`. Currency in S-1…S-5: read-only text, no hint (UX "For UX" 5). */
+  /**
+   * `currencyHint` (UX S-6, REPLACES Revision 0; RED L-13): Currency is editable from S-6 on the supplier page. ONE
+   * unconditional hint that states the rule, never a verdict on this supplier's entries (D-4, ST-4f row 1 as amended);
+   * edit only (a read-only page shows no hints, B-3). Before S-6 Currency was read-only text with no hint.
+   */
+  currencyHint: "Three letters, for example GBP. The catalogue's costs are in this currency, so it can't be changed while this supplier's catalogue has any entries.",
+  /** `termsHint`. */
   termsHint: 'How many days you have to pay this supplier. For your records only: nothing else in the app uses it.',
   /** `termsRequired`: an emptied field on Save, beside it; no request is sent. */
   termsRequired: 'Enter a number of days, or 0.',
@@ -153,7 +160,8 @@ export const NEW_SUPPLIER = {
 /**
  * UX S-3 `CATALOGUE` (suppliers-ux-copy.md Revision 1 — FINAL S-3 over Revision 0 B-7; suppliers-final-red.md M-1, M-2),
  * with S-4's columns (bk31-placement-confirm.md Revision 1 — FINAL R1-C) and row action (UX S-4 `CATALOGUE.edit`,
- * `.actions`), and S-5's Add (`addItem`, `emptyNote`): the catalogue section on the supplier page. No Remove until S-6.
+ * `.actions`), S-5's Add (`addItem`, `emptyNote`) and S-6's row Remove (`remove`): the catalogue section on the supplier
+ * page.
  */
 export const CATALOGUE = {
   /** `heading` (h2). On the supplier's own page "Catalogue" needs no owner. */
@@ -172,6 +180,8 @@ export const CATALOGUE = {
   /** `actions` (column header; a header is never empty, `LOCATIONS_SECTION.actions` shape) · `edit` (row action). */
   actions: 'Actions',
   edit: 'Edit',
+  /** UX S-6 `CATALOGUE.remove` (row action; its accessible name adds the item's SKU, the `edit` shape). */
+  remove: 'Remove',
   /** Item cell: `{sku} — {name}` (the link text when the viewer may open the item). */
   itemCell: (sku: string, name: string) => `${sku} — ${name}`,
   /** Lead time cell: `{n} days` · `1 day` · `0 days`. */
@@ -206,8 +216,13 @@ export const CATALOGUE = {
 export const EDIT_CATALOGUE_ITEM = {
   /** `title(sku, name)`. */
   title: (sku: string, name: string) => `Edit ${sku} — ${name} in this catalogue`,
-  /** The item line, shown as text (the item cannot change on an entry); no `itemNote` until S-6. */
+  /** The item line, shown as text (the item cannot change on an entry). */
   itemLine: (sku: string, name: string) => `Item: ${sku} — ${name}`,
+  /**
+   * UX S-6 `itemNote` (moved from S-4: it names Remove, ux-copy Response M-2): its own paragraph after the item line, in
+   * the dialog's description.
+   */
+  itemNote: 'To list a different item, add it and remove this one.',
   supplierSku: 'Supplier SKU',
   supplierSkuHint: 'The code this supplier uses for the item. If it has none, use your own SKU.',
   /** `unitCost(currency)`: the entry's own currency. */
@@ -311,7 +326,7 @@ export const ITEM_CHOICES = {
 const ADD_AFTER = (sku: string) => `${sku} was added to the catalogue.`;
 const ADD_CURRENCY = (currency: string) => `Its cost is recorded in ${currency}, because this supplier's currency changed.`;
 const ADD_UNIT = (label: string) =>
-  `The item's unit was changed to ${label} while you were adding it, so the minimum order and unit cost you entered are now in that unit. Check them and edit the entry if they're wrong.`;
+  `The item's unit was changed to ${label} while you were adding it, so the minimum order and unit cost you entered are now in that unit. Check them and edit the entry if they're wrong. If it's the unit that's wrong, remove the entry first: an item's unit can't be changed while a catalogue lists it.`;
 const ADD_STALE = "We couldn't load the list again, so it may be out of date.";
 const addComposed = (sku: string, { currency, unitLabel, stale }: { currency: string | null; unitLabel: string | null; stale: boolean }) =>
   [ADD_AFTER(sku), currency !== null ? ADD_CURRENCY(currency) : null, unitLabel !== null ? ADD_UNIT(unitLabel) : null, stale ? ADD_STALE : null].filter((p): p is string => p !== null).join(' ');
@@ -342,8 +357,8 @@ export const ADD_CATALOGUE_ITEM = {
   /** RED M-9 "recorded in": the same words as `afterCurrencyChanged`'s second sentence. */
   currencyChangedClause: ADD_CURRENCY,
   /**
-   * R1-E "With cost" (FINAL (a), C-4) — its first two sentences until S-6, which appends the third with Remove
-   * (r1e-split-decision.md option A, UX CONFIRMED in ux-r1e-confirm.md); `{label}` = `unitLabel(code)`
+   * R1-E "With cost" (FINAL (a), C-4), whole from S-6 — S-5 shipped its first two sentences and S-6, which ships Remove,
+   * appends the third (r1e-split-decision.md option A, UX CONFIRMED in ux-r1e-confirm.md); `{label}` = `unitLabel(code)`
    * of the 201's unit, given by the caller (a copy file imports no copy file).
    */
   unitChangedClause: ADD_UNIT,
@@ -355,4 +370,27 @@ export const ADD_CATALOGUE_ITEM = {
   afterCurrencyChanged: (sku: string, currency: string) => addComposed(sku, { currency, unitLabel: null, stale: false }),
   afterListStale: (sku: string) => addComposed(sku, { currency: null, unitLabel: null, stale: true }),
   interrupted: (sku: string) => `We can't tell whether ${sku} was added. Check this supplier's catalogue before you try again.`,
+} as const;
+
+/**
+ * UX S-6 `REMOVE_CATALOGUE_ITEM` (suppliers-ux-copy.md Revision 1 — FINAL S-6 over Revision 0 B-9; the body as
+ * prescribed by suppliers-final-red.md M-8, sentences 2–3 replaced): the row's Remove dialog (the shared Delete dialog,
+ * danger). Heading on a refusal: `NOT_REMOVED`. `{sku}` is the ITEM's SKU. No `afterRestored`: a removed entry is
+ * deleted for good and never comes back under its id (UX B-9 "decided").
+ */
+export const REMOVE_CATALOGUE_ITEM = {
+  /** `title(sku, name)`. */
+  title: (sku: string, name: string) => `Remove ${sku} — ${name} from this catalogue?`,
+  /** `body` (final RED M-8, full text). */
+  body: "The entry is deleted for good, not archived, so it can't be restored. Until it's added again, no new purchase-order line for the item can be added for this supplier. Purchase orders that already list it, drafts included, keep their own cost and lead time. If this is the item's preferred supplier, reorder suggestions stop using these terms.",
+  confirm: 'Remove',
+  cancel: 'Cancel',
+  /** After a refusal that leaves nothing to press (ST-9b). */
+  close: 'Close',
+  /** `after(sku)`: on the 204 (focus on the section heading, spoken at once). */
+  after: (sku: string) => `${sku} was removed from the catalogue.`,
+  /** `afterListStale(sku)`: replaces `after` only when the section's re-read failed and nothing else wrote the region since. */
+  afterListStale: (sku: string) => `${sku} was removed from the catalogue. We couldn't load the list again, so it may be out of date.`,
+  /** `interrupted(sku)`: not "press Remove to try again" — a repeat after a removal answers 404. */
+  interrupted: (sku: string) => `We can't tell whether ${sku} was removed. Close this and check the catalogue.`,
 } as const;

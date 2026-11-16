@@ -3,14 +3,15 @@
 import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import Link from 'next/link';
+import { DeleteDialog } from '@/components/records/DeleteDialog';
 import { AddEntryForm, type ChoicesFocus } from '@/components/suppliers/AddEntryForm';
 import { EntryForm } from '@/components/suppliers/EntryForm';
 import { RegionError, Skeleton } from '@/components/states/PageStates';
 import { Button } from '@/components/ui/Button';
-import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, NOT_REMOVED, WENT_WRONG } from '@/copy/headings';
 import { unitLabel } from '@/copy/items';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
-import { ADD_CATALOGUE_ITEM, CATALOGUE, EDIT_CATALOGUE_ITEM, ITEM_CHOICES } from '@/copy/suppliers';
+import { ADD_CATALOGUE_ITEM, CATALOGUE, EDIT_CATALOGUE_ITEM, ITEM_CHOICES, REMOVE_CATALOGUE_ITEM, SUPPLIER_FORBIDDEN } from '@/copy/suppliers';
 import type { SupplierProduct } from '@/lib/api/suppliers';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type PageRequest, type ReadFailure } from '@/lib/bff/reads';
@@ -18,7 +19,8 @@ import { gateCode } from '@/lib/bff/surface';
 import { renderMoney } from '@/lib/format/money';
 import { renderQuantity } from '@/lib/format/quantity';
 import { loadCatalogue, loadItemChoices, type CatalogueLoad, type ItemChoice, type ItemChoicesLoad } from '@/lib/suppliers/load';
-import { entryCreate, entrySave } from '@/lib/suppliers/wired';
+import type { DeleteResult } from '@/lib/results';
+import { entryCreate, entryDelete, entrySave } from '@/lib/suppliers/wired';
 import { ArchivableList, focusWasLost, type Column, type EmptyState, type Paging } from '../../ArchivableList';
 import { useApiCaller } from '../../BffProvider';
 import listStyles from '../../Lists.module.css';
@@ -38,6 +40,8 @@ export interface CatalogueSectionProps {
    * supplier (S-5), in the header and the empty state.
    */
   canAdd: boolean;
+  /** Holds DeleteSupplierProduct's codes (from the contract; plan §R1-2): each row's **Remove** on a live supplier (S-6). */
+  canRemove: boolean;
   /** The page's CURRENT supplier's code (the Add dialog's title) and currency (its Unit cost label; M-9's comparison). */
   supplierCode: string;
   supplierCurrency: string;
@@ -69,8 +73,8 @@ const CHOICES_HEADING_ID = 'catalogue-item-choices-heading';
  * Revision 1 — FINAL S-3 `CATALOGUE`, S-4 `EDIT_CATALOGUE_ITEM`, as overridden by bk31-placement-confirm.md Revision 1 —
  * FINAL; suppliers-final-red.md M-1, M-2, M-3, M-5, M-6). A plain section (ARCH (a): no paged list core, no view control,
  * no sort): one table over the served entries in served order (supplier SKU), the whole catalogue in one answer (G-42).
- * Columns Supplier SKU · Item · Unit cost · Lead time · Minimum order · Unit (R1-C), and Actions only for an
- * UpdateSupplierProduct holder on a live supplier. Unit cost through `renderMoney` (the m2 interim, no unit in the cell);
+ * Columns Supplier SKU · Item · Unit cost · Lead time · Minimum order · Unit (R1-C), and Actions for an
+ * UpdateSupplierProduct or DeleteSupplierProduct holder on a live supplier. Unit cost through `renderMoney` (the m2 interim, no unit in the cell);
  * Minimum order QR-2 trimmed with no suffix; the Unit cell is the entry's OWN served `unit_of_measure_code` (BK-31), read
  * from the row and from nothing else.
  *
@@ -90,6 +94,15 @@ const CHOICES_HEADING_ID = 'catalogue-item-choices-heading';
  * archived: its Save then meets C1 (the server's sentence, Close only), so nothing the person typed is dropped unannounced
  * (S-4 RED M-1).
  *
+ * Remove (S-6): the row's **Remove** opens the shared Delete dialog with the Remove copy and the heading *Not removed*.
+ * Its press first cancels an Add read in flight, as Edit's does (suppliers-s5-red.md M-1, RED-2 L-2). On close (FE-D1):
+ * commit the close, then focus — after a 204 the Catalogue heading (§R1-10), otherwise the row's Remove while it is still
+ * connected, else the heading — then, after a 204, drop the row under a FRESH stamp (the S-4 RED L-1 rule for a body-less
+ * answer: a re-read sent before the press, answered after it, cannot bring the row back), speak `after(sku)` through the
+ * page's counted `announce`, and re-read. If that re-read fails, `afterListStale(sku)` replaces the sentence only through
+ * `replaceIfCurrent`. No "restored" arm: a removed entry never returns under its id (UX B-9). After a C1 the page
+ * re-reads the supplier (`onParentStale`). Like Edit's, an open Remove dialog stays open when the page turns archived.
+ *
  * The count is spoken through the page's region ONLY when the first successful load happens in the browser (a Retry after a
  * failed first load); never on first paint, never on a re-read (M-2). The count is written after the focus move (FE-D1):
  * after a successful Retry the section's heading takes focus only when focus was lost (the Retry button is gone from under
@@ -97,7 +110,7 @@ const CHOICES_HEADING_ID = 'catalogue-item-choices-heading';
  * against the Retry press's own (counted) clear, so a Save or Restore answered while the Retry was in flight keeps its
  * sentence (S-3 RED L-3). When the Retry brings an empty catalogue, the sentence spoken is `empty` (S-3 RED L-2).
  */
-export function CatalogueSection({ supplierId, initial, supplierArchived, canOpenItem, canEdit, canAdd, supplierCode, supplierCurrency, announce, replaceIfCurrent, onParentStale }: CatalogueSectionProps) {
+export function CatalogueSection({ supplierId, initial, supplierArchived, canOpenItem, canEdit, canAdd, canRemove, supplierCode, supplierCurrency, announce, replaceIfCurrent, onParentStale }: CatalogueSectionProps) {
   const caller = useApiCaller();
   const headingId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -109,8 +122,13 @@ export function CatalogueSection({ supplierId, initial, supplierArchived, canOpe
   const opener = useRef<HTMLElement | null>(null);
   const save = useMemo(() => entrySave(caller, supplierId), [caller, supplierId]);
   const create = useMemo(() => entryCreate(caller, supplierId), [caller, supplierId]);
+  const remove = useMemo(() => entryDelete(caller, supplierId), [caller, supplierId]);
   const mayEdit = canEdit && !supplierArchived;
   const mayAdd = canAdd && !supplierArchived;
+  const mayRemove = canRemove && !supplierArchived;
+  // Remove (S-6): the entry whose dialog is open, and whether its answer was a C1 (the supplier archived meanwhile).
+  const [removing, setRemoving] = useState<SupplierProduct | null>(null);
+  const removeParentStale = useRef(false);
   // Add (S-5): `opening` while the press's first items read is in flight (the button loading, no dialog yet, M-3 step 1);
   // `adding` while the dialog is open, with the choice list's answer (`null` while a Change's read is in flight). Each
   // read takes a number; an answer to an older one (a dialog since closed, an earlier Change) is dropped.
@@ -275,6 +293,41 @@ export function CatalogueSection({ supplierId, initial, supplierArchived, canOpe
     if (parts !== null && said !== null && isStale(r.kind)) replaceIfCurrent(said, ADD_CATALOGUE_ITEM.afterComposed(parts.sku, { ...parts, stale: true }));
   };
 
+  /** One Remove press: a C1 is shown as the shared dialog's refusal (Close only) and remembered for the close. */
+  const runRemove = async (e: SupplierProduct): Promise<DeleteResult> => {
+    const r = await remove(e.id);
+    if (r.kind !== 'refused-archived') return r;
+    removeParentStale.current = true;
+    return { kind: 'refused', rule: r.rule, message: r.message };
+  };
+
+  const closeRemove = async (removed: SupplierProduct, { deleted, reread: again }: { deleted: boolean; reread: boolean }) => {
+    // FE-D1: commit the close, put focus where it goes, then speak, then re-read. After a 204 the row (and its Remove)
+    // goes, so the Catalogue heading (§R1-10); otherwise the row's Remove, else — when it is gone — the heading.
+    flushSync(() => setRemoving(null));
+    const back = opener.current;
+    opener.current = null;
+    (deleted ? heading.current : back !== null && back.isConnected ? back : heading.current)?.focus();
+    const parentStale = removeParentStale.current;
+    removeParentStale.current = false;
+    let said: number | null = null;
+    if (deleted) {
+      // The 204 is the server's word that the entry is gone: drop the row under a FRESH stamp, so a re-read in flight
+      // from before this Remove, answered after it, cannot bring it back.
+      committedAsOf.current = ++stamps.current;
+      flushSync(() => setLoad((cur) => (cur.value.kind === 'ok' ? { gen: cur.gen + 1, value: { ...cur.value, entries: cur.value.entries.filter((x) => x.id !== removed.id) } } : cur)));
+      said = announce(REMOVE_CATALOGUE_ITEM.after(removed.inventory_item.sku));
+    }
+    if (parentStale) onParentStale();
+    if (!again) return;
+    const r = await reread(false);
+    // fe-r8-location-red L-1: what follows reads only this re-read's own answer, with nothing awaited between `reread()`
+    // and the correction.
+    // The row (and its Remove, where focus went back) left with this answer (removed elsewhere, a 404): the heading.
+    if (r.kind === 'ok' && !r.entries.some((x) => x.id === removed.id) && focusWasLost()) heading.current?.focus();
+    if (said !== null && isStale(r.kind)) replaceIfCurrent(said, REMOVE_CATALOGUE_ITEM.afterListStale(removed.inventory_item.sku));
+  };
+
   const addButton = (size?: 'sm') => (
     <Button size={size} loading={opening} onClick={(ev) => void openAdd(ev)}>
       {CATALOGUE.addItem}
@@ -323,7 +376,7 @@ export function CatalogueSection({ supplierId, initial, supplierArchived, canOpe
                 <th scope="col">{CATALOGUE.leadTime}</th>
                 <th scope="col">{CATALOGUE.minimumOrder}</th>
                 <th scope="col">{CATALOGUE.unit}</th>
-                {mayEdit ? <th scope="col">{CATALOGUE.actions}</th> : null}
+                {mayEdit || mayRemove ? <th scope="col">{CATALOGUE.actions}</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -337,8 +390,9 @@ export function CatalogueSection({ supplierId, initial, supplierArchived, canOpe
                     <td>{CATALOGUE.days(e.lead_time_days)}</td>
                     <td>{renderQuantity(e.minimum_order_quantity)}</td>
                     <td>{e.unit_of_measure_code}</td>
-                    {mayEdit ? (
+                    {mayEdit || mayRemove ? (
                       <td>
+                        {mayEdit ? (
                         <Button
                           size="sm"
                           aria-label={`${CATALOGUE.edit} ${e.inventory_item.sku}`}
@@ -353,6 +407,25 @@ export function CatalogueSection({ supplierId, initial, supplierArchived, canOpe
                         >
                           {CATALOGUE.edit}
                         </Button>
+                        ) : null}
+                        {mayRemove ? (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            aria-label={`${CATALOGUE.remove} ${e.inventory_item.sku}`}
+                            onClick={(ev) => {
+                              // suppliers-s5-red.md M-1 / RED-2 L-2, as Edit's: the later press wins — an Add whose first read
+                              // is still in flight is cancelled and its button stops loading.
+                              choiceReads.current += 1;
+                              setOpening(false);
+                              opener.current = ev.currentTarget;
+                              removeParentStale.current = false;
+                              setRemoving(e);
+                            }}
+                          >
+                            {CATALOGUE.remove}
+                          </Button>
+                        ) : null}
                       </td>
                     ) : null}
                   </tr>
@@ -378,7 +451,30 @@ export function CatalogueSection({ supplierId, initial, supplierArchived, canOpe
           onAddStarted={() => announce('')}
         />
       ) : null}
-      {editing !== null ? <EntryForm key={editing.id} entry={editing} save={save} editCode={gateCode('UpdateSupplierProduct')} onClose={(o) => void closeEdit(editing, o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}
+      {/* Rendered on its open state alone (never `&& mayRemove`): it stays open when the page turns archived (S-4 RED M-1). */}
+      {removing !== null ? (
+        <DeleteDialog
+          key={removing.id}
+          copy={{
+            title: REMOVE_CATALOGUE_ITEM.title(removing.inventory_item.sku, removing.inventory_item.name),
+            body: REMOVE_CATALOGUE_ITEM.body,
+            confirm: REMOVE_CATALOGUE_ITEM.confirm,
+            cancel: REMOVE_CATALOGUE_ITEM.cancel,
+            close: REMOVE_CATALOGUE_ITEM.close,
+            interrupted: REMOVE_CATALOGUE_ITEM.interrupted(removing.inventory_item.sku),
+            forbidden: SUPPLIER_FORBIDDEN,
+            refusedHeading: NOT_REMOVED,
+          }}
+          run={() => runRemove(removing)}
+          deleteCode={gateCode('DeleteSupplierProduct')}
+          onClose={(o) => void closeRemove(removing, o)}
+          fallbackFocusRef={heading}
+          onDeleteStarted={() => announce('')}
+          // UX ux-s6-rulings.md §1 (S-6 RED L-2 (a)): an interrupted Remove leaves Close only.
+          finalWhenInterrupted
+        />
+      ) : null}
+      {editing !== null ? <EntryForm key={editing.id} entry={editing} save={save} offersAdd={canAdd} editCode={gateCode('UpdateSupplierProduct')} onClose={(o) => void closeEdit(editing, o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}
     </section>
   );
 }

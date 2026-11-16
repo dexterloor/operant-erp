@@ -10,6 +10,8 @@ export const NOT_RESTORED = 'Not restored';
 export const NOT_CREATED = 'Not created';
 /** B-5 Add location's refusal heading (the button is Add; warehouses-ux-copy.md, NEW). */
 export const NOT_ADDED = 'Not added';
+/** suppliers-ux-copy.md Revision 1 — FINAL S-6 `NOT_REMOVED` (the heading rule: the catalogue's button is Remove, §B-9). */
+export const NOT_REMOVED = 'Not removed';
 
 /**
  * b4-owed-copy.md Rev 2 R1-1; the B-3a fallback phrasing, F16, confirmed by ux-confirm-b4.md: where the client cannot know whether the

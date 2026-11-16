@@ -47,8 +47,8 @@ const ok = (entries: SupplierProduct[]): CatalogueLoad => ({ kind: 'ok', entries
 const answer = (entries: SupplierProduct[]) => json(200, { items: entries, next_cursor: null, previous_cursor: null, tenant_has_rows: entries.length > 0 });
 const violation = (pointer: string, message: string, code = 'out_of_range') => problem(422, 'validation-failed', { errors: [{ pointer, code, message }] });
 
-const show = (initial: CatalogueLoad, { supplier = ACME, canEditSupplier = false, canRestore = false, canEdit = true } = {}) =>
-  renderWired(<SupplierPage initial={supplier} canEdit={canEditSupplier} canRestore={canRestore} catalogue={{ initial, canOpenItem: false, canEdit }} />);
+const show = (initial: CatalogueLoad, { supplier = ACME, canEditSupplier = false, canRestore = false, canEdit = true, canAdd = false } = {}) =>
+  renderWired(<SupplierPage initial={supplier} canEdit={canEditSupplier} canRestore={canRestore} catalogue={{ initial, canOpenItem: false, canEdit, canAdd }} />);
 const pageRegion = () => document.querySelector<HTMLElement>('section > [role="status"]')!;
 const section = () => screen.getByRole('region', { name: 'Catalogue' });
 const rows = () => within(section()).queryAllByRole('row').slice(1);
@@ -90,10 +90,15 @@ const STALE_A = "SKU-A-100 was saved. We couldn't load the list again, so it may
 describe('S-4 — the Edit dialog: what it shows', () => {
   it('title, item line, the four fields with their initial values as rendered (MOQ trimmed), hints and Save unavailable while nothing changed', async () => {
     const u = userEvent.setup();
-    show(ok([A]));
+    // S-6 (UX ux-s6-rulings.md §2): the full seat (Add offered) sees `itemNote`; the no-Add seat is the next test.
+    show(ok([A]), { canAdd: true });
     const d = await openEdit(u);
     expect(within(d).getByRole('heading', { name: 'Edit SKU-A-100 — Item A-100 in this catalogue' })).toBeInTheDocument();
     expect(within(d).getByText('Item: SKU-A-100 — Item A-100')).toBeInTheDocument();
+    // S-6 moved this pin deliberately: `itemNote` ships with Remove (UX S-6; ux-copy Response M-2), its own paragraph
+    // after the item line, both in the dialog's description.
+    expect(within(d).getByText('To list a different item, add it and remove this one.')).toBeInTheDocument();
+    expect(d).toHaveAccessibleDescription('Item: SKU-A-100 — Item A-100 To list a different item, add it and remove this one.');
     expect(within(d).getAllByRole('textbox').map((t) => [t.getAttribute('name'), (t as HTMLInputElement).value])).toEqual([
       ['supplier_sku', 'A-100'],
       ['unit_cost', '10.0000'],
@@ -103,6 +108,16 @@ describe('S-4 — the Edit dialog: what it shows', () => {
     expect(field('Supplier SKU')).toHaveAccessibleDescription(SKU_HINT);
     expect(field('Lead time (days)')).toHaveAccessibleDescription(LEAD_HINT);
     expect(within(d).getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  // S-6 RED L-4, UX ux-s6-rulings.md §2: a composed seat with supplier_product.view + .edit but no inventory_item.view has
+  // Edit and Remove but no Add, so the note that says "add it" is not shown; the item line stands alone, no other sentence.
+  it('RED L-4 — a seat offered no Add (no ListItems): no itemNote; the dialog\'s description is the item line alone', async () => {
+    const u = userEvent.setup();
+    show(ok([A]), { canAdd: false });
+    const d = await openEdit(u);
+    expect(within(d).queryByText('To list a different item, add it and remove this one.')).toBeNull();
+    expect(d).toHaveAccessibleDescription('Item: SKU-A-100 — Item A-100');
   });
 
   // FINAL (e) item 5: the two ruled hints, pinned whole (the suffix's spoken word comes first in each description).

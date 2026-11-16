@@ -21,6 +21,12 @@ export interface EntryFormProps {
   /** The row being edited (there is no single-entry read: the section's row is the served state). */
   entry: SupplierProduct;
   save: SaveEntryAction;
+  /**
+   * The section offers Add to catalogue to this viewer (`canAdd`; UX `ux-s6-rulings.md` §2, S-6 RED L-4):
+   * `itemNote` ("…add it and remove this one.") shows only then; without Add the item line stands alone. Required, so a
+   * caller cannot forget it. Edit opens only on a live supplier, so `canAdd` is the section's Add condition there.
+   */
+  offersAdd: boolean;
   /** `gateCode('UpdateSupplierProduct')`, for the lost-permission sentence's label (B-10). */
   editCode: string | null;
   /**
@@ -140,7 +146,7 @@ export function EntryFields({ values, set, errors, code, currency, skuRef, costR
  * supplier. No unit is compared after a 200 (P-N5: while an entry exists its item's unit cannot change). A 401 renders
  * nothing (the caller navigates).
  */
-export function EntryForm({ entry, save, editCode, onClose, fallbackFocusRef, onSaveStarted }: EntryFormProps) {
+export function EntryForm({ entry, save, offersAdd, editCode, onClose, fallbackFocusRef, onSaveStarted }: EntryFormProps) {
   const initial = valuesOf(entry);
   const [values, setValues] = useState<Values>(initial);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<EntryField>>({});
@@ -271,7 +277,13 @@ export function EntryForm({ entry, save, editCode, onClose, fallbackFocusRef, on
         if (!open && !busy) close();
       }}
       title={EDIT_CATALOGUE_ITEM.title(sku, entry.inventory_item.name)}
-      description={<p>{EDIT_CATALOGUE_ITEM.itemLine(sku, entry.inventory_item.name)}</p>}
+      description={
+        <>
+          <p>{EDIT_CATALOGUE_ITEM.itemLine(sku, entry.inventory_item.name)}</p>
+          {/* UX S-6 `itemNote` (moved from S-4: it names Remove, which ships here), only for a viewer offered Add (L-4). */}
+          {offersAdd ? <p>{EDIT_CATALOGUE_ITEM.itemNote}</p> : null}
+        </>
+      }
       initialFocusRef={skuRef}
       fallbackFocusRef={fallbackFocusRef}
       busy={busy}

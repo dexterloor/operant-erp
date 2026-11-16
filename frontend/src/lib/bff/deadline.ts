@@ -53,6 +53,11 @@ export const ACTION_DEADLINES_MS = {
    * item choice list's reads and the section's re-read run under `reread`.
    */
   entryCreate: 30_000,
+  /**
+   * Remove a supplier catalogue entry (S-6): the request + the GetSupplier re-read after a refusal, as for `entrySave`.
+   * The section re-reads its catalogue after the dialog closes, under `reread`.
+   */
+  entryDelete: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

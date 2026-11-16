@@ -2,14 +2,14 @@
 // in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '../api/suppliers';
-import type { FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
+import type { DeleteResult, FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
- * The supplier page's editable fields, in screen order (the first field with a 422 sentence takes focus). NOT
- * `currency_code`: read-only text in S-1…S-5 (suppliers-plan.md §R1-10), so `changedFields` can never send it. A name the
- * mirrored input lacks is a type error.
+ * The supplier page's editable fields, in screen order (the first field with a 422 sentence takes focus). `currency_code`
+ * joined at S-6 (suppliers-plan.md §R1-10: read-only S-1…S-5, editable from S-6), after Country; `changedFields` sends it
+ * only when it differs. A name the mirrored input lacks is a type error.
  */
-export const SUPPLIER_FIELDS = ['code', 'name', 'country_code', 'payment_terms_days'] as const satisfies readonly (keyof UpdateSupplierInput & string)[];
+export const SUPPLIER_FIELDS = ['code', 'name', 'country_code', 'currency_code', 'payment_terms_days'] as const satisfies readonly (keyof UpdateSupplierInput & string)[];
 export type SupplierField = (typeof SUPPLIER_FIELDS)[number];
 /**
  * The body Save sends: the changed members only (never empty: Save is unavailable while nothing changed). The form gives
@@ -135,3 +135,14 @@ export type CreateEntryResult =
   | ServerError;
 
 export type CreateEntryAction = (values: CreateEntryValues) => Promise<CreateEntryResult>;
+
+/**
+ * Suppliers S-6 (suppliers-plan.md Revision 1 — FINAL §R1-4 S-6): `DELETE /suppliers/{id}/products/{productId}` (204, no
+ * body, no key). The shared kinds (`DeleteResult`: `contention` keeps Remove; any other 409 is `refused`, Close only), plus
+ * `refused-archived`: a 409 after which the re-read found the supplier archived (C1 on a stale page, final RED M-3): the
+ * dialog shows the server's sentence with Close only, and closing has the page re-read the supplier.
+ */
+export type DeleteEntryResult = DeleteResult | { kind: 'refused-archived'; rule: string; message: string };
+
+/** The row's Remove for one entry. */
+export type DeleteEntryAction = (entryId: string) => Promise<DeleteEntryResult>;

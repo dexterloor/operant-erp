@@ -123,10 +123,10 @@ const created201 = (body: SupplierProduct) => json(201, body);
 
 const AFTER = (sku: string) => `${sku} was added to the catalogue.`;
 const CURRENCY = (c: string) => `Its cost is recorded in ${c}, because this supplier's currency changed.`;
-// R1-E "With cost" at S-5: its first two sentences (option A, UX CONFIRMED, ux-r1e-confirm.md). The third,
-// which names Remove, is appended by S-6, the commit that ships Remove, and this pin moves there.
+// R1-E "With cost" whole from S-6 (FINAL (a); r1e-split-decision.md option A, UX CONFIRMED, ux-r1e-confirm.md): S-5
+// shipped its first two sentences; S-6, the commit that ships Remove, appends the third, and this pin moved with it.
 const UNIT = (label: string) =>
-  `The item's unit was changed to ${label} while you were adding it, so the minimum order and unit cost you entered are now in that unit. Check them and edit the entry if they're wrong.`;
+  `The item's unit was changed to ${label} while you were adding it, so the minimum order and unit cost you entered are now in that unit. Check them and edit the entry if they're wrong. If it's the unit that's wrong, remove the entry first: an item's unit can't be changed while a catalogue lists it.`;
 const STALE = "We couldn't load the list again, so it may be out of date.";
 const MOQ_HINT = "The smallest amount this supplier accepts in one order, in the item's unit. If this is the item's preferred supplier, reorder suggestions never suggest less than this. Purchase orders don't check it. Enter 1 if there's no minimum.";
 const COST_HINT = "What this supplier charges for one of the item's units. Use a point for decimals and no commas, for example 12.50.";

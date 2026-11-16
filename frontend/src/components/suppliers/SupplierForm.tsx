@@ -48,12 +48,15 @@ interface Notice {
 }
 
 /** The fields as the person first sees them: the served terms as its digits, so an untouched field equals its initial value. */
-const valuesOf = (s: Supplier): Values => ({ code: s.code, name: s.name, country_code: s.country_code, payment_terms_days: String(s.payment_terms_days) });
+const valuesOf = (s: Supplier): Values => ({ code: s.code, name: s.name, country_code: s.country_code, currency_code: s.currency_code, payment_terms_days: String(s.payment_terms_days) });
 
 /**
  * The supplier page's editor (suppliers-ux-copy.md Revision 1 — FINAL S-1 over Revision 0 B-3; Revision 8 R8-2),
- * props-only. Code, Name, Country and Payment terms are editable; Currency is plain text (read-only in S-1…S-5, no hint,
- * never in the body). Country is upper-cased as typed. Payment terms starts as the served number's digits and is handed
+ * props-only. Code, Name, Country, Currency and Payment terms are editable (Currency from S-6, suppliers-plan.md §R1-10;
+ * before, plain text). Country and Currency are upper-cased as typed (the create form's shape). Currency carries ONE
+ * unconditional hint, `currencyHint` (D-4): it states the rule and claims nothing about this supplier's entries, and the
+ * field is never disabled — a change while the catalogue has entries is refused by the server after Save (R8), shown in
+ * the banner as sent (ST-4f row 1 as amended). Payment terms starts as the served number's digits and is handed
  * to Save exactly as typed (the number conversion is `supplierSave`'s, R9-2); an emptied terms field is caught here and
  * no request is sent, on every press (`termsRequired`). Save is `aria-disabled` with *Nothing to save.* while nothing
  * differs; the body holds only the changed fields, compared exactly (`changedFields`). A 422's field sentences show
@@ -73,6 +76,7 @@ export function SupplierForm({ supplier, save, editCode, announce, fallbackFocus
   const codeRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const countryRef = useRef<HTMLInputElement>(null);
+  const currencyRef = useRef<HTMLInputElement>(null);
   const termsRef = useRef<HTMLInputElement>(null);
   const gen = useRef(0);
 
@@ -87,7 +91,7 @@ export function SupplierForm({ supplier, save, editCode, announce, fallbackFocus
     if (focusTarget === null) return;
     if (focusTarget.to === 'banner') bannerRef.current?.focus();
     else if (focusTarget.to === 'h1') fallbackFocusRef.current?.focus();
-    else ({ code: codeRef, name: nameRef, country_code: countryRef, payment_terms_days: termsRef })[focusTarget.to].current?.focus();
+    else ({ code: codeRef, name: nameRef, country_code: countryRef, currency_code: currencyRef, payment_terms_days: termsRef })[focusTarget.to].current?.focus();
     // Once per target generation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusTarget]);
@@ -217,11 +221,19 @@ export function SupplierForm({ supplier, save, editCode, announce, fallbackFocus
         autoComplete="off"
         spellCheck={false}
       />
-      {/* Read-only text in S-1…S-5 (suppliers-plan.md §R1-10): never a control, never in the body, no hint (UX "For UX" 5). */}
-      <dl className={styles.fields}>
-        <dt>{SUPPLIER_PAGE.currency}</dt>
-        <dd>{supplier.currency_code}</dd>
-      </dl>
+      <TextField
+        ref={currencyRef}
+        id="supplier-currency"
+        name="currency_code"
+        label={SUPPLIER_PAGE.currency}
+        hint={SUPPLIER_PAGE.currencyHint}
+        error={fieldErrors.currency_code}
+        value={values.currency_code}
+        onChange={(e) => set('currency_code', e.target.value.toUpperCase())}
+        maxLength={3}
+        autoComplete="off"
+        spellCheck={false}
+      />
       <TextField
         ref={termsRef}
         id="supplier-payment-terms"

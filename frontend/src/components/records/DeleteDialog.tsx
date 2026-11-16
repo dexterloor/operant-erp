@@ -28,6 +28,13 @@ export interface DeleteDialogCopy {
   interrupted: string;
   /** B-8's 403 sentence around the permission's label (the family's copy, e.g. `WAREHOUSE_FORBIDDEN`). */
   forbidden: { before: string; after: string };
+  /**
+   * Suppliers S-6 (suppliers-plan.md Revision 0 S-3 / Revision 1 — FINAL S-6): the refusal heading where the action is not
+   * called Delete (the catalogue's **Remove** → `NOT_REMOVED`). Optional; the default is `NOT_DELETED`, so the warehouse,
+   * location and item callers (and their tests) are unchanged. It heads a refusal, P1, a 403 and a 404; an interrupted
+   * request keeps its own heading (`COULD_NOT_REACH` / `WENT_WRONG`). Family copy as a prop (R8-3).
+   */
+  refusedHeading?: string;
 }
 
 export interface DeleteDialogProps {
@@ -49,6 +56,14 @@ export interface DeleteDialogProps {
    * identical "… was deleted." is a change to the region and is given again (an equal string written over itself is no DOM change).
    */
   onDeleteStarted?: () => void;
+  /**
+   * Suppliers S-6 (UX `ux-s6-rulings.md` §1, adopting S-6 RED L-2 (a)): when true, an interrupted request (a lost
+   * answer or a server failure) also leaves Close only, under its own heading (`COULD_NOT_REACH` / `WENT_WRONG`) with
+   * `copy.interrupted`. Set by the supplier catalogue's Remove, whose interrupted sentence says "Close this and check the
+   * catalogue." and must not invite a repeat that answers 404. Default false: the warehouse, location and item dialogs
+   * keep Delete after an interrupted request, and their tests run unedited.
+   */
+  finalWhenInterrupted?: boolean;
 }
 
 interface Notice {
@@ -59,16 +74,17 @@ interface Notice {
 
 /**
  * B-7 Delete dialog (warehouses-ux-copy.md; ST-9b; Revision 7 §2 step 4.6). Danger tone, initial focus Cancel. A refusal
- * renders inside under **Not deleted**, its heading takes focus (the Dialog's `refusal` id), and the dialog stays open.
+ * renders inside under the family's refusal heading (`refusedHeading`, default **Not deleted**), its heading takes focus (the Dialog's `refusal` id), and the dialog stays open.
  * Any refusal except P1 removes the Delete button and leaves **Close** (ST-9b; no pre-check of orders or stock, G-46).
  * P1 (`{ kind: 'contention' }`, mapped in the family's `wired.ts`) shows its sentence and keeps Delete (B-7
- * "Exception"). A 403 or an interrupted request keeps Delete; a 404 leaves Close only (the record can't be found, so a
+ * "Exception"). A 403 keeps Delete; an interrupted request keeps Delete unless the caller sets `finalWhenInterrupted`, when
+ * an interrupted request leaves Close only; a 404 leaves Close only (the record can't be found, so a
  * repeat cannot succeed — 4.6 RED L-2, UX `items-i3-ux.md` §3.1). This component branches on `kind`, never on a code.
  *
  * Shared by families (Revision 8 R8-3, items plan I-0a; moved from `components/warehouses/`): props only, the family's
  * copy and result come in as props, and nothing here imports a family's `copy/` or `lib/` (architecture.test.ts).
  */
-export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef, onDeleteStarted }: DeleteDialogProps) {
+export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef, onDeleteStarted, finalWhenInterrupted = false }: DeleteDialogProps) {
   const cancel = useRef<HTMLButtonElement>(null);
   const bannerRef = useRef<HTMLParagraphElement>(null);
   const gen = useRef(0);
@@ -76,6 +92,7 @@ export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef,
   const [notice, setNotice] = useState<Notice | null>(null);
   const [final, setFinal] = useState(false);
   const answered = notice !== null;
+  const notDone = copy.refusedHeading ?? NOT_DELETED;
 
   const show = (heading: string, body: ReactNode) => {
     gen.current += 1;
@@ -98,16 +115,16 @@ export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef,
         onClose({ deleted: true, reread: true });
         return;
       case 'contention':
-        show(NOT_DELETED, r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE);
+        show(notDone, r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE);
         return;
       case 'refused':
         setFinal(true);
-        show(NOT_DELETED, r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE);
+        show(notDone, r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE);
         return;
       case 'forbidden': {
         const label = (deleteCode !== null ? PERMISSION_LABELS[deleteCode]?.label : undefined) ?? '';
         show(
-          NOT_DELETED,
+          notDone,
           <>
             {copy.forbidden.before}
             <em>{label}</em>
@@ -118,12 +135,14 @@ export function DeleteDialog({ copy, run, deleteCode, onClose, fallbackFocusRef,
       }
       case 'not-found':
         setFinal(true);
-        show(NOT_DELETED, PAGE_STATES.notFoundInline);
+        show(notDone, PAGE_STATES.notFoundInline);
         return;
       case 'unreachable':
+        if (finalWhenInterrupted) setFinal(true);
         show(COULD_NOT_REACH, copy.interrupted);
         return;
       case 'server-error':
+        if (finalWhenInterrupted) setFinal(true);
         show(WENT_WRONG, copy.interrupted);
         return;
       case 'session-ended':

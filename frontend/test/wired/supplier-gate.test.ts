@@ -115,7 +115,7 @@ describe('/suppliers/[id] — Save follows UpdateSupplier, Restore supplier foll
 // it is absent and not fetched — the viewer shape, and a composed role holding supplier_product.edit without .view. The
 // item link follows GetItem (inventory_item.view). Built from codes, never role names (A-20).
 describe('/suppliers/[id] — the catalogue section is gated on ListSupplierProducts (S-3 test 1)', () => {
-  type Cat = { initial: unknown; canOpenItem: boolean; canEdit: boolean; canAdd: boolean } | null;
+  type Cat = { initial: unknown; canOpenItem: boolean; canEdit: boolean; canAdd: boolean; canRemove: boolean } | null;
   const at = async (codes: string[]) => {
     v.catalogueReads = 0;
     v.catalogue = 'ok';
@@ -133,7 +133,8 @@ describe('/suppliers/[id] — the catalogue section is gated on ListSupplierProd
 
   it('supplier_product.view: the section, read once; the item link only with inventory_item.view', async () => {
     // S-5 moved this pin deliberately: the section's props gain `canAdd` (false here: no CreateSupplierProduct, no ListItems).
-    expect(await at(['supplier.view', 'supplier_product.view'])).toEqual({ catalogue: { initial: { kind: 'ok', entries: [], nextCursor: null }, canOpenItem: false, canEdit: false, canAdd: false }, reads: 1 });
+    // S-6 moved it again: `canRemove` (false here: no DeleteSupplierProduct).
+    expect(await at(['supplier.view', 'supplier_product.view'])).toEqual({ catalogue: { initial: { kind: 'ok', entries: [], nextCursor: null }, canOpenItem: false, canEdit: false, canAdd: false, canRemove: false }, reads: 1 });
     expect((await at(['supplier.view', 'supplier_product.view', 'inventory_item.view'])).catalogue).toMatchObject({ canOpenItem: true });
   });
 
@@ -160,6 +161,21 @@ describe('/suppliers/[id] — the catalogue section is gated on ListSupplierProd
       expect((await at([])).catalogue).toMatchObject({ canEdit: false });
       v.byOperation = (op) => op === 'GetSupplier' || op === 'ListSupplierProducts' || op === 'UpdateSupplierProduct';
       expect((await at([])).catalogue).toMatchObject({ canEdit: true });
+    } finally {
+      v.byOperation = null;
+    }
+  });
+
+  // S-6 (suppliers-plan.md Revision 1 — FINAL §R1-2): Remove entry is gated on its own operation, DeleteSupplierProduct
+  // (supplier_product.edit); a seat holding only the read sees no Remove.
+  it('S-6: the section\'s Remove follows DeleteSupplierProduct (supplier_product.edit), on its own operation', async () => {
+    expect((await at(['supplier.view', 'supplier_product.view'])).catalogue).toMatchObject({ canRemove: false });
+    expect((await at(['supplier.view', 'supplier_product.view', 'supplier_product.edit'])).catalogue).toMatchObject({ canRemove: true });
+    v.byOperation = (op) => op === 'GetSupplier' || op === 'ListSupplierProducts' || op === 'UpdateSupplierProduct';
+    try {
+      expect((await at([])).catalogue).toMatchObject({ canRemove: false });
+      v.byOperation = (op) => op === 'GetSupplier' || op === 'ListSupplierProducts' || op === 'DeleteSupplierProduct';
+      expect((await at([])).catalogue).toMatchObject({ canRemove: true, canEdit: false });
     } finally {
       v.byOperation = null;
     }

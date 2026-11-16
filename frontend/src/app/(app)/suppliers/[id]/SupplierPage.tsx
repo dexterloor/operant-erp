@@ -35,9 +35,9 @@ export interface SupplierPageProps {
   /**
    * The catalogue section (S-3), or null when the viewer does not hold ListSupplierProducts' codes: then it is absent and
    * was not fetched (A-20). `canOpenItem` = GetItem's codes; `canEdit` = UpdateSupplierProduct's (S-4); `canAdd` =
-   * CreateSupplierProduct's and ListItems' together (S-5).
+   * CreateSupplierProduct's and ListItems' together (S-5); `canRemove` = DeleteSupplierProduct's (S-6).
    */
-  catalogue?: { initial: CatalogueLoad; canOpenItem: boolean; canEdit: boolean; canAdd?: boolean } | null;
+  catalogue?: { initial: CatalogueLoad; canOpenItem: boolean; canEdit: boolean; canAdd?: boolean; canRemove?: boolean } | null;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -45,9 +45,9 @@ type Cause = 'unreachable' | 'server-error';
 /**
  * The supplier page (suppliers-ux-copy.md Revision 1 — FINAL S-1 over Revision 0 B-3, B-5; IA L-4: the detail page is the
  * editor; Revision 8 R8-2; the `ItemPage` shape without Delete, which arrives at S-7). It holds the supplier in state and
- * passes the re-read one to the form without a remount. Editable (Code, Name, Country, Payment terms) for an
- * UpdateSupplier holder on a live supplier; the same values as plain text otherwise, with no hints. Currency is plain text
- * in every state of S-1…S-5. An archived supplier is read-only whatever the viewer holds, under the ST-9 banner
+ * passes the re-read one to the form without a remount. Editable (Code, Name, Country, Currency, Payment terms) for an
+ * UpdateSupplier holder on a live supplier; the same values as plain text otherwise, with no hints. Currency was plain
+ * text in S-1…S-5 and is editable from S-6, with one unconditional hint. An archived supplier is read-only whatever the viewer holds, under the ST-9 banner
  * *"This supplier was archived on {date}."* with **Restore supplier** for a RestoreSupplier holder
  * (`components/records/RestoreActions`): a restore sets the re-read supplier here, so the page turns live without a
  * remount. A refused Save whose re-read finds the supplier archived (S5 on a stale page) turns the page archived and
@@ -262,6 +262,7 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
           canOpenItem={catalogue.canOpenItem}
           canEdit={catalogue.canEdit}
           canAdd={catalogue.canAdd ?? false}
+          canRemove={catalogue.canRemove ?? false}
           supplierCode={supplier.code}
           supplierCurrency={supplier.currency_code}
           announce={announce}

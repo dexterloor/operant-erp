@@ -10,8 +10,8 @@ import { TZ, held, json, problem, refused, renderWired, stubFetch, textsOf } fro
 
 // Suppliers S-1 (suppliers-plan.md §R1-4 S-1 tests 5–11 over Revision 0 §2.2 and §4 S-1; suppliers-ux-copy.md Revision 1
 // — FINAL S-1; suppliers-final-red.md R-2, L-9; b4-architecture.md Revision 9 R9-2). The supplier page is the editor (IA
-// L-4): Code, Name, Country and Payment terms for an UpdateSupplier holder on a live supplier; Currency is read-only text
-// in every state of this commit (no hint, no control, never sent). Payment terms is sent as a JSON number when typed as
+// L-4): Code, Name, Country, Currency and Payment terms for an UpdateSupplier holder on a live supplier (Currency editable
+// from S-6, with its one unconditional hint, suppliers-plan.md §R1-4 S-6 test 5 / D-4; read-only text before). Payment terms is sent as a JSON number when typed as
 // 1–15 digits and exactly as typed otherwise, so the server's own sentence shows (R9-2). An archived supplier is
 // read-only under its ST-9 banner with Restore supplier for a RestoreSupplier holder.
 
@@ -37,37 +37,42 @@ const S12 = 'Payment terms must be a whole number of days from 0 to 3650.';
 const P1 = 'Some of the same records were being changed at the same moment. Nothing was saved; try again.';
 const REREAD_FAILED = "We couldn't load this supplier again, so what's shown may be out of date.";
 const CODE_HINT = 'A short code people will recognise, for example ACME. Two suppliers can\'t share a code unless one of them is archived, and capitals and spaces count.';
+const CURRENCY_HINT = "Three letters, for example GBP. The catalogue's costs are in this currency, so it can't be changed while this supplier's catalogue has any entries.";
 const NAME_HINT = 'Renaming also changes the name on every purchase order and item that already names this supplier.';
 const TERMS_HINT = 'How many days you have to pay this supplier. For your records only: nothing else in the app uses it.';
 const TERMS_REQUIRED = 'Enter a number of days, or 0.';
 
 describe('/suppliers/[id] — the editor (UX S-1 SUPPLIER_PAGE)', () => {
-  it('h1 "{code} — {name}"; editable Code, Name, Country, Payment terms (days), in that order, with their hints; Currency is text', () => {
+  // S-6 moved this pin deliberately: Currency is a field from S-6 (D-4), between Country and Payment terms.
+  it('h1 "{code} — {name}"; editable Code, Name, Country, Currency, Payment terms (days), in that order, with their hints', () => {
     show();
     expect(screen.getByRole('heading', { level: 1, name: 'ACME — Acme Supplies' })).toBeInTheDocument();
-    expect([...document.querySelectorAll('form input, form select, form textarea')].map((i) => i.getAttribute('name'))).toEqual(['code', 'name', 'country_code', 'payment_terms_days']);
+    expect([...document.querySelectorAll('form input, form select, form textarea')].map((i) => i.getAttribute('name'))).toEqual(['code', 'name', 'country_code', 'currency_code', 'payment_terms_days']);
     expect(field('Code')).toHaveAccessibleDescription(CODE_HINT);
     expect(field('Name')).toHaveAccessibleDescription(NAME_HINT);
     expect(field('Country')).toHaveAccessibleDescription('Two letters, for example GB.');
+    expect(field('Currency')).toHaveAccessibleDescription(CURRENCY_HINT);
+    expect(field('Currency')).toHaveValue('GBP');
+    expect(field('Currency')).toHaveAttribute('maxlength', '3');
     expect(field('Payment terms (days)')).toHaveAccessibleDescription(TERMS_HINT);
     expect(field('Payment terms (days)')).toHaveValue('30');
     expect(field('Payment terms (days)')).toHaveAttribute('type', 'text');
     expect(field('Payment terms (days)')).toHaveAttribute('inputmode', 'numeric');
     expect(field('Country')).toHaveAttribute('maxlength', '2');
-    expect(ddAfter('Currency')).toHaveTextContent(/^GBP$/);
-    // No sort control, no create link, no catalogue, no Delete in S-1.
+    // No sort control, no create link, no catalogue, no Delete supplier before S-7.
     expect(screen.queryAllByRole('link')).toEqual([]);
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();
   });
 
-  // Test 7: Currency is never a control in S-1, for any viewer and any state, and it has no hint.
-  it('test 7 — Currency is not editable in S-1, for any viewer: never an input, never a hint, its served code as text', () => {
-    for (const [s, canEdit, canRestore] of [[ACME, true, true], [ACME, false, false], [ARCHIVED, true, true], [ARCHIVED, false, true]] as const) {
+  // Test 7 (S-1) is REPLACED at S-6 by plan test 5 (D-4) below: Currency is editable from S-6. The read-only page keeps it
+  // as text, with no hint (B-3: read-only values carry no hints).
+  it('a read-only page (no UpdateSupplier, or archived): Currency is its served code as text, no control, no hint', () => {
+    for (const [s, canEdit, canRestore] of [[ACME, false, false], [ARCHIVED, true, true], [ARCHIVED, false, true]] as const) {
       const { unmount } = show(s, canEdit, canRestore);
       expect(screen.queryByRole('textbox', { name: 'Currency' })).toBeNull();
       expect(document.querySelector('[name="currency_code"]')).toBeNull();
       expect(ddAfter('Currency')).toHaveTextContent(/^GBP$/);
-      expect(document.body.textContent).not.toMatch(/Three letters|currency can't be changed|catalogue/i);
+      expect(document.body.textContent).not.toContain(CURRENCY_HINT);
       unmount();
     }
   });
@@ -621,5 +626,112 @@ describe('/suppliers/[id] — a second identical saved sentence is written again
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
     expect(rec.texts).toEqual(['', SAVED]);
     rec.stop();
+  });
+});
+
+// Suppliers S-6 (suppliers-plan.md Revision 1 — FINAL §R1-4 S-6 test 5 = the D-4 condition; suppliers-ux-copy.md
+// Revision 1 — FINAL S-6 `SUPPLIER_PAGE.currencyHint`): Currency is editable on every live supplier an UpdateSupplier
+// holder edits, with ONE unconditional hint that states the rule and claims nothing about this supplier's entries
+// (ST-4f row 1 as amended by D-4). The field is never disabled; a change while the catalogue has entries is refused by
+// the server after Save (R8), shown in the banner as sent, and the field stays editable.
+describe('/suppliers/[id] — Currency editable (S-6, plan test 5, D-4)', () => {
+  const CURRENCY_FIXED = "This supplier's catalogue is priced in its current currency. Remove its catalogue entries before changing the currency.";
+  const E1 = {
+    id: 'e0000000-0000-4000-8000-000000000001',
+    supplier_sku: 'A-100',
+    inventory_item: { id: '9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c01', sku: 'SKU-A-100', name: 'Item A-100' },
+    unit_cost: '10.0000',
+    currency_code: 'GBP',
+    lead_time_days: 7,
+    minimum_order_quantity: '1.000000',
+    unit_of_measure_code: 'EA',
+  };
+  const withCatalogue = (entries: (typeof E1)[]) =>
+    renderWired(<SupplierPage initial={ACME} canEdit canRestore={false} catalogue={{ initial: { kind: 'ok', entries, nextCursor: null }, canOpenItem: false, canEdit: true, canAdd: false, canRemove: true }} />);
+  const enabled = (el: HTMLElement) => {
+    expect(el).not.toBeDisabled();
+    expect(el).not.toHaveAttribute('aria-disabled');
+    expect(el).not.toHaveAttribute('readonly');
+  };
+
+  it('test 5 — enabled, with the hint, on every live supplier: no catalogue section, an empty catalogue, a catalogue with entries', () => {
+    const shapes = [() => show(), () => withCatalogue([]), () => withCatalogue([E1])];
+    for (const render of shapes) {
+      const { unmount } = render();
+      enabled(field('Currency'));
+      expect(field('Currency')).toHaveAccessibleDescription(CURRENCY_HINT);
+      expect(field('Currency')).toHaveValue('GBP');
+      unmount();
+    }
+  });
+
+  it('test 5 — a change with entries: Save sends only currency_code; R8 is shown under Not saved as sent; the field stays editable with the typed code', async () => {
+    const calls = stubFetch([refused('supplier.currency_is_fixed_while_terms_exist', CURRENCY_FIXED), json(200, ACME)]);
+    const u = userEvent.setup();
+    withCatalogue([E1]);
+    await u.clear(field('Currency'));
+    await u.type(field('Currency'), 'eur');
+    expect(field('Currency')).toHaveValue('EUR');
+    await u.click(save());
+    await waitFor(() => expect(screen.getByText(CURRENCY_FIXED)).toBeInTheDocument());
+    expect(screen.getByText('Not saved')).toBeInTheDocument();
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ currency_code: 'EUR' });
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
+    enabled(field('Currency'));
+    expect(field('Currency')).toHaveValue('EUR');
+  });
+
+  it('a change on a supplier with an empty catalogue: saved, "{code} was saved.", the re-read currency shown', async () => {
+    const calls = stubFetch([json(200, { ...ACME, currency_code: 'EUR' }), json(200, { ...ACME, currency_code: 'EUR' }), json(200, { items: [], next_cursor: null, previous_cursor: null, tenant_has_rows: false })]);
+    const u = userEvent.setup();
+    withCatalogue([]);
+    await u.clear(field('Currency'));
+    await u.type(field('Currency'), 'EUR');
+    await u.click(save());
+    await waitFor(() => expect(region()).toHaveTextContent('ACME was saved.'));
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ currency_code: 'EUR' });
+    expect(field('Currency')).toHaveValue('EUR');
+  });
+
+  // S-6 RED L-1: S-6 is the first commit that sends currency_code on UpdateSupplier, so the server's Currency 422s are
+  // reachable on this page from here (`SupplierWriter::CURRENCY_SHAPE` / `CURRENCY_UNSUPPORTED`, texts verbatim).
+  it('RED L-1 — a 422 on Currency: the server\'s sentence beside Currency, Currency focused; with a 422 on Payment terms too, Currency (first in screen order) takes focus', async () => {
+    const SHAPE = 'Use the three-letter currency code, for example GBP.';
+    const UNSUPPORTED = "This currency isn't supported yet.";
+    stubFetch([
+      violation('/currency_code', SHAPE, 'not_a_currency_code'),
+      problem(422, 'validation-failed', {
+        errors: [
+          { pointer: '/payment_terms_days', code: 'out_of_range', message: S12 },
+          { pointer: '/currency_code', code: 'unknown_reference', message: UNSUPPORTED },
+        ],
+      }),
+    ]);
+    const u = userEvent.setup();
+    withCatalogue([E1]);
+    await u.clear(field('Currency'));
+    await u.type(field('Currency'), 'G1');
+    await u.click(save());
+    await waitFor(() => expect(field('Currency')).toHaveAccessibleDescription(`${CURRENCY_HINT} ${SHAPE}`));
+    expect(field('Currency')).toHaveAttribute('aria-invalid', 'true');
+    await waitFor(() => expect(field('Currency')).toHaveFocus());
+    await u.clear(field('Currency'));
+    await u.type(field('Currency'), 'XYZ');
+    await u.clear(field('Payment terms (days)'));
+    await u.type(field('Payment terms (days)'), '9999');
+    await u.click(save());
+    await waitFor(() => expect(field('Currency')).toHaveAccessibleDescription(`${CURRENCY_HINT} ${UNSUPPORTED}`));
+    expect(field('Payment terms (days)')).toHaveAccessibleDescription(expect.stringContaining(S12));
+    await waitFor(() => expect(field('Currency')).toHaveFocus());
+  });
+
+  it('an untouched Currency is never sent', async () => {
+    const calls = stubFetch([json(200, { ...ACME, name: 'Acme Ltd' }), json(200, { ...ACME, name: 'Acme Ltd' })]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+    expect(Object.keys(JSON.parse(calls[0]!.body!))).toEqual(['name']);
   });
 });

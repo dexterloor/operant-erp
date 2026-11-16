@@ -10,6 +10,7 @@
   "CreateWarehouse",
   "DeleteItem",
   "DeleteStorageLocation",
+  "DeleteSupplierProduct",
   "DeleteUser",
   "DeleteWarehouse",
   "GetItem",
