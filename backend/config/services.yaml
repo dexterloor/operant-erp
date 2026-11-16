@@ -490,6 +490,15 @@ services:
         decoration_priority: 1
         arguments: ['@.inner']
 
+    # BK-18 R18-e — every record-id path parameter says whose id it is ("The sales order's id."), the word taken from the
+    # URL segment the id follows. Keyed by the class name, as above. Priority 1, beside UuidPathParameters: outside the
+    # link and uri-template factories (500), inside the cached layer (-10). It sets the description only, so the two
+    # commute; the description's only reader is the spec (see the class docblock).
+    App\Platform\Http\PathParameterDescriptions:
+        decorates: api_platform.metadata.resource.metadata_collection_factory
+        decoration_priority: 1
+        arguments: ['@.inner']
+
     # BK-18 R18-c: every member of a served resource is `required` in the published
     # spec unless it is dropped when null. Priority 1: outside the json-schema
     # property factory (10), inside the cache (-10).

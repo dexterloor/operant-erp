@@ -6052,7 +6052,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "CreditNote identifier",
+                        "description": "The credit note's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6291,7 +6291,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Customer identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6335,7 +6335,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Customer identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6386,7 +6386,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Customer identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6483,7 +6483,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "CustomerResource identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6534,7 +6534,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "CustomerResource identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6615,7 +6615,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "CustomerResource identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6628,7 +6628,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "CustomerAddress identifier",
+                        "description": "The address's id.",
                         "explode": false,
                         "in": "path",
                         "name": "addressId",
@@ -6672,7 +6672,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "CustomerResource identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6685,7 +6685,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "CustomerAddress identifier",
+                        "description": "The address's id.",
                         "explode": false,
                         "in": "path",
                         "name": "addressId",
@@ -6782,7 +6782,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "CustomerResource identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6833,7 +6833,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "CustomerResource identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6914,7 +6914,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "CustomerResource identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6927,7 +6927,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "CustomerContact identifier",
+                        "description": "The contact's id.",
                         "explode": false,
                         "in": "path",
                         "name": "contactId",
@@ -6971,7 +6971,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "CustomerResource identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -6984,7 +6984,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "CustomerContact identifier",
+                        "description": "The contact's id.",
                         "explode": false,
                         "in": "path",
                         "name": "contactId",
@@ -7081,7 +7081,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Customer identifier",
+                        "description": "The customer's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -7400,7 +7400,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Fulfilment identifier",
+                        "description": "The fulfilment's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -7453,7 +7453,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "FulfilmentResource identifier",
+                        "description": "The fulfilment's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -7523,7 +7523,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "FulfilmentResource identifier",
+                        "description": "The fulfilment's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -7708,7 +7708,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "GoodsReceipt identifier",
+                        "description": "The goods receipt's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -7913,7 +7913,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Invoice identifier",
+                        "description": "The invoice's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -7966,7 +7966,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "InvoiceResource identifier",
+                        "description": "The invoice's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -8047,7 +8047,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "InvoiceResource identifier",
+                        "description": "The invoice's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -8128,7 +8128,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "InvoiceResource identifier",
+                        "description": "The invoice's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -8181,7 +8181,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Invoice identifier",
+                        "description": "The invoice's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -8262,7 +8262,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Invoice identifier",
+                        "description": "The invoice's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -8343,7 +8343,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Invoice identifier",
+                        "description": "The invoice's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -8606,7 +8606,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Item identifier",
+                        "description": "The item's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -8650,7 +8650,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Item identifier",
+                        "description": "The item's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -8701,7 +8701,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Item identifier",
+                        "description": "The item's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -8798,7 +8798,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Item identifier",
+                        "description": "The item's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9334,7 +9334,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrder identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9378,7 +9378,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrder identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9429,7 +9429,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrder identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9526,7 +9526,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrder identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9607,7 +9607,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrder identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9688,7 +9688,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrderResource identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9769,7 +9769,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrderResource identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9833,7 +9833,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrderResource identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9914,7 +9914,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrderResource identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9927,7 +9927,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrderLine identifier",
+                        "description": "The line's id.",
                         "explode": false,
                         "in": "path",
                         "name": "lineId",
@@ -9971,7 +9971,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrderResource identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -9984,7 +9984,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrderLine identifier",
+                        "description": "The line's id.",
                         "explode": false,
                         "in": "path",
                         "name": "lineId",
@@ -10081,7 +10081,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrderResource identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -10094,7 +10094,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrderLine identifier",
+                        "description": "The line's id.",
                         "explode": false,
                         "in": "path",
                         "name": "lineId",
@@ -10164,7 +10164,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PurchaseOrder identifier",
+                        "description": "The purchase order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -10358,7 +10358,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "RoleGrantProposal identifier",
+                        "description": "The role grant proposal's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -10411,7 +10411,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "RoleGrantProposal identifier",
+                        "description": "The role grant proposal's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -10481,7 +10481,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "RoleGrantProposal identifier",
+                        "description": "The role grant proposal's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -10551,7 +10551,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "RoleGrantProposal identifier",
+                        "description": "The role grant proposal's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -10762,7 +10762,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Role identifier",
+                        "description": "The role's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -10806,7 +10806,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Role identifier",
+                        "description": "The role's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -10857,7 +10857,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Role identifier",
+                        "description": "The role's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -10954,7 +10954,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Role identifier",
+                        "description": "The role's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11241,7 +11241,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrder identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11285,7 +11285,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrder identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11336,7 +11336,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrder identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11433,7 +11433,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrder identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11514,7 +11514,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrder identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11584,7 +11584,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrderResource identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11665,7 +11665,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrderResource identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11729,7 +11729,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrderResource identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11810,7 +11810,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrderResource identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11823,7 +11823,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "SalesOrderLine identifier",
+                        "description": "The line's id.",
                         "explode": false,
                         "in": "path",
                         "name": "lineId",
@@ -11867,7 +11867,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrderResource identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11880,7 +11880,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "SalesOrderLine identifier",
+                        "description": "The line's id.",
                         "explode": false,
                         "in": "path",
                         "name": "lineId",
@@ -11977,7 +11977,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrderResource identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -11990,7 +11990,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "SalesOrderLine identifier",
+                        "description": "The line's id.",
                         "explode": false,
                         "in": "path",
                         "name": "lineId",
@@ -12060,7 +12060,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "PickList identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -12113,7 +12113,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesOrder identifier",
+                        "description": "The sales order's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -12391,7 +12391,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesReturn identifier",
+                        "description": "The sales return's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -12444,7 +12444,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SalesReturn identifier",
+                        "description": "The sales return's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -12937,7 +12937,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "StockMovement identifier",
+                        "description": "The stock movement's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13176,7 +13176,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Supplier identifier",
+                        "description": "The supplier's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13220,7 +13220,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Supplier identifier",
+                        "description": "The supplier's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13271,7 +13271,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Supplier identifier",
+                        "description": "The supplier's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13368,7 +13368,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SupplierResource identifier",
+                        "description": "The supplier's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13419,7 +13419,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SupplierResource identifier",
+                        "description": "The supplier's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13500,7 +13500,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SupplierResource identifier",
+                        "description": "The supplier's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13513,7 +13513,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "SupplierProduct identifier",
+                        "description": "The catalogue entry's id.",
                         "explode": false,
                         "in": "path",
                         "name": "productId",
@@ -13557,7 +13557,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "SupplierResource identifier",
+                        "description": "The supplier's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13570,7 +13570,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "SupplierProduct identifier",
+                        "description": "The catalogue entry's id.",
                         "explode": false,
                         "in": "path",
                         "name": "productId",
@@ -13667,7 +13667,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Supplier identifier",
+                        "description": "The supplier's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13867,7 +13867,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "User identifier",
+                        "description": "The user's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13911,7 +13911,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "User identifier",
+                        "description": "The user's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -13962,7 +13962,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "User identifier",
+                        "description": "The user's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14059,7 +14059,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "OfferedRoleCollection identifier",
+                        "description": "The user's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14137,7 +14137,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "User identifier",
+                        "description": "The user's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14207,7 +14207,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "RoleGrantProposal identifier",
+                        "description": "The user's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14288,7 +14288,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Role identifier",
+                        "description": "The user's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14369,7 +14369,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Role identifier",
+                        "description": "The user's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14382,7 +14382,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Role identifier",
+                        "description": "The role's id.",
                         "explode": false,
                         "in": "path",
                         "name": "roleId",
@@ -14558,7 +14558,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Warehouse identifier",
+                        "description": "The warehouse's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14602,7 +14602,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Warehouse identifier",
+                        "description": "The warehouse's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14653,7 +14653,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Warehouse identifier",
+                        "description": "The warehouse's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14750,7 +14750,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "WarehouseResource identifier",
+                        "description": "The warehouse's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14814,7 +14814,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "WarehouseResource identifier",
+                        "description": "The warehouse's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14895,7 +14895,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "WarehouseResource identifier",
+                        "description": "The warehouse's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14908,7 +14908,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "StorageLocation identifier",
+                        "description": "The location's id.",
                         "explode": false,
                         "in": "path",
                         "name": "locationId",
@@ -14952,7 +14952,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "WarehouseResource identifier",
+                        "description": "The warehouse's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -14965,7 +14965,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "StorageLocation identifier",
+                        "description": "The location's id.",
                         "explode": false,
                         "in": "path",
                         "name": "locationId",
@@ -15062,7 +15062,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "WarehouseResource identifier",
+                        "description": "The warehouse's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
@@ -15075,7 +15075,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "StorageLocation identifier",
+                        "description": "The location's id.",
                         "explode": false,
                         "in": "path",
                         "name": "locationId",
@@ -15145,7 +15145,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Warehouse identifier",
+                        "description": "The warehouse's id.",
                         "explode": false,
                         "in": "path",
                         "name": "id",
