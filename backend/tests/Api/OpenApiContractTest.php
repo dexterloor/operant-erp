@@ -17,6 +17,7 @@ use App\Modules\Sales\Application\SalesOrderWriter;
 use App\Modules\Sales\Application\SalesReturnWriter;
 use App\Modules\UserManagement\ApiResource\RoleReference;
 use App\Modules\Warehouses\Application\Contract\LocationKinds;
+use App\Platform\Security\PermissionGate;
 use App\SharedKernel\Reference\UnitsOfMeasure;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\GeneratedSpec;
@@ -1259,6 +1260,375 @@ final class OpenApiContractTest extends ApiTestCase
         }
 
         return $out;
+    }
+
+    /**
+     * The expected noun is computed here, by the inverse rule, never by the decorator: two agreeing copies are one source.
+     *
+     * BK-18 R18-e: every path parameter's description says whose id it is, as "The <record>'s id." (UX — TO CONFIRM), and
+     * the record is the one the URL addresses at that variable.
+     *
+     * - D, from the spec: every `in: path` parameter as `'OperationId.name' => [description, path]`, sorted by key. Its key
+     *   set is held equal to {@see self::pathParametersInTheSpec()}'s, which the sibling test holds equal to the router.
+     * - The record of each key, derived from the routes and nothing else: the path up to and including `{name}`
+     *   (normalised) is the template of contract operations that serve exactly one resource shortName; that shortName is
+     *   the record (`/users/{}` → `User`, so `AssignRole`'s `{id}` is a user's, whatever its Link's `fromClass` says).
+     * - Per key: (1) the shape; (2) the noun's words are a tail of the record's words (`line` of `SalesOrderLine`; never
+     *   `pick list` of `SalesOrder`); (3) the noun, pluralised by {@see self::pluralised()}, is the URL segment before the
+     *   variable, or the segment's word in {@see self::RECORD_WORDS_BY_UX}.
+     * - Exceptions: {@see self::PATH_PARAMETER_DESCRIPTIONS_BY_HAND} (a Link declaring its own description) and
+     *   {@see self::RECORD_WORDS_BY_UX} (UX's word for a segment), each pinned two-way.
+     * - Anchors: nine exact served sentences, and the two records the item exists for (`GetPickList.id` → `SalesOrder`,
+     *   `AssignRole.id` → `User`).
+     * - A no-HTTP twin (same derivation) of `DenialSubjectTest`'s subject check: each operation's declared
+     *   `PermissionGate::OPERATION_DENIAL_SUBJECT` names the table the URL addresses at that variable.
+     *
+     * Failures are collected and asserted once, before the controls (R18-d D-1 order); the controls each assert an exact
+     * message list over a planted copy, so a check that cannot fail cannot pass.
+     */
+    #[Test]
+    public function everyPathParameterSaysWhoseIdItIs(): void
+    {
+        $spec = $this->regenerate();
+        $d = self::pathParameterDescriptionsInTheSpec($spec);
+
+        $failures = self::pathParameterProblems($d);
+
+        // Anti-vacuity (real D only).
+        if (array_keys($d) !== array_keys(self::pathParametersInTheSpec($spec))) {
+            $failures[] = 'Anti-vacuity: the described path parameters and the path parameters in the spec differ.';
+        }
+        if ([] === array_filter(array_keys($d), static fn (string $k): bool => str_ends_with($k, '.lineId'))) {
+            $failures[] = 'Anti-vacuity: no {lineId} path parameter in the spec ('.\count($d).' path parameters derived).';
+        }
+
+        // Anchors (exact served text; real D only).
+        foreach (self::PATH_PARAMETER_DESCRIPTION_ANCHORS as $key => $expected) {
+            if (($d[$key][0] ?? null) !== $expected) {
+                $failures[] = \sprintf('anchor %s: served "%s", expected "%s"', $key, $d[$key][0] ?? '(absent)', $expected);
+            }
+        }
+        $records = self::recordsByPrefix();
+        foreach (['GetPickList.id' => 'SalesOrder', 'AssignRole.id' => 'User'] as $key => $expected) {
+            $found = isset($d[$key]) ? self::recordsAt($key, $d[$key][1], $records) : [];
+            if ([$expected] !== $found) {
+                $failures[] = \sprintf('record anchor %s: the URL addresses [%s], expected %s', $key, implode(', ', $found), $expected);
+            }
+        }
+
+        // RECORD_WORDS_BY_UX, two-way, and one word per record (real D only).
+        $segments = [];
+        foreach ($d as $key => [, $path]) {
+            $segment = self::segmentOf($key, $path);
+            if (null !== $segment) {
+                $segments[$segment] = true;
+            }
+        }
+        foreach (self::RECORD_WORDS_BY_UX as $segment => [$word]) {
+            if (!isset($segments[$segment])) {
+                $failures[] = \sprintf('RECORD_WORDS_BY_UX lists /%s/, which no served path variable follows', $segment);
+            }
+            $plural = self::pluralised($word);
+            if ($plural === $segment) {
+                $failures[] = \sprintf('RECORD_WORDS_BY_UX maps /%s/ to "%s", which is the URL\'s own word: drop the entry', $segment, $word);
+            } elseif (isset($segments[$plural])) {
+                $failures[] = \sprintf('RECORD_WORDS_BY_UX maps /%s/ to "%s", which is the URL word of /%s/: a UX word may not be another record\'s URL word', $segment, $word, $plural);
+            }
+        }
+        $segmentsByNoun = [];
+        foreach ($d as $key => [$description, $path]) {
+            if (1 === preg_match(self::DESCRIPTION_SHAPE, $description, $m) && null !== ($segment = self::segmentOf($key, $path))) {
+                $segmentsByNoun[$m[1]][$segment] = true;
+            }
+        }
+        foreach ($segmentsByNoun as $noun => $bySegment) {
+            if (\count($bySegment) > 1) {
+                $both = array_keys($bySegment);
+                sort($both);
+                $failures[] = \sprintf('the word "%s" describes ids after /%s/ and /%s/: two records share one word', $noun, $both[0], $both[1]);
+            }
+        }
+
+        self::assertSame([], $failures, \count($d)." path parameters derived; a description does not say whose id it is:\n".implode("\n", $failures));
+
+        // The denial-subject cross-check, after the description failures (it runs DenialSubjectTest's register asserts).
+        $declarations = self::declaredDenialSubjects();
+        self::assertNotSame([], $declarations, 'Anti-vacuity: no operation declares PermissionGate::OPERATION_DENIAL_SUBJECT.');
+        $addressed = DenialSubjectTest::tablesAddressedByPrefix();
+        self::assertSame([], self::denialSubjectProblems($declarations, $addressed),
+            'An operation\'s declared denial subject is not the record its URL addresses.');
+
+        // Positive controls: each planted copy reports exactly its planted failures.
+        $first = (string) array_key_first($d);
+        [$firstOperation, $firstName] = explode('.', $first, 2);
+        $firstRecord = self::recordsAt($first, $d[$first][1], $records)[0] ?? '';
+        $vendor = $firstRecord.' identifier';
+        $controls = [
+            '(a) vendor text' => [$first, $vendor, [
+                \sprintf(self::MESSAGE_SHAPE, $firstOperation, $firstName, $vendor),
+            ]],
+            '(b) wrong record' => ['GetPickList.id', 'The pick list\'s id.', [
+                'GetPickList.{id} says "pick list", but the id addresses a SalesOrder',
+                'GetPickList.{id} says "pick list"; the URL calls it /sales-orders/',
+            ]],
+            '(c) not the URL\'s word' => ['GetSalesOrder.id', 'The order\'s id.', [
+                'GetSalesOrder.{id} says "order"; the URL calls it /sales-orders/',
+            ]],
+            '(d) not UX\'s word' => ['UpdateSupplierProduct.productId', 'The product\'s id.', [
+                'UpdateSupplierProduct.{productId} says "product"; the word for /products/ is "catalogue entry" (RECORD_WORDS_BY_UX)',
+            ]],
+        ];
+        foreach ($controls as $label => [$key, $planted, $expected]) {
+            self::assertArrayHasKey($key, $d, 'Control '.$label.' has nothing to plant on: '.$key.' is not a path parameter.');
+            $copy = $d;
+            $copy[$key][0] = $planted;
+            self::assertSame($expected, self::pathParameterProblems($copy), 'The positive control '.$label.' was not reported exactly.');
+        }
+        self::assertArrayHasKey('AssignRole', $declarations, 'Control (e) has nothing to plant on: AssignRole declares no denial subject.');
+        $plantedDeclaration = ['AssignRole' => ['role', $declarations['AssignRole'][1], $declarations['AssignRole'][2]]];
+        self::assertSame(['AssignRole declares that {id} addresses role, but its URL addresses app_user: the URL or the declaration is wrong'],
+            self::denialSubjectProblems($plantedDeclaration, $addressed), 'The positive control (e) was not reported exactly.');
+
+        foreach ([['pick list', 'SalesOrder', false], ['bin', 'StorageLocation', false], ['line', 'SalesOrderLine', true],
+            ['order line', 'SalesOrderLine', true], ['sales order', 'SalesOrderLine', false]] as [$noun, $record, $isTail]) {
+            self::assertSame($isTail, self::isTail($noun, $record), 'isTail("'.$noun.'", '.$record.') is not '.var_export($isTail, true).'.');
+        }
+        foreach (['address' => 'addresses', 'goods receipt' => 'goods-receipts', 'category' => 'categories', 'key' => 'keys',
+            'batch' => 'batches', 'tax' => 'taxes'] as $noun => $plural) {
+            self::assertSame($plural, self::pluralised($noun), 'pluralised("'.$noun.'") is not '.$plural.'.');
+        }
+    }
+
+    /**
+     * BK-18 R18-e: UX's word for a URL segment whose plural name is not the word for the record, as
+     * `'segment' => [word, reason]`. T-1's own copy, never the decorator's (`PathParameterDescriptionsTest` pins the two
+     * equal). Pinned two-way: each segment is followed by a served path variable; the word is not the URL's own word, nor
+     * another record's URL word.
+     *
+     * @var array<string, array{0: string, 1: string}>
+     */
+    public const RECORD_WORDS_BY_UX = [
+        'products' => ['catalogue entry', 'The record is a supplier catalogue entry, not an item; matches shipped copy and BK-30 (UX — TO CONFIRM).'],
+    ];
+
+    /**
+     * BK-18 R18-e: path parameters whose description departs from the rule, as `'OperationId.name' => 'reason'`. An entry
+     * is a Link declaring its own `description:`, with UX's reason. Pinned two-way: each entry is a path parameter in the
+     * spec and its description fails the shape or the word check; every unlisted key that fails is reported. Expected
+     * empty.
+     *
+     * @var array<string, string>
+     */
+    public const PATH_PARAMETER_DESCRIPTIONS_BY_HAND = [];
+
+    /** BK-18 R18-e anchors: exact served sentences (UX — TO CONFIRM). Not shared with `PathParameterDescriptionsTest`. */
+    private const PATH_PARAMETER_DESCRIPTION_ANCHORS = [
+        'GetSalesOrder.id' => 'The sales order\'s id.',
+        'GetPurchaseOrder.id' => 'The purchase order\'s id.',
+        'GetGoodsReceipt.id' => 'The goods receipt\'s id.',
+        'GetRoleGrantProposal.id' => 'The role grant proposal\'s id.',
+        'DeleteCustomerAddress.addressId' => 'The address\'s id.',
+        'AssignRole.id' => 'The user\'s id.',
+        'RevokeRole.roleId' => 'The role\'s id.',
+        'GetPickList.id' => 'The sales order\'s id.',
+        'UpdateSupplierProduct.productId' => 'The catalogue entry\'s id.',
+    ];
+
+    private const DESCRIPTION_SHAPE = '/^The ([a-z]+(?: [a-z]+)*)\'s id\.$/';
+
+    private const MESSAGE_SHAPE = '%s.{%s} is described as "%s", not "The <record>\'s id."';
+
+    /**
+     * @param array<mixed> $spec
+     *
+     * @return array<string, array{0: string, 1: string}> `'OperationId.name' => [description, path]`, sorted by key
+     */
+    private static function pathParameterDescriptionsInTheSpec(array $spec): array
+    {
+        $out = [];
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            foreach ($data['operation']['parameters'] ?? [] as $parameter) {
+                if ('path' === ($parameter['in'] ?? null)) {
+                    $out[$data['operation']['operationId'].'.'.$parameter['name']] = [(string) ($parameter['description'] ?? ''), $data['path']];
+                }
+            }
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    /**
+     * Checks 1–3 and the {@see self::PATH_PARAMETER_DESCRIPTIONS_BY_HAND} two-way check, and nothing else: the controls
+     * call this on a planted copy of D.
+     *
+     * @param array<string, array{0: string, 1: string}> $d
+     *
+     * @return list<string>
+     */
+    private static function pathParameterProblems(array $d): array
+    {
+        $records = self::recordsByPrefix();
+        $problems = [];
+        foreach (array_keys(self::PATH_PARAMETER_DESCRIPTIONS_BY_HAND) as $key) {
+            if (!isset($d[$key])) {
+                $problems[] = \sprintf('%s is listed in PATH_PARAMETER_DESCRIPTIONS_BY_HAND but is not a path parameter in the spec', $key);
+            }
+        }
+        foreach ($d as $key => [$description, $path]) {
+            [$operationId, $name] = explode('.', $key, 2);
+            $segment = self::segmentOf($key, $path) ?? '';
+            $listedByHand = \array_key_exists($key, self::PATH_PARAMETER_DESCRIPTIONS_BY_HAND);
+
+            $record = null;
+            if (!$listedByHand) {
+                $prefix = self::prefixOf($key, $path);
+                $found = self::recordsAt($key, $path, $records);
+                if (1 !== \count($found)) {
+                    $problems[] = \sprintf('%s.{%s}: no single record is served at %s (found: %s); a path variable must follow the plural name of a record that has its own operations',
+                        $operationId, $name, $prefix, implode(', ', $found));
+                    continue;
+                }
+                $record = $found[0];
+            }
+
+            $own = [];
+            if (1 !== preg_match(self::DESCRIPTION_SHAPE, $description, $m)) {
+                $own[] = \sprintf(self::MESSAGE_SHAPE, $operationId, $name, $description);
+            } else {
+                $noun = $m[1];
+                $listedWord = self::RECORD_WORDS_BY_UX[$segment][0] ?? null;
+                if (null !== $record && null === $listedWord && !self::isTail($noun, $record)) {
+                    $own[] = \sprintf('%s.{%s} says "%s", but the id addresses a %s', $operationId, $name, $noun, $record);
+                }
+                if (null !== $listedWord) {
+                    if ($noun !== $listedWord) {
+                        $own[] = \sprintf('%s.{%s} says "%s"; the word for /%s/ is "%s" (RECORD_WORDS_BY_UX)', $operationId, $name, $noun, $segment, $listedWord);
+                    }
+                } elseif (self::pluralised($noun) !== $segment) {
+                    $own[] = \sprintf('%s.{%s} says "%s"; the URL calls it /%s/', $operationId, $name, $noun, $segment);
+                }
+            }
+
+            if (!$listedByHand) {
+                array_push($problems, ...$own);
+            } elseif ([] === $own) {
+                $problems[] = \sprintf('%s is listed in PATH_PARAMETER_DESCRIPTIONS_BY_HAND but its description follows the rule', $key);
+            }
+        }
+
+        return $problems;
+    }
+
+    /** @return array<string, list<string>> normalised template => the sorted shortNames of the contract operations served there */
+    private static function recordsByPrefix(): array
+    {
+        $out = [];
+        foreach (TransactionBoundaryTest::contractOperations() as $operation) {
+            $path = (string) $operation->getUriTemplate();
+            $template = str_starts_with($path, self::BASE) ? substr($path, \strlen(self::BASE)) : $path;
+            $out[(string) preg_replace('/\{[^}]+\}/', '{}', $template)][(string) $operation->getShortName()] = true;
+        }
+
+        return array_map(static function (array $names): array {
+            $list = array_keys($names);
+            sort($list);
+
+            return $list;
+        }, $out);
+    }
+
+    /**
+     * The record of a key: the shortNames served at its prefix. The one place the record is derived.
+     *
+     * @param array<string, list<string>> $records {@see self::recordsByPrefix()}
+     *
+     * @return list<string>
+     */
+    private static function recordsAt(string $key, string $path, array $records): array
+    {
+        return $records[self::prefixOf($key, $path)] ?? [];
+    }
+
+    /** The spec path up to and including `{name}`, base stripped, every variable normalised to `{}`. */
+    private static function prefixOf(string $key, string $path): string
+    {
+        $name = explode('.', $key, 2)[1];
+        $template = str_starts_with($path, self::BASE) ? substr($path, \strlen(self::BASE)) : $path;
+        $end = strpos($template, '{'.$name.'}');
+        $prefix = false === $end ? $template : substr($template, 0, $end + \strlen($name) + 2);
+
+        return (string) preg_replace('/\{[^}]+\}/', '{}', $prefix);
+    }
+
+    /** The literal URL segment immediately before `/{name}`, or null when none precedes it. */
+    private static function segmentOf(string $key, string $path): ?string
+    {
+        $name = explode('.', $key, 2)[1];
+
+        return 1 === preg_match('#/([^/{}]+)/\{'.preg_quote($name, '#').'\}#', $path, $m) ? $m[1] : null;
+    }
+
+    /** The noun's words equal the last N words of the shortName, split on capitals and lower-cased. */
+    private static function isTail(string $noun, string $shortName): bool
+    {
+        $nounWords = explode(' ', $noun);
+        $recordWords = array_map('strtolower', preg_split('/(?=[A-Z])/', $shortName, -1, \PREG_SPLIT_NO_EMPTY) ?: []);
+
+        return \count($nounWords) <= \count($recordWords) && $nounWords === \array_slice($recordWords, -\count($nounWords));
+    }
+
+    /** The inverse of the singular rule: spaces → `-`; last word: consonant + `y` → `ies`; `s|x|z|ch|sh` → `+es`; else `+s`. */
+    private static function pluralised(string $noun): string
+    {
+        $words = explode(' ', $noun);
+        $last = (string) array_pop($words);
+        if (1 === preg_match('/[^aeiou]y$/', $last)) {
+            $last = substr($last, 0, -1).'ies';
+        } elseif (1 === preg_match('/(s|x|z|ch|sh)$/', $last)) {
+            $last .= 'es';
+        } else {
+            $last .= 's';
+        }
+        $words[] = $last;
+
+        return implode('-', $words);
+    }
+
+    /** @return array<string, array{0: string, 1: string, 2: string}> operationId => [declared table, variable, template] */
+    private static function declaredDenialSubjects(): array
+    {
+        $out = [];
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            $declared = $operation->getExtraProperties()[PermissionGate::OPERATION_DENIAL_SUBJECT] ?? null;
+            if (\is_array($declared)) {
+                $path = (string) $operation->getUriTemplate();
+                $out[(string) $name] = [(string) $declared[0], (string) $declared[1], str_starts_with($path, self::BASE) ? substr($path, \strlen(self::BASE)) : $path];
+            }
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    /**
+     * @param array<string, array{0: string, 1: string, 2: string}> $declarations
+     * @param array<string, string>                                 $addressed    normalised prefix => table
+     *
+     * @return list<string>
+     */
+    private static function denialSubjectProblems(array $declarations, array $addressed): array
+    {
+        $problems = [];
+        foreach ($declarations as $name => [$table, $variable, $template]) {
+            $prefix = self::prefixOf($name.'.'.$variable, $template);
+            $url = $addressed[$prefix] ?? 'no known table';
+            if ($url !== $table) {
+                $problems[] = \sprintf('%s declares that {%s} addresses %s, but its URL addresses %s: the URL or the declaration is wrong', $name, $variable, $table, $url);
+            }
+        }
+
+        return $problems;
     }
 
     /** A class not served as a resource, with an `id`, whose every public member is a non-nullable `string`. */

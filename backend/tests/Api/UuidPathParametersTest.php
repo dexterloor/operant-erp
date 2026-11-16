@@ -117,6 +117,9 @@ final class UuidPathParametersTest extends KernelTestCase
         if (\array_key_exists('default', $module['a']->getSchema() ?? [])) {
             $failures[] = 'unit a: the decorator gave a Link a default.';
         }
+        if (null !== $module['a']->getDefault()) {
+            $failures[] = 'unit a: the decorator gave a Link a default.';
+        }
         if ($b !== $module['b']) {
             $failures[] = 'unit b: a Link that declares its own schema was changed: '.json_encode($module['b']->getSchema());
         }
@@ -137,6 +140,15 @@ final class UuidPathParametersTest extends KernelTestCase
         $firstKey = array_key_first($links);
         self::assertSame([$firstKey.': '.self::NO_CONSTRAINT_MESSAGE], self::problems($firstKey, $links[$firstKey]->withConstraints(new Uuid())),
             'The positive control: a uri variable given a Uuid constraint was not reported.');
+
+        // BK-18 R18-d deviations-RED L-3/L-4: a Link default, set directly or inside the schema, is reported too. The
+        // schema-borne default also changes the schema, so that control reports both messages, schema first.
+        self::assertSame([$firstKey.': '.self::NO_CONSTRAINT_MESSAGE], self::problems($firstKey, $links[$firstKey]->withDefault('x')),
+            'The positive control: a uri variable given a default was not reported.');
+        $planted = ['type' => 'string', 'format' => 'uuid', 'default' => 'x'];
+        self::assertSame([$firstKey.' has schema '.json_encode($planted).', not {type: string, format: uuid}', $firstKey.': '.self::NO_CONSTRAINT_MESSAGE],
+            self::problems($firstKey, $links[$firstKey]->withSchema($planted)),
+            'The positive control: a uri variable whose schema carries a default was not reported.');
     }
 
     /** @return list<string> */
@@ -146,7 +158,7 @@ final class UuidPathParametersTest extends KernelTestCase
         if (self::UUID !== $link->getSchema() && !\array_key_exists($key, OpenApiContractTest::PATH_PARAMETERS_THAT_ARE_NOT_UUIDS)) {
             $problems[] = $key.' has schema '.json_encode($link->getSchema()).', not {type: string, format: uuid}';
         }
-        if (null !== $link->getConstraints() || \array_key_exists('default', $link->getSchema() ?? [])) {
+        if (null !== $link->getConstraints() || null !== $link->getDefault() || \array_key_exists('default', $link->getSchema() ?? [])) {
             $problems[] = $key.': '.self::NO_CONSTRAINT_MESSAGE;
         }
 

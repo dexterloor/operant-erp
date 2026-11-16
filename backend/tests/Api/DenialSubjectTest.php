@@ -424,9 +424,11 @@ final class DenialSubjectTest extends PurchaseOrderTestCase
      * the registry: every built `GET` whose template ends in a variable, its table the resource half of its permission
      * code when that names a `SchemaManifest` table.
      *
+     * Also read by `OpenApiContractTest::everyPathParameterSaysWhoseIdItIs` (BK-18 R18-e).
+     *
      * @return array<string, string>
      */
-    private static function tablesAddressedByPrefix(): array
+    public static function tablesAddressedByPrefix(): array
     {
         $addressed = self::ADDRESSED_WITHOUT_A_GET_OPERATION;
 
