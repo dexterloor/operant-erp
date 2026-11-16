@@ -123,3 +123,76 @@ describe('/warehouses/[id] — an Edit location dialog open when the page turns 
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+// The heading fallback of the Locations section's focus return (`focusOpener`, "else the heading"): the button that opened
+// the dialog is gone (the page turned archived while the dialog was open, so the row's Edit and Add location unmounted),
+// and the dialog's request still succeeds (the warehouse was restored elsewhere meanwhile). Focus then goes to the
+// Locations heading, BEFORE the sentence is written. The spy tells a call inside the dialog from the page's.
+describe('/warehouses/[id] — focus falls back to the Locations heading when the dialog\'s opener is gone', () => {
+  const pageRegion = () => document.querySelector<HTMLElement>('section > [role="status"]')!;
+  const spyFocus = () => {
+    const seen: { el: string; region: string }[] = [];
+    const real = HTMLElement.prototype.focus;
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, opts?: FocusOptions) {
+      seen.push({ el: (this.closest('[role="dialog"]') ? 'dialog:' : '') + `${this.tagName}:${this.getAttribute('aria-label') ?? this.textContent}`, region: pageRegion().textContent ?? '' });
+      real.call(this, opts);
+    });
+    return { seen, spy };
+  };
+  const locationsHeading = () => screen.getByRole('heading', { level: 2, name: 'Locations' });
+
+  it('Edit location: the page reads archived across the dialog, its Save answers 200 → the Locations heading takes focus while the region is still empty; "A2 was saved." follows', async () => {
+    const s = held();
+    const saved = { ...A1, code: 'A2' };
+    stubFetch([s.reply, json(200, ARCHIVED_MAIN), json(200, saved), coll([saved])]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: true, canRestore: true, canCreate: false }} />);
+    await saveWarehouse(u);
+    await u.click(screen.getByRole('button', { name: 'Edit A1' }));
+    const code = within(screen.getByRole('dialog')).getByRole('textbox', { name: 'Code' });
+    await u.clear(code);
+    await u.type(code, 'A2');
+    await act(async () => s.release(json(200, RESTORED)));
+    await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Edit A1' })).toBeNull();
+    const f = spyFocus();
+    try {
+      await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(pageRegion().textContent).toBe('A2 was saved.'));
+    } finally {
+      f.spy.mockRestore();
+    }
+    const onHeading = f.seen.filter((c) => c.el === 'H2:Locations');
+    expect(onHeading.length).toBeGreaterThan(0);
+    expect(onHeading[0]!.region).toBe('');
+    await waitFor(() => expect(document.activeElement).toBe(locationsHeading()));
+  });
+
+  // Add location's press does not empty the region (no FE-R9 clear on that dialog, shipped), so the region still holds the
+  // warehouse Save's sentence when the heading takes focus: what is pinned is that "B9 was added." comes after the focus.
+  it('Add location: the page reads archived across the dialog, its Add answers 201 → the Locations heading takes focus before "B9 was added." is written', async () => {
+    const s = held();
+    const made: StorageLocation = { id: '66666666-6666-4666-8666-666666666666', code: 'B9', kind: KINDS[0]!, archived_at: null };
+    stubFetch([s.reply, json(200, ARCHIVED_MAIN), json(201, made), coll([A1, made])]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: false, canRestore: true, canCreate: true }} />);
+    await saveWarehouse(u);
+    await u.click(screen.getAllByRole('button', { name: 'Add location' })[0]!);
+    await u.type(within(screen.getByRole('dialog')).getByRole('textbox', { name: 'Code' }), 'B9');
+    await u.selectOptions(within(screen.getByRole('dialog')).getByRole('combobox', { name: 'Kind' }), KINDS[0]!);
+    await act(async () => s.release(json(200, RESTORED)));
+    await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
+    expect(screen.getAllByRole('button', { name: 'Add location' }).every((b) => b.closest('[role="dialog"]') !== null)).toBe(true);
+    const f = spyFocus();
+    try {
+      await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add location' }));
+      await waitFor(() => expect(pageRegion().textContent).toBe('B9 was added.'));
+    } finally {
+      f.spy.mockRestore();
+    }
+    const onHeading = f.seen.filter((c) => c.el === 'H2:Locations');
+    expect(onHeading.length).toBeGreaterThan(0);
+    expect(onHeading[0]!.region).toBe('MAIN was saved.');
+    await waitFor(() => expect(document.activeElement).toBe(locationsHeading()));
+  });
+});
