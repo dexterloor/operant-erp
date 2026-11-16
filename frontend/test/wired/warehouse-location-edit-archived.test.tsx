@@ -5,6 +5,7 @@ const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { WarehousePage } from '@/app/(app)/warehouses/[id]/WarehousePage';
 import type { StorageLocation, Warehouse } from '@/lib/api/warehouses';
+import { wireEnum } from '@/lib/bff/surface';
 import { held, json, refused, renderWired, stubFetch } from './harness';
 
 // The supplier catalogue's S-4 RED M-1, probed on its shipped twin: an Edit location dialog that is open when the warehouse
@@ -26,6 +27,19 @@ const A1: StorageLocation = { id: '11111111-1111-4111-8111-111111111111', code: 
 const coll = (items: StorageLocation[]) => json(200, { items, next_cursor: null, previous_cursor: null, tenant_has_rows: true });
 /** `StorageLocationWriter::WAREHOUSE_ARCHIVED_ON_UPDATE`. */
 const ARCHIVED_ON_UPDATE = "This warehouse is archived, so its locations can't be changed until it's restored.";
+/** `StorageLocationWriter::WAREHOUSE_ARCHIVED_ON_CREATE` / `::WAREHOUSE_ARCHIVED_ON_DELETE`. */
+const ARCHIVED_ON_CREATE = "This warehouse is archived, so no location can be added to it until it's restored.";
+const ARCHIVED_ON_DELETE = "This location's warehouse is archived, so the location can't be deleted until the warehouse is restored.";
+const KINDS = wireEnum('StorageLocation', 'kind');
+const RESTORED = { ...MAIN, name: 'Main store' };
+
+/** The warehouse's own Save, pressed first: its request is held until the test releases it. */
+async function saveWarehouse(u: ReturnType<typeof userEvent.setup>) {
+  const name = screen.getByRole('textbox', { name: 'Name' });
+  await u.clear(name);
+  await u.type(name, 'Main store');
+  await u.click(screen.getByRole('button', { name: 'Save' }));
+}
 
 describe('/warehouses/[id] — an Edit location dialog open when the page turns archived', () => {
   it('stays open with what was typed and focus inside it; its Save shows the archived refusal under Not saved; after Cancel and Restore warehouse it does not come back by itself', async () => {
@@ -53,6 +67,57 @@ describe('/warehouses/[id] — an Edit location dialog open when the page turns 
     expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(calls).toHaveLength(4));
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH', 'GET']);
+    await u.click(await screen.findByRole('button', { name: 'Restore warehouse' }));
+    await waitFor(() => expect(screen.queryByText(/This warehouse was archived on/)).toBeNull());
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // S-4 RED-2 M-1 (shipped): the Add location dialog had the same shape (`adding && mayAdd`).
+  it('Add location: stays open with what was typed and focus inside it; its Add shows the archived refusal under Not added; after Cancel and Restore warehouse it does not come back by itself', async () => {
+    const s = held();
+    const calls = stubFetch([s.reply, json(200, ARCHIVED_MAIN), refused('warehouse.is_archived', ARCHIVED_ON_CREATE), coll([A1]), json(200, RESTORED), json(200, RESTORED)]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: true, canRestore: true, canCreate: true }} />);
+    await saveWarehouse(u);
+    await u.click(screen.getAllByRole('button', { name: 'Add location' })[0]!);
+    await u.type(within(screen.getByRole('dialog')).getByRole('textbox', { name: 'Code' }), 'B9');
+    await act(async () => s.release(json(200, RESTORED)));
+    await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
+    expect(screen.queryByRole('dialog')).not.toBeNull();
+    expect(within(screen.getByRole('dialog')).getByRole('textbox', { name: 'Code' })).toHaveValue('B9');
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
+    await u.selectOptions(within(screen.getByRole('dialog')).getByRole('combobox', { name: 'Kind' }), KINDS[0]!);
+    await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add location' }));
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByText(ARCHIVED_ON_CREATE)).toBeInTheDocument());
+    expect(within(screen.getByRole('dialog')).getByText('Not added')).toBeInTheDocument();
+    await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(calls).toHaveLength(4));
+    await u.click(await screen.findByRole('button', { name: 'Restore warehouse' }));
+    await waitFor(() => expect(screen.queryByText(/This warehouse was archived on/)).toBeNull());
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // S-4 RED-2 L-2 (shipped): the Delete location dialog had the same shape (`deleting !== null && canDelete && !warehouseArchived`).
+  it('Delete location: stays open; its Delete shows the archived refusal under Not deleted with Close only; after Close and Restore warehouse it does not come back by itself', async () => {
+    const s = held();
+    const calls = stubFetch([s.reply, json(200, ARCHIVED_MAIN), refused('warehouse.is_archived', ARCHIVED_ON_DELETE), coll([A1]), json(200, RESTORED), json(200, RESTORED)]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore locations={{ initial: { kind: 'ok', locations: [A1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: true }} />);
+    await saveWarehouse(u);
+    await u.click(screen.getByRole('button', { name: 'Delete A1' }));
+    await act(async () => s.release(json(200, RESTORED)));
+    await waitFor(() => expect(screen.getByText(/This warehouse was archived on/)).toBeInTheDocument());
+    expect(screen.queryByRole('dialog')).not.toBeNull();
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
+    await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete location' }));
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByText(ARCHIVED_ON_DELETE)).toBeInTheDocument());
+    expect(within(screen.getByRole('dialog')).getByText('Not deleted')).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Close']);
+    await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(calls).toHaveLength(4));
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'DELETE', 'GET']);
     await u.click(await screen.findByRole('button', { name: 'Restore warehouse' }));
     await waitFor(() => expect(screen.queryByText(/This warehouse was archived on/)).toBeNull());
     expect(screen.queryByRole('dialog')).toBeNull();

@@ -131,9 +131,11 @@ interface Notice {
  * sent; nothing is decided from a kind). Live rows offer **Edit** (code only); Archived rows offer **Restore location**;
  * an archived warehouse's section offers neither and carries ST-9b's note. **Add location** (§2 step 4.5) is in the live
  * view's header and its empty state, for a `CreateStorageLocation` holder on a live warehouse only. After a dialog or a
- * row action: close → focus → announce → re-read the view (FE-D1). An Edit location dialog that is open when the page
- * turns archived stays open with what was typed: its Save then meets the archived refusal and says so, and it never comes
- * back by itself after Restore warehouse (the supplier catalogue's S-4 RED M-1, found here too). **Delete** (§2 step 4.6) is a live row's action
+ * row action: close → focus → announce → re-read the view (FE-D1). An Edit location, Add location or Delete location dialog
+ * that is open when the page turns archived stays open with what was typed: its Save, Add or Delete then meets the archived
+ * refusal and says so, and it never comes back by itself after Restore warehouse (the supplier catalogue's S-4 RED M-1,
+ * found here too; S-4 RED-2 M-1, L-2). Each renders on its own open state alone: no button that opens it renders on an
+ * archived warehouse or without its operation's codes, so that state is never set without them. **Delete** (§2 step 4.6) is a live row's action
  * for a `DeleteStorageLocation` holder on a live warehouse; after it the row is in the Archived view, where Restore
  * location brings it back.
  *
@@ -474,8 +476,8 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
         controller={list}
         denied={<p>{LOCATIONS_SECTION.denied}</p>}
       />
-      {adding && mayAdd ? <AddLocationForm warehouseCode={warehouseCode} kinds={wireEnum(CREATE_INPUT, 'kind')} create={create} createCode={gateCode('CreateStorageLocation')} onClose={(o) => void closeAdd(o)} fallbackFocusRef={heading} /> : null}
-      {deleting !== null && canDelete && !warehouseArchived ? (
+      {adding ? <AddLocationForm warehouseCode={warehouseCode} kinds={wireEnum(CREATE_INPUT, 'kind')} create={create} createCode={gateCode('CreateStorageLocation')} onClose={(o) => void closeAdd(o)} fallbackFocusRef={heading} /> : null}
+      {deleting !== null ? (
         <DeleteDialog
           key={deleting.id}
           copy={{ title: DELETE_LOCATION.title(deleting.code), body: DELETE_LOCATION.body, confirm: DELETE_LOCATION.confirm, cancel: DELETE_LOCATION.cancel, close: DELETE_LOCATION.close, interrupted: DELETE_LOCATION.interrupted(deleting.code), forbidden: WAREHOUSE_FORBIDDEN }}
