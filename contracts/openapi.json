@@ -115,6 +115,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "AuditRecordCollection": {
@@ -192,6 +198,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "BulkArchival.CreateBulkArchivalInput": {
@@ -573,6 +585,18 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "credit_note_number",
+                    "reason",
+                    "invoice",
+                    "sales_return",
+                    "currency_code",
+                    "total_amount",
+                    "issued_at",
+                    "issued_by",
+                    "lines"
+                ],
                 "type": "object"
             },
             "CreditNote.IssueAdjustmentCreditNoteInput": {
@@ -691,6 +715,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "CurrentUser": {
@@ -731,6 +761,13 @@
                         "type": "array"
                     }
                 },
+                "required": [
+                    "id",
+                    "email",
+                    "display_name",
+                    "roles",
+                    "permission_codes"
+                ],
                 "type": "object"
             },
             "Customer": {
@@ -761,6 +798,15 @@
                         "type": "integer"
                     }
                 },
+                "required": [
+                    "id",
+                    "code",
+                    "name",
+                    "country_code",
+                    "currency_code",
+                    "payment_terms_days",
+                    "archived_at"
+                ],
                 "type": "object"
             },
             "Customer.CreateCustomerInput": {
@@ -833,6 +879,14 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "kind",
+                    "line",
+                    "city",
+                    "postal_code",
+                    "country_code"
+                ],
                 "type": "object"
             },
             "CustomerAddress.CreateCustomerAddressInput": {
@@ -908,6 +962,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "CustomerCollection": {
@@ -934,6 +994,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "CustomerContact": {
@@ -961,6 +1027,13 @@
                         ]
                     }
                 },
+                "required": [
+                    "id",
+                    "name",
+                    "email",
+                    "phone",
+                    "is_primary"
+                ],
                 "type": "object"
             },
             "CustomerContact.CreateCustomerContactInput": {
@@ -1038,6 +1111,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "Error": {
@@ -1231,6 +1310,14 @@
                         "type": "object"
                     }
                 },
+                "required": [
+                    "id",
+                    "fulfilment_number",
+                    "shipped_at",
+                    "sales_order",
+                    "lines",
+                    "shipped_by"
+                ],
                 "type": "object"
             },
             "Fulfilment.CreateFulfilmentInput": {
@@ -1299,6 +1386,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "GoodsReceipt": {
@@ -1414,6 +1507,14 @@
                         ]
                     }
                 },
+                "required": [
+                    "id",
+                    "receipt_number",
+                    "received_at",
+                    "purchase_order",
+                    "lines",
+                    "received_by"
+                ],
                 "type": "object"
             },
             "GoodsReceipt.CreateGoodsReceiptInput": {
@@ -1482,6 +1583,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "Invoice": {
@@ -1575,6 +1682,22 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "invoice_number",
+                    "status",
+                    "total_amount",
+                    "currency_code",
+                    "issued_at",
+                    "due_at",
+                    "paid_at",
+                    "paid_by",
+                    "fulfilment",
+                    "customer",
+                    "amount_credited",
+                    "amount_due",
+                    "credited_in_full"
+                ],
                 "type": "object"
             },
             "Invoice.PayInvoiceInput": {
@@ -1647,6 +1770,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "InvoiceLineCollection": {
@@ -1778,6 +1907,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "Item": {
@@ -1831,6 +1966,18 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "sku",
+                    "name",
+                    "unit_of_measure_code",
+                    "supplier",
+                    "reorder_point",
+                    "reorder_quantity",
+                    "safety_stock",
+                    "archived_at",
+                    "holds_stock"
+                ],
                 "type": "object"
             },
             "Item.CreateItemInput": {
@@ -1947,6 +2094,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "NamedReference": {
@@ -2065,6 +2218,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "Password": {
@@ -2073,6 +2232,9 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "changed_at"
+                ],
                 "type": "object"
             },
             "Password.ChangePasswordInput": {
@@ -2113,6 +2275,9 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "changed_at"
+                ],
                 "type": "object"
             },
             "PasswordResetRedemption.CreatePasswordResetRedemptionInput": {
@@ -2194,6 +2359,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "PickList": {
@@ -2345,6 +2516,18 @@
                         "type": "object"
                     }
                 },
+                "required": [
+                    "id",
+                    "order_number",
+                    "status",
+                    "customer",
+                    "warehouse",
+                    "ship_to_line",
+                    "ship_to_city",
+                    "ship_to_postal_code",
+                    "ship_to_country_code",
+                    "lines"
+                ],
                 "type": "object"
             },
             "PickQueueEntryCollection": {
@@ -2431,6 +2614,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "PurchaseOrder": {
@@ -2486,6 +2675,19 @@
                         "$ref": "#/components/schemas/NamedReference"
                     }
                 },
+                "required": [
+                    "id",
+                    "supplier",
+                    "warehouse",
+                    "currency_code",
+                    "expected_at",
+                    "order_number",
+                    "status",
+                    "total_amount",
+                    "ordered_at",
+                    "created_by",
+                    "archived_at"
+                ],
                 "type": "object"
             },
             "PurchaseOrder.ApprovePurchaseOrderInput": {
@@ -2615,6 +2817,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "PurchaseOrderLine": {
@@ -2665,6 +2873,16 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "line_number",
+                    "inventory_item",
+                    "quantity",
+                    "unit_cost",
+                    "quantity_received",
+                    "quantity_outstanding",
+                    "archived_at"
+                ],
                 "type": "object"
             },
             "PurchaseOrderLine.CreatePurchaseOrderLineInput": {
@@ -2724,6 +2942,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "ReorderSuggestionCollection": {
@@ -2841,6 +3065,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "ReorderSummary": {
@@ -2849,6 +3079,9 @@
                         "type": "integer"
                     }
                 },
+                "required": [
+                    "items_below_reorder_point"
+                ],
                 "type": "object"
             },
             "Role": {
@@ -2885,6 +3118,16 @@
                         "type": "array"
                     }
                 },
+                "required": [
+                    "id",
+                    "name",
+                    "description",
+                    "permission_codes",
+                    "is_system",
+                    "holder_count",
+                    "margin_exposure",
+                    "archived_at"
+                ],
                 "type": "object"
             },
             "Role.AssignRoleInput": {
@@ -2970,6 +3213,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "RoleGrantProposal": {
@@ -3034,6 +3283,21 @@
                         "$ref": "#/components/schemas/UserDisplayReference"
                     }
                 },
+                "required": [
+                    "id",
+                    "user",
+                    "role",
+                    "permission_codes",
+                    "status",
+                    "is_expired",
+                    "proposed_by",
+                    "proposed_at",
+                    "expires_at",
+                    "decided_by",
+                    "decided_at",
+                    "reason",
+                    "lapse_reason"
+                ],
                 "type": "object"
             },
             "RoleGrantProposal.CreateRoleGrantProposalInput": {
@@ -3085,6 +3349,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "RoleReference": {
@@ -3214,6 +3484,22 @@
                         "$ref": "#/components/schemas/SalesNamedReference"
                     }
                 },
+                "required": [
+                    "id",
+                    "customer",
+                    "warehouse",
+                    "currency_code",
+                    "order_number",
+                    "status",
+                    "total_amount",
+                    "ordered_at",
+                    "created_by",
+                    "ship_to_line",
+                    "ship_to_city",
+                    "ship_to_postal_code",
+                    "ship_to_country_code",
+                    "archived_at"
+                ],
                 "type": "object"
             },
             "SalesOrder.CancelSalesOrderInput": {
@@ -3328,6 +3614,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "SalesOrderLine": {
@@ -3361,6 +3653,16 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "line_number",
+                    "inventory_item",
+                    "quantity",
+                    "unit_price",
+                    "quantity_fulfilled",
+                    "quantity_outstanding",
+                    "archived_at"
+                ],
                 "type": "object"
             },
             "SalesOrderLine.CreateSalesOrderLineInput": {
@@ -3420,24 +3722,24 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "SalesReturn": {
                 "properties": {
                     "adjustment_decision_owed": {
-                        "type": [
-                            "boolean",
-                            "null"
-                        ]
+                        "type": "boolean"
                     },
                     "created_at": {
                         "type": "string"
                     },
                     "credit_blocked_by_payment": {
-                        "type": [
-                            "boolean",
-                            "null"
-                        ]
+                        "type": "boolean"
                     },
                     "credit_target": {
                         "properties": {
@@ -3730,6 +4032,19 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "sales_return_number",
+                    "reason",
+                    "returned_at",
+                    "fulfilment",
+                    "invoice",
+                    "credit_target",
+                    "deducts",
+                    "recorded_by",
+                    "created_at",
+                    "lines"
+                ],
                 "type": "object"
             },
             "SalesReturn.CreateAdjustmentDecisionInput": {
@@ -3866,6 +4181,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "Settings": {
@@ -3880,6 +4201,11 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "display_name",
+                    "workspace",
+                    "default_currency_code"
+                ],
                 "type": "object"
             },
             "Settings.UpdateSettingsInput.jsonMergePatch": {
@@ -3987,6 +4313,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "StockMovement": {
@@ -4053,6 +4385,16 @@
                         "type": "object"
                     }
                 },
+                "required": [
+                    "id",
+                    "quantity",
+                    "occurred_at",
+                    "reason",
+                    "source_type",
+                    "source_id",
+                    "inventory_item",
+                    "storage_location"
+                ],
                 "type": "object"
             },
             "StockMovement.CreateStockAdjustmentInput": {
@@ -4145,6 +4487,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "StorageLocation": {
@@ -4173,6 +4521,12 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "code",
+                    "kind",
+                    "archived_at"
+                ],
                 "type": "object"
             },
             "StorageLocation.CreateStorageLocationInput": {
@@ -4241,6 +4595,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "Supplier": {
@@ -4271,6 +4631,15 @@
                         "type": "integer"
                     }
                 },
+                "required": [
+                    "id",
+                    "code",
+                    "name",
+                    "country_code",
+                    "currency_code",
+                    "payment_terms_days",
+                    "archived_at"
+                ],
                 "type": "object"
             },
             "Supplier.CreateSupplierInput": {
@@ -4345,6 +4714,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "SupplierItemReference": {
@@ -4402,6 +4777,16 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "inventory_item",
+                    "supplier_sku",
+                    "unit_cost",
+                    "lead_time_days",
+                    "minimum_order_quantity",
+                    "unit_of_measure_code",
+                    "currency_code"
+                ],
                 "type": "object"
             },
             "SupplierProduct.CreateSupplierProductInput": {
@@ -4474,6 +4859,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "SupplierReference": {
@@ -4504,6 +4895,11 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "access_token",
+                    "token_type",
+                    "expires_at"
+                ],
                 "type": "object"
             },
             "Token.IssueTokenInput": {
@@ -4570,6 +4966,15 @@
                         "type": "array"
                     }
                 },
+                "required": [
+                    "id",
+                    "email",
+                    "display_name",
+                    "is_active",
+                    "archived_at",
+                    "roles",
+                    "margin_exposure"
+                ],
                 "type": "object"
             },
             "User.CreateUserInput": {
@@ -4624,6 +5029,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             },
             "UserDisplayReference": {
@@ -4664,6 +5075,13 @@
                         "type": "string"
                     }
                 },
+                "required": [
+                    "id",
+                    "code",
+                    "name",
+                    "country_code",
+                    "archived_at"
+                ],
                 "type": "object"
             },
             "Warehouse.CreateWarehouseInput": {
@@ -4725,6 +5143,12 @@
                         "type": "boolean"
                     }
                 },
+                "required": [
+                    "items",
+                    "next_cursor",
+                    "previous_cursor",
+                    "tenant_has_rows"
+                ],
                 "type": "object"
             }
         },

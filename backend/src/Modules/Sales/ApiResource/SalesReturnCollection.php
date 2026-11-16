@@ -87,6 +87,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 )]
 final class SalesReturnCollection
 {
+    /**
+     * @param list<SalesReturnResource> $items
+     */
     public function __construct(
         #[ApiProperty(schema: ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/SalesReturn']])]
         public array $items,
