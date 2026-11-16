@@ -349,7 +349,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // components/items/ItemCreateForm.tsx.
   // Suppliers S-1 added: components/suppliers/SupplierForm.tsx. Suppliers S-2 added: components/suppliers/SupplierCreateForm.tsx.
   // Suppliers S-4 added: components/suppliers/EntryForm.tsx (the catalogue entry's Edit dialog, suppliers-plan.md §3).
-  'src/components': 66,
+  // Suppliers S-5 added: components/suppliers/AddEntryForm.tsx (Add to catalogue's dialog, suppliers-plan.md §R1-3).
+  'src/components': 67,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
   'src/lib/api': 9,
   'src/lib/roles': 11,
@@ -367,7 +368,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
   'src/lib/suppliers': 3,
   // Suppliers S-2 added: SupplierCreateForm.tsx (the create page's form). Suppliers S-4 added: EntryForm.tsx (Edit entry).
-  'src/components/suppliers': 3,
+  // Suppliers S-5 added: AddEntryForm.tsx (Add to catalogue).
+  'src/components/suppliers': 4,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -1370,6 +1372,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       // Items I-2 (G-F2 row): the create page's form.
       'src/components/items/ItemCreateForm.tsx',
       'src/components/items/ItemForm.tsx',
+      // Suppliers S-5 (G-F2 row): Add to catalogue's dialog is a <form> (its item list sits before it, never in it).
+      'src/components/suppliers/AddEntryForm.tsx',
       // Suppliers S-4 (G-F2 row): the catalogue entry's Edit dialog is a <form>, so it joins here.
       'src/components/suppliers/EntryForm.tsx',
       // Suppliers S-2 (G-F2 row): the create page's form.
@@ -1873,10 +1877,11 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
   it('the item dirs and the renderer hold no such token', () => {
     const files = scanned();
     // Positive control: the scan reads the item family and the renderer, not an empty set.
-    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx']));
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx']));
     // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8. Suppliers S-3 added the supplier
     // dirs (src/app/(app)/suppliers: 9 files at S-3) and lib/format/money.ts (+1). Suppliers S-4: EntryForm.tsx (the Edit
     // dialog, which holds a cost and a minimum order) is in the positive control; it is counted by EXPECTED_COUNTS.
+    // Suppliers S-5: AddEntryForm.tsx (the Add dialog, the same four fields) likewise.
     expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1);
     expect(quantityNumberViolations(files)).toEqual([]);
   });

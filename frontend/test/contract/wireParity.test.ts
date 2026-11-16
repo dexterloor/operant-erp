@@ -5,7 +5,7 @@ import type { RoleGrantProposal, UserDisplayReference } from '@/lib/api/proposal
 import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
-import type { CreateSupplierInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
+import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
@@ -86,6 +86,8 @@ const MIRRORED: Record<string, string[]> = {
   SupplierItemReference: keysOf<SupplierItemReference>()({ id: true, sku: true, name: true }),
   // Suppliers S-4: Edit a catalogue entry's merge-patch body (suppliers-plan.md §R1-3).
   'SupplierProduct.UpdateSupplierProductInput.jsonMergePatch': keysOf<UpdateSupplierProductInput>()({ supplier_sku: true, unit_cost: true, lead_time_days: true, minimum_order_quantity: true }),
+  // Suppliers S-5: Add to catalogue's body (suppliers-plan.md §R1-3).
+  'SupplierProduct.CreateSupplierProductInput': keysOf<CreateSupplierProductInput>()({ inventory_item_id: true, supplier_sku: true, unit_cost: true, lead_time_days: true, minimum_order_quantity: true }),
 };
 
 describe('C-1 — wire parity of the hand-written lib/api types', () => {

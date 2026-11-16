@@ -1,3 +1,4 @@
+import type { Item } from '../api/items';
 import type { Supplier, SupplierProduct } from '../api/suppliers';
 import { pageQuery, type PageRequest, type Read, type ReadFailure } from '../bff/reads';
 
@@ -83,4 +84,44 @@ export async function loadCatalogue(read: Read, supplierId: string, signal?: Abo
   const items = body?.items;
   if (!Array.isArray(items) || !items.every(isSupplierProduct) || !isCursor(body?.next_cursor)) return { kind: 'server-error' };
   return { kind: 'ok', entries: items, nextCursor: body.next_cursor };
+}
+
+/**
+ * Suppliers S-5: one row of the Add dialog's item choice list (suppliers-final-red.md M-7). A `Pick` of the mirrored
+ * `Item` — never a hand-written projection — so C-1's check of `Item` (`wireParity.test.ts`) holds it and a served rename
+ * of a picked member breaks the typecheck. Choice fixtures in tests are declared `ItemChoice` (or built from an `Item`
+ * literal), never `as`-cast.
+ */
+export type ItemChoice = Pick<Item, 'id' | 'sku' | 'name' | 'unit_of_measure_code' | 'archived_at'>;
+/** A `PagedLoad<ItemChoice>` for the paged list core (structurally; `lib` imports nothing from `app`). */
+export type ItemChoicesLoad =
+  | { readonly kind: 'ok'; readonly items: ItemChoice[]; readonly nextCursor: string | null; readonly previousCursor: string | null; readonly tenantHasRows: boolean }
+  | { readonly kind: ReadFailure };
+
+const isItemChoice = (x: unknown): x is ItemChoice =>
+  isObject(x) &&
+  typeof x.id === 'string' &&
+  typeof x.sku === 'string' &&
+  typeof x.name === 'string' &&
+  // The Add dialog shows this unit after Minimum order and Unit cost, and compares the 201's with it (FINAL (e) item 10).
+  typeof x.unit_of_measure_code === 'string' &&
+  (x.archived_at === null || typeof x.archived_at === 'string');
+
+/**
+ * `ListItems` for the Add dialog's item choice list (suppliers-plan.md Revision 1 — FINAL §R1-3, §R1-4 S-5 test 2;
+ * suppliers-final-red.md M-4): the LIVE view only, one page for a search and a cursor. Its query is built only by
+ * `pageQuery(false, …)`: never `archived`, never `limit`, at most one cursor, `q` as typed only when not empty. Each row
+ * must carry the five chosen members, the answer both cursors and `tenant_has_rows` (an answer without it is malformed, as
+ * `loadItems` holds: without it a workspace whose items are all archived would read "No items yet."). The members beyond
+ * the five are not read, so they are not checked here. Run over the browser transport only (the dialog opens on a press).
+ */
+export async function loadItemChoices(read: Read, page: PageRequest, signal?: AbortSignal): Promise<ItemChoicesLoad> {
+  const a = await read('ListItems', { query: pageQuery(false, page), signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown; next_cursor?: unknown; previous_cursor?: unknown; tenant_has_rows?: unknown } | null;
+  const items = body?.items;
+  if (!Array.isArray(items) || !items.every(isItemChoice) || !isCursor(body?.next_cursor) || !isCursor(body?.previous_cursor) || typeof body?.tenant_has_rows !== 'boolean') {
+    return { kind: 'server-error' };
+  }
+  return { kind: 'ok', items, nextCursor: body.next_cursor, previousCursor: body.previous_cursor, tenantHasRows: body.tenant_has_rows };
 }

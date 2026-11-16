@@ -34,9 +34,10 @@ export interface SupplierPageProps {
   canRestore: boolean;
   /**
    * The catalogue section (S-3), or null when the viewer does not hold ListSupplierProducts' codes: then it is absent and
-   * was not fetched (A-20). `canOpenItem` = GetItem's codes; `canEdit` = UpdateSupplierProduct's (S-4).
+   * was not fetched (A-20). `canOpenItem` = GetItem's codes; `canEdit` = UpdateSupplierProduct's (S-4); `canAdd` =
+   * CreateSupplierProduct's and ListItems' together (S-5).
    */
-  catalogue?: { initial: CatalogueLoad; canOpenItem: boolean; canEdit: boolean } | null;
+  catalogue?: { initial: CatalogueLoad; canOpenItem: boolean; canEdit: boolean; canAdd?: boolean } | null;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -260,6 +261,9 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
           supplierArchived={archived}
           canOpenItem={catalogue.canOpenItem}
           canEdit={catalogue.canEdit}
+          canAdd={catalogue.canAdd ?? false}
+          supplierCode={supplier.code}
+          supplierCurrency={supplier.currency_code}
           announce={announce}
           replaceIfCurrent={replaceIfCurrent}
           onParentStale={() => void onParentStale()}

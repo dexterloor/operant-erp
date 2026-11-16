@@ -1,7 +1,7 @@
 // Typed results of the supplier page's injected actions (Revision 7 A-19 item 5, Revision 8 R8-2), on the shared kinds
 // in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { CreateSupplierInput, Supplier, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '../api/suppliers';
+import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '../api/suppliers';
 import type { FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -105,3 +105,33 @@ export type SaveEntryResult =
 
 /** The Edit dialog's Save for one entry: only the changed fields are sent (the dialog builds them with `changedFields`). */
 export type SaveEntryAction = (entryId: string, changes: EntryChange) => Promise<SaveEntryResult>;
+
+/**
+ * Suppliers S-5 (suppliers-plan.md Revision 1 — FINAL §R1-4 S-5): Add to catalogue's members, in the dialog's screen order
+ * (the chosen item first, then the four fields; the first with a 422 sentence takes focus). A name the mirrored create
+ * input lacks is a type error. Not the unit: an entry's unit is its item's.
+ */
+export const CREATE_ENTRY_FIELDS = ['inventory_item_id', ...ENTRY_FIELDS] as const satisfies readonly (keyof CreateSupplierProductInput & string)[];
+export type CreateEntryField = (typeof CREATE_ENTRY_FIELDS)[number];
+/** What the Add dialog hands over: the chosen item's id and the four fields as typed (Lead time as text; R9-2). */
+export type CreateEntryValues = Record<CreateEntryField, string>;
+
+/**
+ * `POST /suppliers/{id}/products` (a fresh Idempotency-Key per submit; the create does not replay on it — a repeat is
+ * refused C2). `created` carries the 201 body (validated as an entry, its unit included). `invalid` is a 422 mapped onto
+ * the dialog (C3 on the item, C4–C6 on the fields). `refused` is a 409 shown as sent with Add kept (C2, P1, or a refusal
+ * whose re-read found the supplier live). `refused-archived`: a 409 after which the re-read found the supplier archived
+ * (C1 on a stale page): Close only, and closing has the page re-read the supplier.
+ */
+export type CreateEntryResult =
+  | { kind: 'created'; entry: SupplierProduct }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<CreateEntryField>; formErrors: string[] }
+  | { kind: 'refused-archived'; message: string }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type CreateEntryAction = (values: CreateEntryValues) => Promise<CreateEntryResult>;

@@ -6,6 +6,7 @@
   "CreateRoleGrantProposal",
   "CreateStorageLocation",
   "CreateSupplier",
+  "CreateSupplierProduct",
   "CreateWarehouse",
   "DeleteItem",
   "DeleteStorageLocation",

@@ -6,7 +6,7 @@ import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { wholeNumberOrText } from '../forms/wholeNumberOrText';
 import { isSupplier, isSupplierProduct, loadSupplier } from './load';
-import { CREATE_SUPPLIER_FIELDS, ENTRY_FIELDS, SUPPLIER_FIELDS, type CreateSupplierAction, type EntryChange, type RestoreSupplierAction, type SaveEntryAction, type SaveSupplierAction, type SupplierChange } from './results';
+import { CREATE_ENTRY_FIELDS, CREATE_SUPPLIER_FIELDS, ENTRY_FIELDS, SUPPLIER_FIELDS, type CreateEntryAction, type CreateSupplierAction, type EntryChange, type RestoreSupplierAction, type SaveEntryAction, type SaveSupplierAction, type SupplierChange } from './results';
 
 // The supplier page's Save and Restore, and the create page's Create (S-2, at the end), over the BFF (Revision 8 R8-2;
 // the lib/items/wired.ts shape). Neither Save nor Restore takes an
@@ -217,6 +217,52 @@ export function entrySave(caller: ApiCaller, supplierId: string): SaveEntryActio
         }
       }
       return isSupplierProduct(r.body) ? { kind: 'saved', entry: r.body } : { kind: 'server-error' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Add a catalogue entry over the BFF (suppliers-plan.md Revision 1 — FINAL §R1-4 S-5; the `entrySave` shape for the
+// refusal, the `supplierCreate` shape for the key). `CreateSupplierProduct` requires an Idempotency-Key but does not replay
+// on it (a repeat is refused C2, "already lists this item"), so a fresh key is minted for EVERY submit (`newKey`) and never
+// stored. The body is the five members copied by name (never a spread): the chosen item's id and the four fields as typed;
+// Lead time becomes a JSON number through `wholeNumberOrText` only (R9-2); the cost and the minimum order go as typed
+// strings (QR-1). The unit is never sent (no input carries it). The 201 body must be a whole entry, its unit included. No
+// catalogue re-read here: the section re-reads after the dialog closes. After a 409 (other than a 422 and P1) the SUPPLIER
+// is re-read under the same deadline: archived → `refused-archived` (C1 on a stale page); otherwise the refusal as sent
+// (C2). No refusal code is compared but P1.
+export function entryCreate(caller: ApiCaller, supplierId: string, newKey: () => string = () => crypto.randomUUID()): CreateEntryAction {
+  return async (values) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.entryCreate);
+    try {
+      const body = {
+        inventory_item_id: values.inventory_item_id,
+        supplier_sku: values.supplier_sku,
+        unit_cost: values.unit_cost,
+        lead_time_days: wholeNumberOrText(values.lead_time_days),
+        minimum_order_quantity: values.minimum_order_quantity,
+      };
+      const r = await caller.call('CreateSupplierProduct', { id: supplierId }, body, { signal: deadline.signal, idempotencyKey: newKey() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, CREATE_ENTRY_FIELDS) };
+            if (r.rule === PLATFORM_REFUSAL.contention) return r;
+            const again = await loadSupplier(readOf(caller), supplierId, deadline.signal);
+            return again.kind === 'ok' && again.supplier.archived_at !== null ? { kind: 'refused-archived', message: r.message } : r;
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isSupplierProduct(r.body) ? { kind: 'created', entry: r.body } : { kind: 'server-error' };
     } finally {
       deadline.cancel();
     }

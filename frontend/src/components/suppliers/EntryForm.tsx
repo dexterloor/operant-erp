@@ -9,7 +9,7 @@ import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, 
 import { unitPerSpoken, unitSuffixSpoken } from '@/copy/items';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
-import { EDIT_CATALOGUE_ITEM, SUPPLIER_FORBIDDEN } from '@/copy/suppliers';
+import { EDIT_CATALOGUE_ITEM, ENTRY_FIELD_WORDS, SUPPLIER_FORBIDDEN } from '@/copy/suppliers';
 import type { SupplierProduct, UpdateSupplierProductInput } from '@/lib/api/suppliers';
 import { changedFields, marksAnyField } from '@/lib/forms/fieldErrors';
 import { renderQuantity } from '@/lib/format/quantity';
@@ -54,12 +54,75 @@ const valuesOf = (e: SupplierProduct): Values => ({
   minimum_order_quantity: renderQuantity(e.minimum_order_quantity),
 });
 
-/** The three number fields a person can empty, in screen order, with their client sentence (UX S-4; no request is sent). */
-const REQUIRED: readonly { field: Exclude<EntryField, 'supplier_sku'>; sentence: string }[] = [
-  { field: 'unit_cost', sentence: EDIT_CATALOGUE_ITEM.costRequired },
-  { field: 'lead_time_days', sentence: EDIT_CATALOGUE_ITEM.leadTimeRequired },
-  { field: 'minimum_order_quantity', sentence: EDIT_CATALOGUE_ITEM.minimumRequired },
+/**
+ * The three number fields a person can empty, in screen order, with their client sentence (UX S-4; no request is sent).
+ * Shared with Add (S-5: "fields as S-4").
+ */
+export const ENTRY_REQUIRED: readonly { field: Exclude<EntryField, 'supplier_sku'>; sentence: string }[] = [
+  { field: 'unit_cost', sentence: ENTRY_FIELD_WORDS.costRequired },
+  { field: 'lead_time_days', sentence: ENTRY_FIELD_WORDS.leadTimeRequired },
+  { field: 'minimum_order_quantity', sentence: ENTRY_FIELD_WORDS.minimumRequired },
 ];
+
+export interface EntryFieldsProps {
+  values: Record<EntryField, string>;
+  set: (f: EntryField, v: string) => void;
+  errors: FieldErrors<EntryField>;
+  /** The unit the four numbers are in: the row's (Edit) or the chosen item's (Add). */
+  code: string;
+  /** The currency the Unit cost label names: the entry's own (Edit) or the supplier's (Add). */
+  currency: string;
+  skuRef: RefObject<HTMLInputElement | null>;
+  costRef: RefObject<HTMLInputElement | null>;
+  leadRef: RefObject<HTMLInputElement | null>;
+  minimumRef: RefObject<HTMLInputElement | null>;
+}
+
+/**
+ * The four fields both catalogue dialogs share (UX B-8 "Field words, shared by both dialogs"; S-5 "fields as S-4"):
+ * Supplier SKU · Unit cost · Lead time · Minimum order, with the unit after Minimum order (the code shown, its plural read)
+ * and after Unit cost (`per {code}` shown, `unitPerSpoken` + "." read: a catalogue cost is the price of ONE of the item's
+ * units, R1-D). Props only; the dialog owns the values, the errors and the focus.
+ */
+export function EntryFields({ values, set, errors, code, currency, skuRef, costRef, leadRef, minimumRef }: EntryFieldsProps) {
+  return (
+    <>
+      <TextField ref={skuRef} id="entry-supplier-sku" name="supplier_sku" label={ENTRY_FIELD_WORDS.supplierSku} hint={ENTRY_FIELD_WORDS.supplierSkuHint} error={errors.supplier_sku} value={values.supplier_sku} onChange={(e) => set('supplier_sku', e.target.value)} autoComplete="off" spellCheck={false} />
+      <TextField
+        ref={costRef}
+        id="entry-unit-cost"
+        name="unit_cost"
+        label={ENTRY_FIELD_WORDS.unitCost(currency)}
+        hint={ENTRY_FIELD_WORDS.unitCostHint}
+        // R1-D, per-unit branch: the price of ONE of the unit — shown `per {code}`, read "per kilogram." / "each.".
+        suffix={{ shown: ENTRY_FIELD_WORDS.perUnit(code), spoken: `${unitPerSpoken(code)}.` }}
+        error={errors.unit_cost}
+        value={values.unit_cost}
+        onChange={(e) => set('unit_cost', e.target.value)}
+        // Never type="number" (locale-mangled, spinner, `e` notation): text, with a decimal keypad on touch.
+        inputMode="decimal"
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <TextField ref={leadRef} id="entry-lead-time-days" name="lead_time_days" label={ENTRY_FIELD_WORDS.leadTime} hint={ENTRY_FIELD_WORDS.leadTimeHint} error={errors.lead_time_days} value={values.lead_time_days} onChange={(e) => set('lead_time_days', e.target.value)} inputMode="numeric" autoComplete="off" spellCheck={false} />
+      <TextField
+        ref={minimumRef}
+        id="entry-minimum-order-quantity"
+        name="minimum_order_quantity"
+        label={ENTRY_FIELD_WORDS.minimumOrder}
+        hint={ENTRY_FIELD_WORDS.minimumOrderHint}
+        // R1-C: the unit code shown after the number, its plural name read (the S-3 suffix rule).
+        suffix={{ shown: code, spoken: unitSuffixSpoken(code) }}
+        error={errors.minimum_order_quantity}
+        value={values.minimum_order_quantity}
+        onChange={(e) => set('minimum_order_quantity', e.target.value)}
+        inputMode="decimal"
+        autoComplete="off"
+        spellCheck={false}
+      />
+    </>
+  );
+}
 
 /**
  * Edit a supplier catalogue entry (Suppliers S-4: suppliers-plan.md Revision 1 — FINAL §R1-4 S-4, the `LocationForm`
@@ -179,7 +242,7 @@ export function EntryForm({ entry, save, editCode, onClose, fallbackFocusRef, on
     if (busy || nothing || final !== null) return;
     // An emptied number field is the person's own unfinished input, caught on every press; nothing is sent and the page's
     // region is not emptied (the press will not send). Only the empty field: the server's shape rules are never copied.
-    const empty = REQUIRED.filter((q) => values[q.field] === '');
+    const empty = ENTRY_REQUIRED.filter((q) => values[q.field] === '');
     if (empty.length > 0) {
       setNotice(null);
       setFieldErrors(Object.fromEntries(empty.map((q) => [q.field, q.sentence])) as FieldErrors<EntryField>);
@@ -227,39 +290,7 @@ export function EntryForm({ entry, save, editCode, onClose, fallbackFocusRef, on
       }
     >
       <form method="post" noValidate className={styles.form} onSubmit={(e) => void onSubmit(e)}>
-        <TextField ref={skuRef} id="entry-supplier-sku" name="supplier_sku" label={EDIT_CATALOGUE_ITEM.supplierSku} hint={EDIT_CATALOGUE_ITEM.supplierSkuHint} error={fieldErrors.supplier_sku} value={values.supplier_sku} onChange={(e) => set('supplier_sku', e.target.value)} autoComplete="off" spellCheck={false} />
-        <TextField
-          ref={costRef}
-          id="entry-unit-cost"
-          name="unit_cost"
-          label={EDIT_CATALOGUE_ITEM.unitCost(entry.currency_code)}
-          hint={EDIT_CATALOGUE_ITEM.unitCostHint}
-          // R1-D, per-unit branch: the price of ONE of the row's units — shown `per {code}`, read "per kilogram." / "each.".
-          suffix={{ shown: EDIT_CATALOGUE_ITEM.perUnit(code), spoken: `${unitPerSpoken(code)}.` }}
-          error={fieldErrors.unit_cost}
-          value={values.unit_cost}
-          onChange={(e) => set('unit_cost', e.target.value)}
-          // Never type="number" (locale-mangled, spinner, `e` notation): text, with a decimal keypad on touch.
-          inputMode="decimal"
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <TextField ref={leadRef} id="entry-lead-time-days" name="lead_time_days" label={EDIT_CATALOGUE_ITEM.leadTime} hint={EDIT_CATALOGUE_ITEM.leadTimeHint} error={fieldErrors.lead_time_days} value={values.lead_time_days} onChange={(e) => set('lead_time_days', e.target.value)} inputMode="numeric" autoComplete="off" spellCheck={false} />
-        <TextField
-          ref={minimumRef}
-          id="entry-minimum-order-quantity"
-          name="minimum_order_quantity"
-          label={EDIT_CATALOGUE_ITEM.minimumOrder}
-          hint={EDIT_CATALOGUE_ITEM.minimumOrderHint}
-          // R1-C: the row's unit code shown after the number, its plural name read (the S-3 suffix rule).
-          suffix={{ shown: code, spoken: unitSuffixSpoken(code) }}
-          error={fieldErrors.minimum_order_quantity}
-          value={values.minimum_order_quantity}
-          onChange={(e) => set('minimum_order_quantity', e.target.value)}
-          inputMode="decimal"
-          autoComplete="off"
-          spellCheck={false}
-        />
+        <EntryFields values={values} set={set} errors={fieldErrors} code={code} currency={entry.currency_code} skuRef={skuRef} costRef={costRef} leadRef={leadRef} minimumRef={minimumRef} />
         <div className={styles.actions}>
           {busy ? null : <Button onClick={close}>{final !== null ? EDIT_CATALOGUE_ITEM.close : EDIT_CATALOGUE_ITEM.cancel}</Button>}
           {final !== null ? null : (

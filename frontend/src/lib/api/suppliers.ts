@@ -2,7 +2,9 @@
 // `Supplier.UpdateSupplierInput.jsonMergePatch` in `contracts/openapi.json`). Checked both ways by C-1
 // (`test/contract/wireParity.test.ts`; names only). This file imports nothing (A-18). Wire field names stay snake_case,
 // as served. Suppliers S-1 mirrors the two the editor reads and sends; S-2 the create input; S-3 the catalogue's two read
-// shapes, `SupplierProduct` and `SupplierItemReference`; S-4 the catalogue entry's update input (suppliers-plan.md §R1-3).
+// shapes, `SupplierProduct` and `SupplierItemReference`; S-4 the catalogue entry's update input; S-5 its create input
+// (suppliers-plan.md §R1-3). The Add dialog's item choice is NOT here: it is `Pick<Item, …>` in `lib/suppliers/load.ts`
+// (suppliers-final-red.md M-7), so C-1's check of `Item` holds it.
 
 /** `GetSupplier` / `ListSuppliers` item / `UpdateSupplier` and `RestoreSupplier`'s 200 body. */
 export interface Supplier {
@@ -88,6 +90,24 @@ export interface SupplierProduct {
  * (decimal strings, QR-1).
  */
 export interface UpdateSupplierProductInput {
+  supplier_sku?: string;
+  unit_cost?: string;
+  /**
+   * A typed non-integer is sent as typed so the server's own sentence shows (suppliers-red M-1); the served schema says
+   * integer.
+   */
+  lead_time_days?: number | string;
+  minimum_order_quantity?: string;
+}
+
+/**
+ * `CreateSupplierProduct`'s body (served `SupplierProduct.CreateSupplierProductInput`; Suppliers S-5). The Add dialog
+ * sends all five members, copied by name: the chosen item's id, and the four fields as typed (the cost and the minimum
+ * order as decimal strings, QR-1; the lead time a JSON number only when it is digits). The unit is not a member: an
+ * entry's unit is its item's.
+ */
+export interface CreateSupplierProductInput {
+  inventory_item_id?: string;
   supplier_sku?: string;
   unit_cost?: string;
   /**

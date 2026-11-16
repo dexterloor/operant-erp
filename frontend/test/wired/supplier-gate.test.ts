@@ -115,7 +115,7 @@ describe('/suppliers/[id] — Save follows UpdateSupplier, Restore supplier foll
 // it is absent and not fetched — the viewer shape, and a composed role holding supplier_product.edit without .view. The
 // item link follows GetItem (inventory_item.view). Built from codes, never role names (A-20).
 describe('/suppliers/[id] — the catalogue section is gated on ListSupplierProducts (S-3 test 1)', () => {
-  type Cat = { initial: unknown; canOpenItem: boolean; canEdit: boolean } | null;
+  type Cat = { initial: unknown; canOpenItem: boolean; canEdit: boolean; canAdd: boolean } | null;
   const at = async (codes: string[]) => {
     v.catalogueReads = 0;
     v.catalogue = 'ok';
@@ -132,7 +132,8 @@ describe('/suppliers/[id] — the catalogue section is gated on ListSupplierProd
   });
 
   it('supplier_product.view: the section, read once; the item link only with inventory_item.view', async () => {
-    expect(await at(['supplier.view', 'supplier_product.view'])).toEqual({ catalogue: { initial: { kind: 'ok', entries: [], nextCursor: null }, canOpenItem: false, canEdit: false }, reads: 1 });
+    // S-5 moved this pin deliberately: the section's props gain `canAdd` (false here: no CreateSupplierProduct, no ListItems).
+    expect(await at(['supplier.view', 'supplier_product.view'])).toEqual({ catalogue: { initial: { kind: 'ok', entries: [], nextCursor: null }, canOpenItem: false, canEdit: false, canAdd: false }, reads: 1 });
     expect((await at(['supplier.view', 'supplier_product.view', 'inventory_item.view'])).catalogue).toMatchObject({ canOpenItem: true });
   });
 
@@ -159,6 +160,24 @@ describe('/suppliers/[id] — the catalogue section is gated on ListSupplierProd
       expect((await at([])).catalogue).toMatchObject({ canEdit: false });
       v.byOperation = (op) => op === 'GetSupplier' || op === 'ListSupplierProducts' || op === 'UpdateSupplierProduct';
       expect((await at([])).catalogue).toMatchObject({ canEdit: true });
+    } finally {
+      v.byOperation = null;
+    }
+  });
+
+  // S-5 (suppliers-plan.md Revision 1 — FINAL §R1-2, plan test 1): Add to catalogue is gated on CreateSupplierProduct AND
+  // ListItems (the item choice list is a ListItems read), each on its own operation; either alone offers no Add.
+  it('S-5: the section\'s Add follows CreateSupplierProduct and ListItems together, each on its own operation', async () => {
+    expect((await at(['supplier.view', 'supplier_product.view', 'supplier_product.edit'])).catalogue).toMatchObject({ canAdd: false });
+    expect((await at(['supplier.view', 'supplier_product.view', 'inventory_item.view'])).catalogue).toMatchObject({ canAdd: false });
+    expect((await at(['supplier.view', 'supplier_product.view', 'supplier_product.edit', 'inventory_item.view'])).catalogue).toMatchObject({ canAdd: true });
+    v.byOperation = (op) => op === 'GetSupplier' || op === 'ListSupplierProducts' || op === 'CreateSupplierProduct';
+    try {
+      expect((await at([])).catalogue).toMatchObject({ canAdd: false });
+      v.byOperation = (op) => op === 'GetSupplier' || op === 'ListSupplierProducts' || op === 'ListItems';
+      expect((await at([])).catalogue).toMatchObject({ canAdd: false });
+      v.byOperation = (op) => op === 'GetSupplier' || op === 'ListSupplierProducts' || op === 'CreateSupplierProduct' || op === 'ListItems';
+      expect((await at([])).catalogue).toMatchObject({ canAdd: true });
     } finally {
       v.byOperation = null;
     }

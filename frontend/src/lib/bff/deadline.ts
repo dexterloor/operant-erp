@@ -48,6 +48,11 @@ export const ACTION_DEADLINES_MS = {
    * was archived meanwhile). The section re-reads its catalogue after the dialog closes, under its own deadline.
    */
   entrySave: 30_000,
+  /**
+   * Add a supplier catalogue entry (S-5): the request + the GetSupplier re-read after a refusal, as for `entrySave`. The
+   * item choice list's reads and the section's re-read run under `reread`.
+   */
+  entryCreate: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

@@ -156,9 +156,10 @@ export const NEW_ITEM = {
  * bk31-cost-basis-po.md Revision 1 FINAL): `perSpoken` is read after a price of ONE of the unit ("per kilogram"; "each"
  * for EA), for a catalogue entry's unit cost; shown `per EA` vs spoken "each" is intended (R1-D L-7).
  *
- * Cross-family copy import (judge ruling 2, bk31-placement-confirm.md FINAL (b); suppliers-plan.md §R1-3): the supplier
- * catalogue's Edit dialog (`components/suppliers/EntryForm.tsx`) imports `unitSuffixSpoken` and `unitPerSpoken` from
- * here. Nothing moves `UNIT_LABELS`.
+ * Cross-family copy import (judge ruling 2, bk31-placement-confirm.md FINAL (b); suppliers-plan.md §R1-3, derived at
+ * Suppliers S-5): `components/suppliers/EntryForm.tsx` imports `unitSuffixSpoken` and `unitPerSpoken` from here (its
+ * `EntryFields`, shared by the catalogue's Edit and Add dialogs), and `app/(app)/suppliers/[id]/CatalogueSection.tsx`
+ * imports `unitLabel` (the Add dialog's choice list, and the unit clause after an Add). Nothing moves `UNIT_LABELS`.
  */
 export const UNIT_LABELS: Readonly<Record<string, { label: string; spoken: string; perSpoken: string }>> = {
   EA: { label: 'Each (EA)', spoken: 'each', perSpoken: 'each' },

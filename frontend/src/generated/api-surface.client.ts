@@ -93,6 +93,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['supplier.create'],
     },
   },
+  CreateSupplierProduct: {
+    method: 'POST',
+    template: '/api/v1/suppliers/{id}/products',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier_product.edit'],
+    },
+  },
   CreateWarehouse: {
     method: 'POST',
     template: '/api/v1/warehouses',
@@ -505,6 +515,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'Supplier.UpdateSupplierInput.jsonMergePatch': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
   SupplierItemReference: ['id', 'name', 'sku'],
   SupplierProduct: ['currency_code', 'id', 'inventory_item', 'lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost', 'unit_of_measure_code'],
+  'SupplierProduct.CreateSupplierProductInput': ['inventory_item_id', 'lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost'],
   'SupplierProduct.UpdateSupplierProductInput.jsonMergePatch': ['lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost'],
   SupplierReference: ['id', 'name'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],

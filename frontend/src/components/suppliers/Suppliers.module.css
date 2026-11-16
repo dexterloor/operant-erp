@@ -22,3 +22,24 @@
 .fields dd {
   margin: 0;
 }
+
+/* S-5: the Add dialog's choice area (the item list, or the chosen item with Change), a full row above the form. */
+.choice {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.choice > p {
+  margin: 0;
+}
+
+/* The item's client or 422 sentence (TextField's `.error` look, tokens only). */
+.choiceError {
+  color: var(--danger-subtle-fg);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}

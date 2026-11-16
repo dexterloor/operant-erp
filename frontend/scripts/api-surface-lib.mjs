@@ -60,6 +60,7 @@ const MIRRORED = {
   SupplierProduct: ['SupplierProduct'],
   SupplierItemReference: ['SupplierItemReference'],
   'SupplierProduct.UpdateSupplierProductInput.jsonMergePatch': ['SupplierProduct.UpdateSupplierProductInput.jsonMergePatch'],
+  'SupplierProduct.CreateSupplierProductInput': ['SupplierProduct.CreateSupplierProductInput'],
 };
 
 const BANNER =

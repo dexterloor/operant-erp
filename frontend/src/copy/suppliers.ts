@@ -3,8 +3,10 @@
 // its row. Server refusals are never stored here: they render as sent (Part A, S1…S16). Each sentence holds for the web
 // app in the commit that renders it (`STATES.md:161`): S-1 has the list, the Archived view, the supplier page (edit) and
 // Restore supplier; S-2 adds the create page (UX S-2); S-3 the catalogue section (read-only); S-4 Edit on a catalogue
-// entry (UX S-4, as overridden by bk31-placement-confirm.md Revision 1 — FINAL). No Add (S-5), no Remove (S-6), no Delete
-// supplier (S-7) — so no sentence here names one.
+// entry (UX S-4, as overridden by bk31-placement-confirm.md Revision 1 — FINAL); S-5 Add to catalogue (UX S-5, as
+// overridden by the same FINAL and suppliers-final-red.md M-4). No Remove (S-6), no Delete supplier (S-7) — so no
+// sentence here names one. R1-E's "With cost" unit clause ships here without its last sentence, which names Remove; S-6
+// appends it (ux-r1e-confirm.md).
 
 /** `{n} days` / `1 day` / `0 days` (UX S-1 "payment terms cell" and "read-only terms"). */
 const days = (n: number) => (n === 1 ? '1 day' : `${n} days`);
@@ -151,7 +153,7 @@ export const NEW_SUPPLIER = {
 /**
  * UX S-3 `CATALOGUE` (suppliers-ux-copy.md Revision 1 — FINAL S-3 over Revision 0 B-7; suppliers-final-red.md M-1, M-2),
  * with S-4's columns (bk31-placement-confirm.md Revision 1 — FINAL R1-C) and row action (UX S-4 `CATALOGUE.edit`,
- * `.actions`): the catalogue section on the supplier page. No Add and no `emptyNote` until S-5, no Remove until S-6.
+ * `.actions`), and S-5's Add (`addItem`, `emptyNote`): the catalogue section on the supplier page. No Remove until S-6.
  */
 export const CATALOGUE = {
   /** `heading` (h2). On the supplier's own page "Catalogue" needs no owner. */
@@ -180,6 +182,10 @@ export const CATALOGUE = {
    */
   count: (n: number) => (n === 1 ? '1 item in this catalogue.' : `${n} items in this catalogue.`),
   empty: "This supplier's catalogue is empty.",
+  /** UX S-5 `addItem` (Revision 0 X-5; final RED R-3): the section header's and the empty state's action. */
+  addItem: 'Add to catalogue',
+  /** UX S-5 `emptyNote` (moved from S-3: it names Add): under `empty`, only for a viewer who may Add. */
+  emptyNote: "Add the items this supplier sells you, with what each costs and how long it takes to arrive. Only items in a supplier's catalogue can go on that supplier's purchase orders.",
   /** `partial(n)` (L-11): the read answered with a non-null `next_cursor`; shown above the rows, which stay. */
   partial: (n: number) => `Only the first ${n} items in this catalogue are shown.`,
   loadFailed: "The catalogue couldn't be loaded.",
@@ -229,4 +235,124 @@ export const EDIT_CATALOGUE_ITEM = {
   /** `savedListStale(sku)`: replaces `saved` only when the section's re-read failed and nothing else wrote the region since. */
   savedListStale: (sku: string) => `${sku} was saved. We couldn't load the list again, so it may be out of date.`,
   interrupted: (sku: string) => `We can't tell whether your changes to ${sku} were saved. Close this and check the catalogue before you try again.`,
+} as const;
+
+/**
+ * UX B-8 "Field words, shared by both dialogs" as they stand after S-4 (the ruled hints): the four fields of Add (S-5)
+ * read the SAME words as Edit's, from Edit's table, so the two cannot drift (suppliers-ux-copy.md Revision 1 — FINAL S-5
+ * "fields: as S-4"; R1-B: "S-4 Edit; S-5 Add identical").
+ */
+export const ENTRY_FIELD_WORDS = {
+  supplierSku: EDIT_CATALOGUE_ITEM.supplierSku,
+  supplierSkuHint: EDIT_CATALOGUE_ITEM.supplierSkuHint,
+  unitCost: EDIT_CATALOGUE_ITEM.unitCost,
+  perUnit: EDIT_CATALOGUE_ITEM.perUnit,
+  unitCostHint: EDIT_CATALOGUE_ITEM.unitCostHint,
+  leadTime: EDIT_CATALOGUE_ITEM.leadTime,
+  leadTimeHint: EDIT_CATALOGUE_ITEM.leadTimeHint,
+  minimumOrder: EDIT_CATALOGUE_ITEM.minimumOrder,
+  minimumOrderHint: EDIT_CATALOGUE_ITEM.minimumOrderHint,
+  costRequired: EDIT_CATALOGUE_ITEM.costRequired,
+  leadTimeRequired: EDIT_CATALOGUE_ITEM.leadTimeRequired,
+  minimumRequired: EDIT_CATALOGUE_ITEM.minimumRequired,
+} as const;
+
+/**
+ * UX S-5 `ITEM_CHOICES` (suppliers-ux-copy.md Revision 1 — FINAL S-5, with suppliers-final-red.md M-4's three keys
+ * `shown`, `allArchived`, `denied`): the paged choice list inside the Add dialog. Live items only (no Archived view).
+ */
+export const ITEM_CHOICES = {
+  /** `heading` (the list's own heading inside the dialog). */
+  heading: 'Choose an item',
+  /** `search` · `.placeholder` · `.hint` (CONFIRMS `ITEMS_LIST`). */
+  search: 'Search items by SKU',
+  placeholder: 'Start of a SKU',
+  hint: "Item names can't be searched. SKUs are matched as typed, so capitals and spaces count.",
+  /** `archivedNote`: one line above the rows. */
+  archivedNote: "Archived items aren't listed.",
+  /** Columns: SKU · Name · Unit · Choose ("Choose" is the header so the header cell is never empty). */
+  sku: 'SKU',
+  name: 'Name',
+  unit: 'Unit',
+  choose: 'Choose',
+  /** The row button's accessible name. */
+  chooseItem: (sku: string) => `Choose ${sku}`,
+  /**
+   * M-4 `shown(n, q)`: the settled announcement (never called with 0). q empty: "{n} items shown." · "1 item shown."; q
+   * not empty: the same, then "SKU starts with “{q}”." (the `ITEMS_PAGING.searched` text).
+   */
+  shown: (n: number, q: string) => [n === 1 ? '1 item shown.' : `${n} items shown.`, q !== '' ? `SKU starts with “${q}”.` : null].filter(Boolean).join(' '),
+  /**
+   * `pageShown(n, first, last)` (CONFIRMS `ITEMS_PAGING.liveRange`): after a page read by its cursor. A settled search adds
+   * the `searched` sentence after it (the ItemsList precedent, rule 6: a sentence for a non-empty query names it).
+   */
+  pageShown: (n: number, first: string, last: string) => (n === 1 ? `1 item shown, ${first}.` : `${n} items shown, ${first} to ${last}.`),
+  searched: (q: string) => `SKU starts with “${q}”.`,
+  /** pager · `noMore` (CONFIRMS). */
+  pager: { previous: 'Previous', next: 'Next' },
+  noMore: { heading: 'There are no more items here.', body: 'The list changed after the page you were on was loaded.', action: 'Back to the first page' },
+  /** `noneYet` (only when `tenant_has_rows` is false) · M-4 `allArchived` (live view empty, no search, `tenant_has_rows` true). */
+  noneYet: 'No items yet.',
+  allArchived: 'No items to choose from. Every item here is archived.',
+  /** `noMatch(q)` (CONFIRMS), with **Clear search** (final RED L-3: "Clear search is the way to empty the search"). */
+  noMatch: (q: string) => `No item's SKU starts with “${q}”.`,
+  clearSearch: 'Clear search',
+  loadFailed: "The items couldn't be loaded.",
+  /**
+   * The ST-1 skeleton's name while a Change's read is in flight (UX `ux-r1e-confirm.md` DV-8 FIX; NEW,
+   * unattacked). Its hidden text is `PAGE_STATES.loading` (*Loading…*, CONFIRMED by UX for this use).
+   */
+  loading: 'Loading items',
+  /** M-4 `denied` (CONFIRMS `SUPPLIER_FORBIDDEN`): the label is ListItems' gate code's, read by the caller. */
+  denied: SUPPLIER_FORBIDDEN,
+} as const;
+
+/** The four clauses of Add's after-sentence (R1-E's order), each once; `ADD_CATALOGUE_ITEM` names them. */
+const ADD_AFTER = (sku: string) => `${sku} was added to the catalogue.`;
+const ADD_CURRENCY = (currency: string) => `Its cost is recorded in ${currency}, because this supplier's currency changed.`;
+const ADD_UNIT = (label: string) =>
+  `The item's unit was changed to ${label} while you were adding it, so the minimum order and unit cost you entered are now in that unit. Check them and edit the entry if they're wrong.`;
+const ADD_STALE = "We couldn't load the list again, so it may be out of date.";
+const addComposed = (sku: string, { currency, unitLabel, stale }: { currency: string | null; unitLabel: string | null; stale: boolean }) =>
+  [ADD_AFTER(sku), currency !== null ? ADD_CURRENCY(currency) : null, unitLabel !== null ? ADD_UNIT(unitLabel) : null, stale ? ADD_STALE : null].filter((p): p is string => p !== null).join(' ');
+
+/**
+ * UX S-5 `ADD_CATALOGUE_ITEM` (suppliers-ux-copy.md Revision 1 — FINAL S-5, as overridden by bk31-placement-confirm.md
+ * Revision 1 — FINAL (a) R1-E "With cost" and FINAL (e) item 10): the Add dialog. Heading on a refusal: `NOT_ADDED`.
+ * `{sku}` is the ITEM's SKU. The after-sentence is ONE composition, in a fixed order: `after(sku)` · `currencyChangedClause`
+ * (the 201's currency is not the one the dialog labelled) · `unitChangedClause` (the 201's unit is not the chosen item's) ·
+ * `listStaleClause` (the section's re-read failed; written only through `replaceIfCurrent`). `afterCurrencyChanged` and
+ * `afterListStale` are compositions of these, their visible words unchanged.
+ */
+export const ADD_CATALOGUE_ITEM = {
+  /** `title(code)`: the supplier's code. */
+  title: (code: string) => `Add an item to ${code}'s catalogue`,
+  /** The chosen line and its `change` button (accessible name *Change item*). */
+  itemLine: (sku: string, name: string) => `Item: ${sku} — ${name}`,
+  change: 'Change',
+  changeItem: 'Change item',
+  /** `itemRequired` (client; no request). */
+  itemRequired: 'Choose an item for this catalogue.',
+  ...ENTRY_FIELD_WORDS,
+  submit: 'Add to catalogue',
+  cancel: 'Cancel',
+  /** After a refusal that leaves nothing to press (C1, a 404): the dialog's one button (the S-4 "Close only" shape). */
+  close: 'Close',
+  after: ADD_AFTER,
+  /** RED M-9 "recorded in": the same words as `afterCurrencyChanged`'s second sentence. */
+  currencyChangedClause: ADD_CURRENCY,
+  /**
+   * R1-E "With cost" (FINAL (a), C-4) — its first two sentences until S-6, which appends the third with Remove
+   * (r1e-split-decision.md option A, UX CONFIRMED in ux-r1e-confirm.md); `{label}` = `unitLabel(code)`
+   * of the 201's unit, given by the caller (a copy file imports no copy file).
+   */
+  unitChangedClause: ADD_UNIT,
+  /** The same words as `afterListStale`'s second sentence (`WAITING.listStale`). */
+  listStaleClause: ADD_STALE,
+  /** The one composition (FINAL (a) R1-E order). `currency` / `unitLabel` are null when that clause does not apply. */
+  afterComposed: addComposed,
+  /** UX `afterCurrencyChanged(sku, currency)` and `afterListStale(sku)`, now compositions (bk31-placement-confirm.md §2.3). */
+  afterCurrencyChanged: (sku: string, currency: string) => addComposed(sku, { currency, unitLabel: null, stale: false }),
+  afterListStale: (sku: string) => addComposed(sku, { currency: null, unitLabel: null, stale: true }),
+  interrupted: (sku: string) => `We can't tell whether ${sku} was added. Check this supplier's catalogue before you try again.`,
 } as const;
