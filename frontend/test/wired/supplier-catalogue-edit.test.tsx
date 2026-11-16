@@ -531,9 +531,46 @@ describe('S-4 RED — refusals and the page turning archived', () => {
     expect(within(dialog()).getAllByRole('button').map((b) => b.textContent)).toEqual(['Close']);
     await u.click(within(dialog()).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).toBeNull();
+    // S-4 RED-2 L-1: the row's Edit is gone with the archived page, so focus falls back to the Catalogue heading (not <body>).
+    expect(document.activeElement).toBe(within(section()).getByRole('heading', { level: 2, name: 'Catalogue' }));
     await u.click(await screen.findByRole('button', { name: 'Restore supplier' }));
     await waitFor(() => expect(pageRegion().textContent).toBe('ACME was restored.'));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+describe('S-4 RED-2 — focus when the opener is gone', () => {
+  // S-4 RED-2 L-1 (probe P2): the page reads archived across the Edit (the row's Edit is gone), but the dialog's Save answers
+  // 200 (restored elsewhere meanwhile). Focus falls back to the Catalogue heading, BEFORE "{sku} was saved." is written.
+  it('RED-2 L-1 — the Edit opener is gone when the dialog\'s Save answers 200: the Catalogue heading takes focus while the region is still empty; the saved sentence follows', async () => {
+    const s = held();
+    stubFetch([s.reply, json(200, ARCHIVED), json(200, { ...A, lead_time_days: 9 }), answer([{ ...A, lead_time_days: 9 }])]);
+    const u = userEvent.setup();
+    show(ok([A]), { canEditSupplier: true, canRestore: true });
+    const name = screen.getByRole('textbox', { name: 'Name' });
+    await u.clear(name);
+    await u.type(name, 'Acme Ltd');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await openEdit(u);
+    await setField(u, 'Lead time (days)', '9');
+    await act(async () => s.release(refused('supplier.is_archived', S5)));
+    await waitFor(() => expect(screen.getByText(/This supplier was archived on/)).toBeInTheDocument());
+    const seen: { el: string; region: string }[] = [];
+    const real = HTMLElement.prototype.focus;
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, opts?: FocusOptions) {
+      seen.push({ el: (this.closest('[role="dialog"]') ? 'dialog:' : '') + `${this.tagName}:${this.getAttribute('aria-label') ?? this.textContent}`, region: pageRegion().textContent ?? '' });
+      real.call(this, opts);
+    });
+    try {
+      await save(u);
+      await waitFor(() => expect(pageRegion().textContent).toBe(SAVED_A));
+    } finally {
+      spy.mockRestore();
+    }
+    const onHeading = seen.filter((c) => c.el === 'H2:Catalogue');
+    expect(onHeading.length).toBeGreaterThan(0);
+    expect(onHeading[0]!.region).toBe('');
+    await waitFor(() => expect(document.activeElement).toBe(within(section()).getByRole('heading', { level: 2, name: 'Catalogue' })));
   });
 });
 
@@ -701,6 +738,33 @@ describe('S-4 — the page region and the section\'s re-reads', () => {
       await new Promise((res) => setTimeout(res, 20));
     });
     expect(cells(rows()[0]!)[2]).toBe('13.0000 GBP');
+  });
+
+  // S-4 RED L-1's stamp (plant P-2, review of ad1d395): the 200 body is committed under a FRESH stamp, so a catalogue re-read sent BEFORE the
+  // Save press and answered after it with the old values cannot undo the saved values.
+  it('P-2 — a re-read sent before the Save press answers late with the old values: the row and a reopened Edit keep the saved cost', async () => {
+    const r1 = held();
+    const r2 = held();
+    stubFetch([json(200, { ...A, lead_time_days: 9 }), r1.reply, json(200, { ...A, lead_time_days: 9, unit_cost: '13.0000' }), r2.reply]);
+    const u = userEvent.setup();
+    show(ok([A]));
+    await openEdit(u);
+    await setField(u, 'Lead time (days)', '9');
+    await save(u);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // R1 (sent by the first save's close) is still held when the second Save is pressed.
+    await openEdit(u);
+    await setField(u, 'Unit cost (GBP)', '13');
+    await save(u);
+    await waitFor(() => expect(cells(rows()[0]!)[2]).toBe('13.0000 GBP'));
+    await act(async () => r1.release(answer([A])));
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 20));
+    });
+    expect(cells(rows()[0]!)[2]).toBe('13.0000 GBP');
+    await openEdit(u);
+    expect(field('Unit cost (GBP)')).toHaveValue('13.0000');
+    await act(async () => r2.release(answer([{ ...A, lead_time_days: 9, unit_cost: '13.0000' }])));
   });
 
   // suppliers-s3-red.md L-3, owed to S-4's test 8: a Save answered while a catalogue Retry is in flight keeps its
