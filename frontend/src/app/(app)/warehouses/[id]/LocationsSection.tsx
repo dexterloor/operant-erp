@@ -131,7 +131,9 @@ interface Notice {
  * sent; nothing is decided from a kind). Live rows offer **Edit** (code only); Archived rows offer **Restore location**;
  * an archived warehouse's section offers neither and carries ST-9b's note. **Add location** (§2 step 4.5) is in the live
  * view's header and its empty state, for a `CreateStorageLocation` holder on a live warehouse only. After a dialog or a
- * row action: close → focus → announce → re-read the view (FE-D1). **Delete** (§2 step 4.6) is a live row's action
+ * row action: close → focus → announce → re-read the view (FE-D1). An Edit location dialog that is open when the page
+ * turns archived stays open with what was typed: its Save then meets the archived refusal and says so, and it never comes
+ * back by itself after Restore warehouse (the supplier catalogue's S-4 RED M-1, found here too). **Delete** (§2 step 4.6) is a live row's action
  * for a `DeleteStorageLocation` holder on a live warehouse; after it the row is in the Archived view, where Restore
  * location brings it back.
  *
@@ -484,7 +486,7 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
           onDeleteStarted={() => announce('')}
         />
       ) : null}
-      {editing !== null && canEdit && !warehouseArchived ? <LocationForm key={editing.id} location={editing} kinds={wireEnum(UPDATE_INPUT, 'kind')} save={save} editCode={gateCode('UpdateStorageLocation')} onClose={(o) => void closeEdit(o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}
+      {editing !== null ? <LocationForm key={editing.id} location={editing} kinds={wireEnum(UPDATE_INPUT, 'kind')} save={save} editCode={gateCode('UpdateStorageLocation')} onClose={(o) => void closeEdit(o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}
     </>
   );
 }
