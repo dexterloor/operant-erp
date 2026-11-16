@@ -684,13 +684,24 @@ final class OpenApiContractTest extends ApiTestCase
      * reference written by hand under a resource root is held too. A hand-written member whose PHP type is a scalar is
      * served that scalar's JSON type.
      *
-     * Resource root components are otherwise keys-only: they list no `required` (BK-18 R18-c, not this test). Their `id` is
-     * held to `{type: string, format: uuid}` by `everyResourceRootTypesItsIdAsAUuid` (BK-18 R18-a); because each root's
+     * BK-18 R18-c: the `required` and admits-null rules now hold on every served resource component.
+     * `AlwaysPresentMembers` serves `required`; a member dropped when null must declare its non-null type by hand;
+     * `ResponseShapeTest::everyServedBodyCarriesItsRequiredMembers` checks both on the wire.
+     *
+     * Positive control, in this test (BK-18 R18-c): over one spec copy with two planted defects — `Warehouse.required`
+     * without `id`, and `Warehouse.archived_at` typed `"string"` — the failures are exactly the `required` mismatch and the
+     * admits-null mismatch, each at `Warehouse` and at `WarehouseCollection.items[]`: four lines, nothing else.
+     *
+     * A resource root's `id` is held to `{type: string, format: uuid}` by `everyResourceRootTypesItsIdAsAUuid` (BK-18 R18-a); because each root's
      * `id` carries its own `#[ApiProperty(schema:)]`, this walk also holds that it admits no null and is served a string.
      *
      * Anti-vacuity, two-way: the components the walk reached through a `$ref` and described == every component that is not
      * a resource, not an input and not API Platform's own. It fails on a reference component the walk never reaches, and on
      * a walk that silently describes nothing.
+     *
+     * Every served collection whose `items` name a served component is re-walked as `<Collection>.items` (BK-18 R18-c
+     * D-1): the walk follows `items` only through the constructor's `@param list<…Resource> $items`, so a collection
+     * written without it fails here. Twenty-one such collections today (re-derive on a difference).
      */
     #[Test]
     public function everyServedListOfObjectsIsItsElementClass(): void
@@ -701,6 +712,21 @@ final class OpenApiContractTest extends ApiTestCase
         self::assertSame(self::RESOURCES_WITHOUT_A_COMPONENT, $withoutComponent, 'The resources that serve no component.');
         foreach (['User.roles', 'CurrentUser.roles', 'PickList.lines[].candidate_bins', 'SalesReturn.lines[].adjustment_decisions', 'CreditNote.lines[].return_decisions'] as $path) {
             self::assertContains($path, $visited, 'Anti-vacuity: '.$path.' was walked.');
+        }
+
+        // BK-18 R18-c D-1: the walk follows a collection's `items` only through its `@param list<…Resource> $items`
+        // docblock, so every served collection whose items name a served component must have been re-walked.
+        $collections = [];
+        foreach (self::apiResourceClasses() as $shortName) {
+            $ref = $spec['components']['schemas'][$shortName]['properties']['items']['items']['$ref'] ?? null;
+            if (\is_string($ref) && str_starts_with($ref, '#/components/schemas/')
+                && \in_array(substr($ref, \strlen('#/components/schemas/')), self::apiResourceClasses(), true)) {
+                $collections[] = $shortName;
+            }
+        }
+        self::assertCount(21, $collections, 'Anti-vacuity: the served collections whose items name a served component (re-derive on a difference).');
+        foreach ($collections as $name) {
+            self::assertContains($name.'.items', $visited, '`'.$name.'`\'s items are not re-walked: its constructor needs `@param list<…Resource> $items` (BK-18 R18-c D-1)');
         }
 
         $minted = [];
@@ -715,6 +741,87 @@ final class OpenApiContractTest extends ApiTestCase
         self::assertNotSame([], $minted, 'Anti-vacuity: some reference is served as a component of its own.');
         self::assertSame($minted, $followed, 'The reference components the walk described are every reference component in the spec.');
         self::assertSame([], $failures, "A served object schema does not match its element class:\n".implode("\n", $failures));
+
+        // Positive control (BK-18 R18-c): two planted defects, four lines, nothing else.
+        $planted = $spec;
+        $planted['components']['schemas']['Warehouse']['required'] = array_values(array_diff($planted['components']['schemas']['Warehouse']['required'] ?? [], ['id']));
+        $planted['components']['schemas']['Warehouse']['properties']['archived_at']['type'] = 'string';
+        $plantedFailures = array_map(
+            static fn (string $line): string => preg_replace('/: required \[.*$/', ': required', $line) ?? $line,
+            $this->walkSpec($planted)['failures'],
+        );
+        sort($plantedFailures);
+        self::assertSame([
+            'Warehouse.archived_at: admits null = false, expected true',
+            'Warehouse: required',
+            'WarehouseCollection.items[].archived_at: admits null = false, expected true',
+            'WarehouseCollection.items[]: required',
+        ], $plantedFailures, 'Positive control: the walk reports exactly the two planted Warehouse defects, at both paths.');
+    }
+
+    /**
+     * BK-18 R18-c T-C3. (1) No public member of a served resource declares `required:` by hand: `AlwaysPresentMembers`
+     * computes `required` and overrides any declared value, so a hand one is dead metadata. (2) No contract operation
+     * (`TransactionBoundaryTest::contractOperations()`; its `_api_` filter is what keeps `ApiProblem`'s error operation out)
+     * has a normalization context where `($context[SKIP_NULL_VALUES] ?? true) !== false` — absent counts as skipping,
+     * because API Platform defaults it to `true` (`SerializerContextBuilder.php:62`) and does not merge the configured
+     * defaults into an explicitly empty context (`OperationDefaultsTrait.php:75-86`). An operation that skipped nulls would
+     * make the decorator's `required` a lie the property metadata cannot see.
+     *
+     * Planted controls: (1) over a fixture class declaring `required: true` → reported; (2) over stub contexts
+     * `[SKIP_NULL_VALUES => true]` and `[]` → reported, `[SKIP_NULL_VALUES => false]` → not. Anti-vacuity: classes,
+     * members and operations iterated are each non-zero.
+     */
+    #[Test]
+    public function noServedResourceDeclaresRequiredByHand(): void
+    {
+        $failures = [];
+        $members = 0;
+        foreach (array_keys(self::apiResourceClasses()) as $class) {
+            array_push($failures, ...self::handDeclaredRequired($class, $members));
+        }
+        self::assertNotSame([], self::apiResourceClasses(), 'Anti-vacuity: classes iterated.');
+        self::assertGreaterThan(0, $members, 'Anti-vacuity: public members counted.');
+        $ignored = 0;
+        self::assertSame([OpenApiContractTestRequiredFixture::class.'::$name declares required'], self::handDeclaredRequired(OpenApiContractTestRequiredFixture::class, $ignored), 'Positive control (1).');
+
+        $operations = TransactionBoundaryTest::contractOperations();
+        self::assertNotSame([], $operations, 'Anti-vacuity: operations iterated.');
+        foreach ($operations as $name => $operation) {
+            if (self::skipsNullValues($operation->getNormalizationContext() ?? [])) {
+                $failures[] = $name.': its normalization context skips null values (absent or true) — every served member is declared required (BK-18 R18-c)';
+            }
+        }
+        self::assertTrue(self::skipsNullValues([AbstractObjectNormalizer::SKIP_NULL_VALUES => true]), 'Positive control (2): an explicit true is reported.');
+        self::assertTrue(self::skipsNullValues([]), 'Positive control (2): an absent key is reported (API Platform defaults it to true).');
+        self::assertFalse(self::skipsNullValues([AbstractObjectNormalizer::SKIP_NULL_VALUES => false]), 'Control (2): an explicit false is not reported.');
+
+        self::assertSame([], $failures, "A served resource declares what AlwaysPresentMembers computes:\n".implode("\n", $failures));
+    }
+
+    /** @param array<string, mixed> $context */
+    private static function skipsNullValues(array $context): bool
+    {
+        return ($context[AbstractObjectNormalizer::SKIP_NULL_VALUES] ?? true) !== false;
+    }
+
+    /** @return list<string> */
+    private static function handDeclaredRequired(string $class, int &$members): array
+    {
+        $out = [];
+        foreach ((new \ReflectionClass($class))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+            ++$members;
+            foreach ($property->getAttributes(ApiProperty::class) as $attribute) {
+                if (null !== $attribute->newInstance()->isRequired()) {
+                    $out[] = $class.'::$'.$property->getName().' declares required';
+                }
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -819,7 +926,6 @@ final class OpenApiContractTest extends ApiTestCase
      * - Path parameters are held to `{type: string, format: uuid}` by `everyRecordIdPathParameterIsServedAsAUuid` (BK-18 R18-d).
      * - A root that drops `id` entirely shrinks both derivations; ResponseShapeTest's derivation holds that.
      * - Whether the served VALUES are canonical uuids: {@see ResponseShapeTest::noResponseCarriesATenantIdentifier}.
-     * - That roots list no `required`: BK-18 R18-c.
      */
     #[Test]
     public function everyResourceRootTypesItsIdAsAUuid(): void
@@ -1275,12 +1381,13 @@ final class OpenApiContractTest extends ApiTestCase
             }
             $memberNode = $node['properties'][$name];
             $ownSchema = self::carriesItsOwnSchema($property);
-            if ($isDescribed || $ownSchema) {
+            {
                 $type = $memberNode['type'] ?? null;
                 $admitsNull = (\is_array($type) && \in_array('null', $type, true)) || 'null' === $type
                     || \in_array(['type' => 'null'], $memberNode['anyOf'] ?? [], true);
                 if ($admitsNull !== ($nullable && !$skip)) {
-                    $failures[] = $path.'.'.$name.': admits null = '.var_export($admitsNull, true).', expected '.var_export($nullable && !$skip, true);
+                    $failures[] = $path.'.'.$name.': admits null = '.var_export($admitsNull, true).', expected '.var_export($nullable && !$skip, true)
+                        .($nullable && $skip && !$ownSchema ? ' — a member dropped when null must declare its non-null type by hand (`#[ApiProperty(schema:)]`); `AlwaysPresentMembers` sets `required` only (BK-18 R18-c)' : '');
                 }
             }
             $phpType = $property->getType();
@@ -1292,7 +1399,7 @@ final class OpenApiContractTest extends ApiTestCase
                 }
             }
         }
-        if ($isDescribed) {
+        {
             $declared = $node['required'] ?? [];
             sort($declared);
             sort($required);
@@ -1387,7 +1494,7 @@ final class OpenApiContractTest extends ApiTestCase
     }
 
     /** @return array<class-string, string> every `#[ApiResource]` class under src/, by its served short name */
-    private static function apiResourceClasses(): array
+    public static function apiResourceClasses(): array
     {
         static $memo = null;
         if (null !== $memo) {
@@ -1962,5 +2069,15 @@ final class OpenApiContractTest extends ApiTestCase
         ksort($out);
 
         return $out;
+    }
+}
+
+/** @internal planted control for {@see OpenApiContractTest::noServedResourceDeclaresRequiredByHand} */
+final class OpenApiContractTestRequiredFixture
+{
+    public function __construct(
+        #[ApiProperty(required: true)]
+        public string $name,
+    ) {
     }
 }

@@ -813,6 +813,301 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     }
 
     /**
+     * BK-18 R18-c T-C2 control (iii): the members of a served resource component the spec leaves out of `required`, each
+     * with its reason. Pinned two-way against the served spec. It exempts nothing from (a)-(c).
+     *
+     * @var array<string, string>
+     */
+    private const MEMBERS_ABSENT_FOR_SOME_CALLERS = [
+        'SalesReturn.adjustment_decision_owed' => 'absent without invoice.view (PC-9); AdjustmentDecisionTest',
+        'SalesReturn.credit_blocked_by_payment' => 'absent without invoice.view (PC-9, RED-4 M4-1); SalesReturnCreateTest',
+    ];
+
+    /**
+     * BK-18 R18-c T-C2 control (ii)(b)'s exceptions: nested object nodes reachable from a 2xx schema that no driven body
+     * carries a value for, each with its reason. Pinned two-way. A recipe change is preferred over an entry.
+     *
+     * Each pinned subtree's `required` predates R18-c and is held against its PHP class by
+     * `OpenApiContractTest::everyServedListOfObjectsIsItsElementClass`; the pin only means this test has not yet added its
+     * on-the-wire check there.
+     *
+     * Owed (R18-c D-5): drive each node from its recipe before 2b; when one is reached this pin goes red — delete the entry
+     * then, never re-key it. Trigger: the next commit that edits any of the nine success recipes ListAuditRecords,
+     * IssueCreditNote, IssueAdjustmentCreditNote, GetCreditNote, ListCreditNotes, CreateSalesReturn, GetSalesReturn,
+     * ListSalesReturns, CreateAdjustmentDecision (`tests/Api/OperationSuccessRecipes.php`), or R18-g / 2b, whichever is
+     * first.
+     *
+     * @var array<string, string>
+     */
+    private const NESTED_NODES_NO_RECIPE_REACHES = [
+        'AuditRecordCollection.items[].actor' => 'the ListAuditRecords recipe\'s rows carry a null actor (measured 2026-11-13)',
+        'CreditNote.lines[].return_decisions[]' => 'no driven CreditNote body carries a return decision (empty list, measured 2026-11-13): the four CreditNote recipes record none, and CreateAdjustmentDecision, which records one, answers a SalesReturn',
+        'CreditNote.lines[].return_decisions[].recorded_by' => 'inside an unreached return decision (above)',
+        'CreditNote.lines[].return_decisions[].sales_return' => 'inside an unreached return decision (above)',
+        'SalesReturn.credit_target' => 'null in every driven SalesReturn body (measured 2026-11-13): non-null only while the return owes a credit on a live, unpaid invoice (`SalesReturnReader`), and no recipe reads a return in that state',
+    ];
+
+    /**
+     * BK-18 R18-c T-C2. Every driven 2xx JSON body, walked together with its operation's 2xx schema (by operationId, from
+     * the regenerated spec): at each object node that has `properties`, (a) every `required` name is a key of the value —
+     * the description never promises a key the server omits; (b) every key of the value is in `properties`; (c) a `null`
+     * value only where the member's type admits `null`. Object or list is decided from the schema node, never from the PHP
+     * value (`json_decode` collapses `{}` and `[]`). A `null` value is checked by (c) at its member and never descended
+     * into, whatever form the nullable type takes (`anyOf` with `{type: null}`, or a type array containing `null`). A schema
+     * node with no `properties` (a free-form object, today only `AuditLogEntryCollection.items[].metadata`) is opaque:
+     * (a)-(c) do not apply below it.
+     *
+     * Controls, here: (i) planted values on a copy of the driven `GetWarehouse` body (a removed `archived_at`, a `null`
+     * `name`, an extra key `zz`) are each reported, the unplanted body reports nothing, and an arbitrary key under the
+     * opaque `metadata` is not reported; (ii) coverage — (a) every one of the served resource components had an object
+     * value checked; (b) every nested object node with `properties` reachable from a 2xx schema had a value checked,
+     * except {@see self::NESTED_NODES_NO_RECIPE_REACHES}; (iii) {@see self::MEMBERS_ABSENT_FOR_SOME_CALLERS} == the
+     * members of the served resource components that the spec leaves out of `required`.
+     *
+     * Not covered: completeness (that every always-present member is listed) is
+     * `OpenApiContractTest::everyServedListOfObjectsIsItsElementClass`'s, by reflection — it is not observable here (a
+     * recipe caller holding `invoice.view` sees both skip members present). Nor are these paths driven: identical-retry
+     * replays of a create, `?archived=true` views, pages reached by following `after`/`before`, callers other than each
+     * recipe's principal. Believed safe because every member of a served resource is constructor-promoted (always
+     * initialised) and none carries `#[Groups]`, `#[Ignore]`, `ApiProperty(security:/readable:)` or a custom normalizer;
+     * a change that adds one extends this test.
+     */
+    #[Test]
+    public function everyServedBodyCarriesItsRequiredMembers(): void
+    {
+        $bodies = $this->drivenBodies();
+        $spec = GeneratedSpec::regenerate(self::$kernel ?? throw new \LogicException('booted'));
+        $schemas = $spec['components']['schemas'] ?? [];
+
+        $bodySchema = [];
+        $served = [];
+        foreach (GeneratedSpec::operations($spec) as $data) {
+            foreach ($data['operation']['responses'] ?? [] as $status => $response) {
+                $schema = $response['content']['application/json']['schema'] ?? null;
+                if ((int) $status < 200 || (int) $status > 299 || !\is_array($schema)) {
+                    continue;
+                }
+                $bodySchema[(string) $data['operation']['operationId']] = $schema;
+                if (isset($schema['$ref'])) {
+                    $served[] = self::componentName((string) $schema['$ref']);
+                }
+            }
+        }
+        $served = array_values(array_unique($served));
+        sort($served);
+        self::assertNotSame([], $served, 'Anti-vacuity: some 2xx body is a component.');
+
+        // (i) the predicate on planted values.
+        self::assertArrayHasKey('GetWarehouse', $bodies);
+        $warehouse = $bodies['GetWarehouse'];
+        self::assertIsArray($warehouse);
+        $check = static function (mixed $body, string $operation) use ($bodySchema, $schemas): array {
+            $defects = [];
+            $components = [];
+            $nodes = [];
+            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $defects, $components, $nodes);
+
+            return $defects;
+        };
+        self::assertSame([], $check($warehouse, 'GetWarehouse'), 'Control (i): the unplanted GetWarehouse body.');
+        $missing = $warehouse;
+        unset($missing['archived_at']);
+        self::assertSame(['$: required member archived_at is missing'], $check($missing, 'GetWarehouse'), 'Control (i): a removed member.');
+        self::assertSame(['$.name: null, but its type does not admit null'], $check(['name' => null] + $warehouse, 'GetWarehouse'), 'Control (i): a null member.');
+        self::assertSame(['$: key zz is not a declared property'], $check($warehouse + ['zz' => 1], 'GetWarehouse'), 'Control (i): an undeclared key.');
+        $audit = $bodies['ListAuditLogEntries'] ?? null;
+        self::assertIsArray($audit);
+        self::assertNotSame([], $audit['items'] ?? [], 'Control (i): ListAuditLogEntries has a row to plant into.');
+        $audit['items'][0]['metadata'] = ['zz' => 1];
+        self::assertSame([], $check($audit, 'ListAuditLogEntries'), 'Control (i): a key under the opaque metadata object is not reported.');
+
+        // The walk over every driven body.
+        $defects = [];
+        $components = [];
+        $nodes = [];
+        foreach ($bodies as $name => $body) {
+            $operation = (string) preg_replace('/ \(limit=1\)$/', '', (string) $name);
+            if (null === $body || !isset($bodySchema[$operation])) {
+                continue;
+            }
+            $found = [];
+            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $found, $components, $nodes);
+            foreach ($found as $defect) {
+                $defects[] = $name.' '.$defect;
+            }
+        }
+
+        // (ii)(a) every served resource component had an object value checked.
+        self::assertSame([], array_values(array_diff($served, array_keys($components))), 'Control (ii)(a): served resource components no driven body reached.');
+
+        // (ii)(b) every reachable nested object node had a value checked, except the pin.
+        $reachable = [];
+        foreach ($served as $component) {
+            self::reachableNodes($schemas[$component] ?? [], $component, $schemas, $served, $reachable);
+        }
+        $unreached = array_values(array_diff(array_keys($reachable), array_keys($nodes)));
+        sort($unreached);
+        $pinned = array_keys(self::NESTED_NODES_NO_RECIPE_REACHES);
+        sort($pinned);
+        self::assertSame($pinned, $unreached, 'Control (ii)(b): nested object nodes no driven body reaches (pinned two-way, each with a reason).');
+
+        // (iii) the sometimes-absent members, two-way.
+        $notRequired = [];
+        foreach ($served as $component) {
+            $node = $schemas[$component] ?? [];
+            foreach (array_keys($node['properties'] ?? []) as $member) {
+                if (!\in_array($member, $node['required'] ?? [], true)) {
+                    $notRequired[] = $component.'.'.$member;
+                }
+            }
+        }
+        sort($notRequired);
+        $pinnedAbsent = array_keys(self::MEMBERS_ABSENT_FOR_SOME_CALLERS);
+        sort($pinnedAbsent);
+        self::assertSame($pinnedAbsent, $notRequired, 'Control (iii): the members a served resource component leaves out of required.');
+
+        self::assertSame([], $defects, "A driven body does not match its published schema:\n".implode("\n", $defects));
+    }
+
+    private static function componentName(string $ref): string
+    {
+        return substr($ref, (int) strrpos($ref, '/') + 1);
+    }
+
+    /** @param array<mixed> $node */
+    private static function admitsNull(array $node): bool
+    {
+        $type = $node['type'] ?? null;
+
+        return 'null' === $type || (\is_array($type) && \in_array('null', $type, true))
+            || \in_array(['type' => 'null'], $node['anyOf'] ?? [], true);
+    }
+
+    /**
+     * Resolve a `$ref` or a nullable `anyOf` to the node a non-null value is checked against, and the key it is counted
+     * under (a component name, or the pointer handed in).
+     *
+     * @param array<mixed>        $node
+     * @param array<string, mixed> $schemas
+     *
+     * @return array{0: array<mixed>, 1: string, 2: bool}
+     */
+    private static function resolveNode(array $node, string $key, array $schemas): array
+    {
+        $isComponent = false;
+        foreach ($node['anyOf'] ?? [] as $branch) {
+            if (['type' => 'null'] !== $branch && \is_array($branch)) {
+                $node = $branch;
+                break;
+            }
+        }
+        if (isset($node['$ref'])) {
+            $key = self::componentName((string) $node['$ref']);
+            $node = (array) ($schemas[$key] ?? []);
+            $isComponent = true;
+        }
+
+        return [$node, $key, $isComponent];
+    }
+
+    /**
+     * @param array<mixed>          $schema
+     * @param array<string, mixed>  $schemas
+     * @param list<string>          $defects
+     * @param array<string, true>   $components
+     * @param array<string, true>   $nodes
+     */
+    private static function walkBody(mixed $value, array $schema, string $key, string $where, array $schemas, array &$defects, array &$components, array &$nodes): void
+    {
+        [$node, $key, $isComponent] = self::resolveNode($schema, $key, $schemas);
+        $type = (array) ($node['type'] ?? []);
+        if (\in_array('array', $type, true) || isset($node['items'])) {
+            if (!\is_array($value) || !array_is_list($value)) {
+                $defects[] = $where.': a list was expected';
+
+                return;
+            }
+            foreach ($value as $index => $element) {
+                if (null === $element) {
+                    if (!self::admitsNull((array) ($node['items'] ?? []))) {
+                        $defects[] = $where.'['.$index.']: null, but its type does not admit null';
+                    }
+                    continue;
+                }
+                self::walkBody($element, (array) ($node['items'] ?? []), $key.'[]', $where.'['.$index.']', $schemas, $defects, $components, $nodes);
+            }
+
+            return;
+        }
+        if (!isset($node['properties'])) {
+            return; // a scalar, or an opaque free-form object
+        }
+        if (!\is_array($value)) {
+            $defects[] = $where.': an object was expected';
+
+            return;
+        }
+        if ($isComponent) {
+            $components[$key] = true;
+        }
+        $nodes[$key] = true;
+        foreach ($node['required'] ?? [] as $member) {
+            if (!\array_key_exists($member, $value)) {
+                $defects[] = $where.': required member '.$member.' is missing';
+            }
+        }
+        foreach ($value as $member => $memberValue) {
+            $memberNode = $node['properties'][$member] ?? null;
+            if (!\is_array($memberNode)) {
+                $defects[] = $where.': key '.$member.' is not a declared property';
+                continue;
+            }
+            if (null === $memberValue) {
+                if (!self::admitsNull($memberNode)) {
+                    $defects[] = $where.'.'.$member.': null, but its type does not admit null';
+                }
+                continue;
+            }
+            self::walkBody($memberValue, $memberNode, $key.'.'.$member, $where.'.'.$member, $schemas, $defects, $components, $nodes);
+        }
+    }
+
+    /**
+     * Every object node with `properties` reachable from a schema, keyed as {@see self::walkBody} keys them; the served
+     * resource components themselves are not re-entered (control (ii)(a) holds them).
+     *
+     * @param array<mixed>          $schema
+     * @param array<string, mixed>  $schemas
+     * @param list<string>          $served
+     * @param array<string, true>   $reachable
+     */
+    private static function reachableNodes(array $schema, string $key, array $schemas, array $served, array &$reachable, bool $root = true): void
+    {
+        [$node, $key, $isComponent] = self::resolveNode($schema, $key, $schemas);
+        if (!$root && $isComponent && \in_array($key, $served, true)) {
+            return;
+        }
+        $type = (array) ($node['type'] ?? []);
+        if (\in_array('array', $type, true) || isset($node['items'])) {
+            self::reachableNodes((array) ($node['items'] ?? []), $key.'[]', $schemas, $served, $reachable, false);
+
+            return;
+        }
+        if (!isset($node['properties'])) {
+            return;
+        }
+        if (!$root) {
+            if (isset($reachable[$key])) {
+                return;
+            }
+            $reachable[$key] = true;
+        }
+        foreach ($node['properties'] as $member => $memberNode) {
+            self::reachableNodes((array) $memberNode, $key.'.'.$member, $schemas, $served, $reachable, false);
+        }
+    }
+
+    /**
      * BK-18 R18-a control (iii)'s exceptions: driven bodies whose page is empty by recipe, each with its reason. Keyed by
      * driven-body name, so an empty paging list needs both `ListX` and `ListX (limit=1)`; each entry must be a declaring
      * key whose body's `items` is `[]`. Expected empty: a recipe that seeds a row is the fix, an entry the exception.

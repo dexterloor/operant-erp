@@ -490,6 +490,14 @@ services:
         decoration_priority: 1
         arguments: ['@.inner']
 
+    # BK-18 R18-c: every member of a served resource is `required` in the published
+    # spec unless it is dropped when null. Priority 1: outside the json-schema
+    # property factory (10), inside the cache (-10).
+    App\Platform\Http\AlwaysPresentMembers:
+        decorates: api_platform.metadata.property.metadata_factory
+        decoration_priority: 1
+        arguments: ['@.inner']
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test

@@ -67,6 +67,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 )]
 final class CreditNoteCollection
 {
+    /**
+     * @param list<CreditNoteResource> $items
+     */
     public function __construct(
         #[ApiProperty(schema: ['type' => 'array', 'items' => ['$ref' => '#/components/schemas/CreditNote']])]
         public array $items,

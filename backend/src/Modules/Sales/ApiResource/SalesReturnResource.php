@@ -188,19 +188,21 @@ final class SalesReturnResource
          * `true` when the return would be creditable but its invoice is paid (Q-E, G-23's queue). **Absent** — not null —
          * for a caller without `invoice.view`: it names payment as the cause, which is invoice status (`RED-4` M4-1,
          * PC-9's third exception's violation clause). The per-property skip is what makes "absent" true.
+         * Not `required`, and never `null`: absent instead (BK-18 R18-c).
          */
         #[SerializedName('credit_blocked_by_payment')]
         #[Context([AbstractObjectNormalizer::SKIP_NULL_VALUES => true])]
-        #[ApiProperty(required: false)]
+        #[ApiProperty(schema: ['type' => 'boolean'])]
         public ?bool $creditBlockedByPayment = null,
         /**
          * G-29 / G-30 part 3 (design §5): `true` when some line of this return falls on an order line that already
          * carries a credit without a return and nothing has decided whether its units are those (`undecidedPair`).
          * **Absent for a caller without `invoice.view`** — the credit-without-a-return fact is PC-9's to withhold.
+         * Not `required`, and never `null`: absent instead (BK-18 R18-c).
          */
         #[SerializedName('adjustment_decision_owed')]
         #[Context([AbstractObjectNormalizer::SKIP_NULL_VALUES => true])]
-        #[ApiProperty(required: false)]
+        #[ApiProperty(schema: ['type' => 'boolean'])]
         public ?bool $adjustmentDecisionOwed = null,
     ) {
     }
