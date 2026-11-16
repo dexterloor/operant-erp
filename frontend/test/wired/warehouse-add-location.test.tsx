@@ -709,3 +709,37 @@ describe('Add location (AddLocationForm) — the mixed-422 line (I-2 follow-up)'
     expect(within(dialog).queryByText(MIXED_LINE)).toBeNull();
   });
 });
+
+// S-4 RED-2 M-2 (shipped): FE-D1's order on Add location — focus is back on the section's Add location BEFORE "{code} was
+// added." is written (the supplier catalogue's DV-16 shape). The dialog's own submit has the same name, "Add location", so
+// the spy tells the two apart by `closest('[role="dialog"]')` (RED-2's trap: matching on the name alone passes on the
+// broken code).
+describe('/warehouses/[id] — Add location: focus returns before the added sentence (FE-D1)', () => {
+  it('after a 201 the section\'s Add location takes focus while the page region is still empty; "B2 was added." follows', async () => {
+    const made = loc('66666666-6666-4666-8666-666666666666', 'B2', FIRST);
+    stubFetch([json(201, made), json(200, coll([A1, made]))]);
+    const u = userEvent.setup();
+    show({ initial: { kind: 'ok', locations: [A1] }, canCreate: true });
+    await u.click(addButton());
+    const d = screen.getByRole('dialog');
+    await u.type(within(d).getByRole('textbox', { name: 'Code' }), 'B2');
+    await u.selectOptions(within(d).getByRole('combobox', { name: 'Kind' }), FIRST);
+    const seen: { el: string; region: string }[] = [];
+    const real = HTMLElement.prototype.focus;
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, opts?: FocusOptions) {
+      seen.push({ el: (this.closest('[role="dialog"]') ? 'dialog:' : '') + (this.getAttribute('aria-label') ?? this.textContent ?? this.tagName), region: pageRegion().textContent ?? '' });
+      real.call(this, opts);
+    });
+    try {
+      await u.click(within(d).getByRole('button', { name: 'Add location' }));
+      await waitFor(() => expect(pageRegion().textContent).toBe('B2 was added.'));
+      await waitFor(() => expect(addButton()).toHaveFocus());
+    } finally {
+      spy.mockRestore();
+    }
+    const onAdd = seen.filter((c) => c.el === 'Add location');
+    expect(onAdd.length).toBeGreaterThan(0);
+    expect(onAdd[0]!.region).toBe('');
+    expect(pageRegion().textContent).toBe('B2 was added.');
+  });
+});

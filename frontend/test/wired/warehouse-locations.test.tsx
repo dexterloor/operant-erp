@@ -675,3 +675,36 @@ describe('Edit location — a second identical saved sentence is written again (
     rec.stop();
   });
 });
+
+// S-4 RED-2 M-2 (shipped): FE-D1's order on Edit location — focus is back on the row's Edit BEFORE "{code} was saved." is
+// written. The dialog's own focus return runs on a timer after it unmounts, later than the sentence, so the section puts
+// focus back itself (the supplier catalogue's DV-16 shape). The spy tells a call inside the dialog from the page's.
+describe('/warehouses/[id] — Edit location: focus returns before the saved sentence (FE-D1)', () => {
+  it('after a 200 the row\'s Edit takes focus while the page region is still empty; "A2 was saved." follows', async () => {
+    const saved = { ...A1, code: 'A2' };
+    stubFetch([json(200, saved), json(200, coll([saved, Q1, P1]))]);
+    const u = userEvent.setup();
+    show();
+    await u.click(within(section()).getByRole('button', { name: 'Edit A1' }));
+    const code = within(screen.getByRole('dialog')).getByRole('textbox', { name: 'Code' });
+    await u.clear(code);
+    await u.type(code, 'A2');
+    const seen: { el: string; region: string }[] = [];
+    const real = HTMLElement.prototype.focus;
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, opts?: FocusOptions) {
+      seen.push({ el: (this.closest('[role="dialog"]') ? 'dialog:' : '') + (this.getAttribute('aria-label') ?? this.textContent ?? this.tagName), region: pageRegion().textContent ?? '' });
+      real.call(this, opts);
+    });
+    try {
+      await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(pageRegion().textContent).toBe('A2 was saved.'));
+      await waitFor(() => expect(within(section()).getByRole('button', { name: 'Edit A2' })).toHaveFocus());
+    } finally {
+      spy.mockRestore();
+    }
+    const onEdit = seen.filter((c) => c.el === 'Edit A1' || c.el === 'Edit A2');
+    expect(onEdit.length).toBeGreaterThan(0);
+    expect(onEdit[0]!.region).toBe('');
+    expect(pageRegion().textContent).toBe('A2 was saved.');
+  });
+});

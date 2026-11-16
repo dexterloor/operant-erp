@@ -158,6 +158,14 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
   const heading = useRef<HTMLHeadingElement>(null);
   const noticeHeading = useRef<HTMLParagraphElement>(null);
   const [editing, setEditing] = useState<StorageLocation | null>(null);
+  // The button that opened the Edit or Add dialog, so the close can put focus back on it before anything is spoken (FE-D1).
+  // The dialog's own focus return runs on a timer after it unmounts, which is later than the sentence (S-4 RED-2 M-2).
+  const opener = useRef<HTMLElement | null>(null);
+  const focusOpener = () => {
+    const back = opener.current;
+    opener.current = null;
+    (back !== null && back.isConnected ? back : heading.current)?.focus();
+  };
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<StorageLocation | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
@@ -337,8 +345,9 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
   };
 
   const closeEdit = async ({ saved, reread }: { saved: StorageLocation | null; reread: boolean }) => {
-    // FE-D1: commit the close, let the dialog return focus to the row's Edit button (else the heading), speak, refresh.
+    // FE-D1: commit the close, put focus back on the opener (else the heading), then speak, then re-read.
     flushSync(() => setEditing(null));
+    focusOpener();
     const said = saved !== null ? announce(EDIT_LOCATION.saved(saved.code)) : null;
     if (!reread) return;
     const r = await list.current?.reread();
@@ -347,8 +356,9 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
   };
 
   const closeAdd = async ({ created, reread }: { created: StorageLocation | null; reread: boolean }) => {
-    // FE-D1: commit the close, let the dialog return focus to its opener (else the heading), speak, refresh.
+    // FE-D1: commit the close, put focus back on the opener (else the heading), then speak, then re-read.
     flushSync(() => setAdding(false));
+    focusOpener();
     const said = created !== null ? announce(ADD_LOCATION.after(created.code)) : null;
     if (!reread) return;
     const r = await list.current?.reread();
@@ -378,7 +388,13 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
   };
 
   const addButton = (size?: 'sm') => (
-    <Button size={size} onClick={() => setAdding(true)}>
+    <Button
+      size={size}
+      onClick={(ev) => {
+        opener.current = ev.currentTarget;
+        setAdding(true);
+      }}
+    >
       {LOCATIONS_SECTION.addLocation}
     </Button>
   );
@@ -417,7 +433,14 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
           cell: (l) => (
             <>
               {canEdit ? (
-                <Button size="sm" aria-label={`${LOCATIONS_SECTION.edit} ${l.code}`} onClick={() => setEditing(l)}>
+                <Button
+                  size="sm"
+                  aria-label={`${LOCATIONS_SECTION.edit} ${l.code}`}
+                  onClick={(ev) => {
+                    opener.current = ev.currentTarget;
+                    setEditing(l);
+                  }}
+                >
                   {LOCATIONS_SECTION.edit}
                 </Button>
               ) : null}
