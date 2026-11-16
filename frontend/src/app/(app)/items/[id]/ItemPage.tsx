@@ -10,8 +10,9 @@ import { RestoreActions } from '@/components/records/RestoreActions';
 import { RegionError } from '@/components/states/PageStates';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
-import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
+import { LiveRegion, useLiveRegion, useWaitStatus } from '@/components/ui/LiveRegion';
 import { COULD_NOT_REACH, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
+import { PAGE_STATES } from '@/copy/shell';
 import { DELETE_ITEM, ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST, RESTORE_ITEM, unitSpoken } from '@/copy/items';
 import type { Item } from '@/lib/api/items';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
@@ -82,6 +83,10 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   const [retrying, setRetrying] = useState(false);
   const [staleRefusal, setStaleRefusal] = useState<{ gen: number; message: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // FE-R6 (Revision 1 B-3): a Save request in flight, reported by the form; the wait-only region says "Saving…" once it
+  // has waited 1.5 s, and empties when it answers (after a Delete 204 too: it describes the request, not the form).
+  const [saving, setSaving] = useState(false);
+  const waiting = useWaitStatus(saving, PAGE_STATES.saving);
   // 4.6 RED M-1: a 204 here is a fact that outranks a stale snapshot. If the re-read after it failed, the item is still
   // treated as archived for the actions (no Delete item, no form) until a commit that is not dropped says otherwise.
   const [deletedHere, setDeletedHere] = useState(false);
@@ -261,6 +266,8 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
       </header>
       {/* Mounted from first render, above every branch below, so it never arrives already speaking. */}
       <LiveRegion message={region.message} visuallyHidden />
+      {/* FE-R6: the wait-only region, right after the page's own (so the first region found is still the page's). */}
+      <LiveRegion message={waiting} visuallyHidden />
       {rereadError ? (
         <RegionError key={`reread-${rereadError.gen}`} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={ITEM_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
@@ -291,7 +298,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
         />
       ) : null}
       {canEdit && !actionsArchived ? (
-        <ItemForm item={item} units={UNITS} save={save} editCode={gateCode('UpdateItem')} announce={announceSaved} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={region.clear} onRefusedArchived={onRefusedArchived} />
+        <ItemForm item={item} units={UNITS} save={save} editCode={gateCode('UpdateItem')} announce={announceSaved} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={region.clear} onBusyChange={setSaving} onRefusedArchived={onRefusedArchived} />
       ) : (
         <dl className={styles.fields}>
           <dt>{ITEM_PAGE.sku}</dt>

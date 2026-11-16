@@ -1,4 +1,4 @@
-import { StrictMode, useState } from 'react';
+import { Profiler, StrictMode, useState } from 'react';
 import { act, fireEvent, isInaccessible, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -12,7 +12,7 @@ import { TooltipProvider } from '@/components/ui/Tooltip';
 import type { Item } from '@/lib/api/items';
 import { formatDate } from '@/lib/format/dates';
 import { wireEnum } from '@/lib/bff/surface';
-import { SID, TZ, atText, empty, expectSuffix, held, json, problem, refused, renderWired, shownText, stubFetch, textsOf } from './harness';
+import { SID, TZ, atText, empty, expectSuffix, held, json, later, problem, refused, renderWired, shownText, stubFetch, textsOf } from './harness';
 
 // Items I-1 (items-plan.md §4 I-1 as amended by R1-1…R1-9 and Revision 1 — FINAL; items-ux-copy.md B-3, B-5 as amended
 // by R1-1, R1-2, R1-6, R1-9, R1-17, F-4; Revision 8 R8-2): the item page is the editor. SKU, Name, the Unit (since I-4,
@@ -1251,5 +1251,279 @@ describe('/items/[id] — a second identical saved sentence is written again (FE
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
     expect(rec.texts).toEqual(['', SAVED]);
     rec.stop();
+  });
+});
+
+// FE-R6 commit B (fe-r6-saving-status-design.md Revision 1 — FINAL B-1…B-6, as fixed by fe-r6-saving-status-final-red.md
+// B-1, B-3, B-5): a Save that has waited 1.5 s says "Saving…" in the page's second, wait-only region; it empties the
+// moment the Save answers, whatever the answer. Harness (final RED B-1): the precedents wired-fake-timer tests use,
+// `{ shouldAdvanceTime: true }` + `waitFor` (warehouse-delete.test.tsx:799, person-roles.test.tsx:99), are not followed:
+// real elapsed time would move the fake clock and race the 1.5 s delay. So: type with user-event under real timers, then
+// fake setTimeout/clearTimeout, press with fireEvent inside `act` (change-password.test.tsx:13-19), move the clock only
+// inside `act`, release held replies inside `act`, no `waitFor` while faked. Margins, not boundaries: nothing at 1000 ms,
+// "Saving…" by 2000 ms (the 1499/1500 ms boundaries are liveregion.test.tsx's).
+describe('/items/[id] — "Saving…" while a slow Save waits (FE-R6 commit B)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const SAVING = 'Saving…';
+  const SAVED = 'A-1 was saved.';
+  const AFTER_DELETE = "A-1 was deleted. It's now in the archived items.";
+  const ONE = { ...BOLT, name: 'Boltx' };
+  const regions = () => document.querySelectorAll<HTMLElement>('section > [role="status"]');
+  /** Final RED B-5: the page's second region, after the page's own (`region()` above still reads the first). */
+  const waitRegion = () => regions()[1]!;
+  const fake = () => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const press = () =>
+    act(async () => {
+      fireEvent.click(save());
+    });
+  const advance = (ms: number) =>
+    act(async () => {
+      vi.advanceTimersByTime(ms);
+    });
+  const release = (h: ReturnType<typeof held>, r: Response) =>
+    act(async () => {
+      h.release(r);
+    });
+  /** Render, start both recorders, type a Name change under real timers, then fake the clock. */
+  const start = async (ui = <ItemPage initial={BOLT} canEdit canRestore={false} />) => {
+    renderWired(ui);
+    const page = textsOf(region());
+    const wait = textsOf(waitRegion());
+    await userEvent.setup().type(field('Name'), 'x');
+    fake();
+    return { page, wait };
+  };
+
+  // M1 (delay 0), M2 (no clear when the Save answers), M4 (region only while saving), M5 (written into the page region),
+  // M6 (assertive, outside LiveRegion), M7 (shown) → red.
+  it('a slow Save: the wait region is there and empty from first render, polite and hidden; "Saving…" by 2 s, not at 1 s; empty once saved; the page region says saved once', async () => {
+    const slow = held();
+    const calls = stubFetch([slow.reply, json(200, ONE)]);
+    const { page, wait } = await start();
+    expect(regions()).toHaveLength(2);
+    expect(waitRegion()).toBeEmptyDOMElement();
+    expect(waitRegion()).toHaveAttribute('role', 'status');
+    expect(waitRegion()).toHaveAttribute('aria-live', 'polite');
+    expect(waitRegion()).toHaveAttribute('aria-atomic', 'true');
+    expect(waitRegion()).toHaveClass('visually-hidden');
+    await press();
+    const focused = document.activeElement;
+    await advance(1000);
+    expect(waitRegion().textContent).toBe('');
+    await advance(1000);
+    expect(waitRegion().textContent).toBe(SAVING);
+    expect(region().textContent).toBe('');
+    // Focus never moves for "Saving…".
+    expect(document.activeElement).toBe(focused);
+    await release(slow, json(200, ONE));
+    expect(wait.texts).toEqual(['', SAVING, '']);
+    expect(page.texts).toEqual(['', SAVED]);
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    expect(document.body.textContent).not.toContain(SAVING);
+  });
+
+  it('a fast Save (answered at 300 ms) stays silent in the wait region; the page region says saved', async () => {
+    stubFetch([later(300, () => json(200, ONE)), json(200, ONE)]);
+    const { page, wait } = await start();
+    await press();
+    await advance(300);
+    expect(page.texts).toEqual(['', SAVED]);
+    await advance(2000);
+    expect(wait.texts).toEqual(['']);
+  });
+
+  // M3 (cleared only on saved) → red.
+  it('a slow Save refused (409 transaction.contention): the wait region empties and focus is on the "Not saved" heading', async () => {
+    const slow = held();
+    stubFetch([slow.reply, json(200, BOLT)]);
+    const { page, wait } = await start();
+    await press();
+    await advance(2000);
+    expect(waitRegion().textContent).toBe(SAVING);
+    await release(slow, refused('transaction.contention', P1));
+    expect(screen.getByText(P1)).toBeInTheDocument();
+    expect(screen.getByText('Not saved')).toHaveFocus();
+    expect(wait.texts).toEqual(['', SAVING, '']);
+    expect(page.texts).toEqual(['']);
+  });
+
+  it('a slow Save that never answers ends unreachable at its time limit: the wait region empties under the banner', async () => {
+    stubFetch(['hang']);
+    const { wait } = await start();
+    await press();
+    await advance(2000);
+    expect(waitRegion().textContent).toBe(SAVING);
+    await advance(30_000);
+    expect(screen.getByText("We can't tell whether your changes to A-1 were saved. Reload the page to check.")).toBeInTheDocument();
+    expect(wait.texts).toEqual(['', SAVING, '']);
+  });
+
+  // M10 (the busy report before the emptied-number check) → red.
+  it('an emptied number never starts the wait: nothing is sent and the wait region stays empty', async () => {
+    const calls = stubFetch([]);
+    renderWired(<ItemPage initial={BOLT} canEdit canRestore={false} />);
+    const wait = textsOf(waitRegion());
+    await userEvent.setup().clear(field('Safety stock'));
+    fake();
+    await press();
+    await advance(2000);
+    expect(field('Safety stock')).toHaveAttribute('aria-invalid', 'true');
+    expect(calls).toEqual([]);
+    expect(wait.texts).toEqual(['']);
+  });
+
+  // M8 (timer armed at mount). Deviation D-1 (build note): this one case fakes the clock BEFORE render and types with
+  // fireEvent.change, because a clock faked after mount cannot see a timer armed at mount (it would be a real timer).
+  it('the delay counts from the press, not from the page opening: open 5 s, press, answered at 300 ms → silent', async () => {
+    fake();
+    stubFetch([later(300, () => json(200, ONE)), json(200, ONE)]);
+    renderWired(<ItemPage initial={BOLT} canEdit canRestore={false} />);
+    const page = textsOf(region());
+    const wait = textsOf(waitRegion());
+    await advance(5000);
+    fireEvent.change(field('Name'), { target: { value: 'Boltx' } });
+    await press();
+    await advance(300);
+    expect(page.texts).toEqual(['', SAVED]);
+    expect(wait.texts).toEqual(['']);
+  });
+
+  // M14 (the busy report skipped once the form has unmounted) → red: the form is gone before the Save's answer is settled.
+  it('a slow Save refused archived: the page turns archived, the wait region empties, no node holds "Saving…"', async () => {
+    const slow = held();
+    stubFetch([slow.reply, json(200, ARCHIVED)]);
+    const { wait } = await start(<ItemPage initial={BOLT} canEdit canRestore />);
+    await press();
+    await advance(2000);
+    expect(waitRegion().textContent).toBe(SAVING);
+    await release(slow, refused('inventory_item.is_archived', I2));
+    expect(screen.getByText(I2)).toBeInTheDocument();
+    expect(screen.queryAllByRole('textbox')).toEqual([]);
+    expect(wait.texts).toEqual(['', SAVING, '']);
+    expect(document.body.textContent).not.toContain(SAVING);
+    // Two zero-delay tasks queued by the archived turn (final RED B-1: advanced by 0 ms explicitly); then no timer is left.
+    await advance(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  // Final RED B-3: the wait region describes the request, not the form. A Delete answering while a Save is held leaves
+  // "Saving…" in the wait region (hidden, not re-spoken) until the Save answers; then it empties. In production the
+  // Delete normally answers after the Save (DELETE_LOCK waits on EDIT_LOCK); this is the reverse order. M14 → red.
+  it('a Delete 204 while a Save is held past 2 s: the page region holds the delete sentence and the wait region still "Saving…"; the Save answers and it empties', async () => {
+    const slow = held();
+    stubFetch([slow.reply, empty(204), json(200, ARCHIVED), json(200, ARCHIVED)]);
+    const { page, wait } = await start(<ItemPage initial={BOLT} canEdit canRestore canDelete />);
+    await press();
+    await advance(2000);
+    expect(waitRegion().textContent).toBe(SAVING);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete item' }));
+    });
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete item' }));
+    });
+    await advance(0);
+    expect(region().textContent).toBe(AFTER_DELETE);
+    expect(waitRegion().textContent).toBe(SAVING);
+    expect(screen.queryAllByRole('textbox')).toEqual([]);
+    await release(slow, json(200, ONE));
+    expect(wait.texts).toEqual(['', SAVING, '']);
+    expect(page.texts).toEqual(['', AFTER_DELETE]);
+  });
+
+  it('two Saves in a row, the second slow: "Saving…" once, in the wait region; the page region as commit A pins it', async () => {
+    const TWO = { ...BOLT, name: 'Boltxy' };
+    const slow = held();
+    stubFetch([json(200, ONE), json(200, ONE), slow.reply, json(200, TWO)]);
+    renderWired(<ItemPage initial={BOLT} canEdit canRestore={false} />);
+    const page = textsOf(region());
+    const wait = textsOf(waitRegion());
+    const u = userEvent.setup();
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    await waitFor(() => expect(region().textContent).toBe(SAVED));
+    await waitFor(() => expect(field('Name')).toHaveValue('Boltx'));
+    await u.type(field('Name'), 'y');
+    fake();
+    await press();
+    await advance(2000);
+    await release(slow, json(200, TWO));
+    expect(wait.texts).toEqual(['', SAVING, '']);
+    expect(page.texts).toEqual(['', SAVED, '', SAVED]);
+  });
+
+  it('under StrictMode: a slow Save says "Saving…" exactly once; still two regions', async () => {
+    const slow = held();
+    stubFetch([slow.reply, json(200, ONE)]);
+    const { page, wait } = await start(
+      <StrictMode>
+        <ItemPage initial={BOLT} canEdit canRestore={false} />
+      </StrictMode>,
+    );
+    expect(regions()).toHaveLength(2);
+    await press();
+    await advance(2000);
+    await release(slow, json(200, ONE));
+    expect(wait.texts).toEqual(['', SAVING, '']);
+    expect(page.texts).toEqual(['', SAVED]);
+    expect(regions()).toHaveLength(2);
+  });
+
+  // fe-r6-commit-b-red.md F-4: the busy report is unconditional, so every answer empties the wait region; the two common
+  // answers not covered above are pinned here. `forbidden` and `not-found` swap the whole page out (ItemPage returns
+  // ItemsDenied / ItemNotFound), so no region remains to check: no case for them.
+  it('a slow Save answered 422 on one field: the wait region empties and focus is on that field', async () => {
+    const slow = held();
+    stubFetch([slow.reply]);
+    const { wait } = await start();
+    await press();
+    await advance(2000);
+    expect(waitRegion().textContent).toBe(SAVING);
+    await release(slow, violation('/name', 'Fixture: this name was refused.', 'blank'));
+    expect(screen.getByText('Fixture: this name was refused.')).toBeInTheDocument();
+    expect(field('Name')).toHaveFocus();
+    expect(wait.texts).toEqual(['', SAVING, '']);
+  });
+
+  it('a slow Save answered 500: the wait region empties under "Something went wrong on our side."', async () => {
+    const slow = held();
+    stubFetch([slow.reply]);
+    const { wait } = await start();
+    await press();
+    await advance(2000);
+    expect(waitRegion().textContent).toBe(SAVING);
+    await release(slow, json(500, {}));
+    expect(screen.getByText('Something went wrong on our side.')).toBeInTheDocument();
+    expect(wait.texts).toEqual(['', SAVING, '']);
+  });
+
+  // fe-r6-commit-b-red.md F-2: one snapshot of both regions per React commit, taken in a Profiler's onRender (never a
+  // MutationObserver: inside one commit it sees the page region written before the wait region is emptied, tree order,
+  // and would report a state no commit had). No commit may hold the saved sentence while the wait region still says
+  // "Saving…". Today `setBusy(false)`, `settle` and `onBusyChange(false)` commit together whatever their order; this case
+  // goes red if a later edit flushes the answer path with the busy report still after it.
+  it('no committed render holds the saved sentence while the wait region still says "Saving…"', async () => {
+    const slow = held();
+    stubFetch([slow.reply, json(200, ONE)]);
+    const commits: [string, string][] = [];
+    const snap = () => {
+      const r = regions();
+      if (r.length === 2) commits.push([r[0]!.textContent ?? '', r[1]!.textContent ?? '']);
+    };
+    await start(
+      <Profiler id="item-page" onRender={snap}>
+        <ItemPage initial={BOLT} canEdit canRestore={false} />
+      </Profiler>,
+    );
+    await press();
+    await advance(2000);
+    await release(slow, json(200, ONE));
+    expect(region().textContent).toBe(SAVED);
+    // Anti-vacuity: some commit showed "Saving…".
+    expect(commits.some(([, w]) => w === SAVING)).toBe(true);
+    expect(commits.filter(([p, w]) => p === SAVED && w === SAVING)).toEqual([]);
   });
 });

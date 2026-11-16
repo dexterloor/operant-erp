@@ -22,7 +22,7 @@ import { JONAS, OFFERED_JONAS_BY_ADMIN, OFFERED_SELF_ADMIN, PROPOSAL_BY_OTHER, P
 import { PickerHarness, scene as pickerScene } from './roles/harness';
 import { AppShell } from '@/app/(app)/AppShell';
 import { ArchivableList, ArchivedToggle, type ArchivableListHandle, type ListLoad, type PagedLoad } from '@/app/(app)/ArchivableList';
-import { renderWired } from './wired/harness';
+import { later, renderWired, type Reply } from './wired/harness';
 
 // The app shell (C-8 below) reads the path and signs out through these; stubbed for this file only.
 const shellIo = vi.hoisted(() => ({ signOut: vi.fn() }));
@@ -790,16 +790,21 @@ describe('DOM fitness — /items/new (items I-2)', () => {
   }
 });
 
-// Items I-3 T-6: Delete item on the item page. No [disabled] anywhere; the page's one region is empty at first render and
-// the same node through a refusal (P1) → Cancel → re-read → a 204 → archived → restore.
-describe('DOM fitness — Delete item (items I-3)', () => {
+// Items I-3 T-6: Delete item on the item page. No [disabled] anywhere; the page's regions are empty at first render and
+// the same nodes through a Save held past 1.5 s (FE-R6) → a refusal (P1) → Cancel → re-read → a 204 → archived → restore.
+// FE-R6 (Revision 1 B-4; final RED B-4): the held Save answers after 1600 ms of REAL time (`later`, a plain setTimeout):
+// this block steps with `waitFor`, which fake timers would hang. About 1.6 s per run, accepted.
+describe('DOM fitness — Delete item (items I-3) and a slow Save (FE-R6)', () => {
   for (const strict of [false, true]) {
-    it(`no [disabled]; one region, empty at first render, the same node through refusal → Cancel → 204 → archived → restore${strict ? ' (StrictMode)' : ''}`, async () => {
+    it(`no [disabled]; two regions, empty at first render, the same nodes through a slow Save → refusal → Cancel → 204 → archived → restore${strict ? ' (StrictMode)' : ''}`, async () => {
       const { ItemPage } = await import('@/app/(app)/items/[id]/ItemPage');
       const I = { id: '7b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e', sku: 'A-1', name: 'Bolt', unit_of_measure_code: 'EA', reorder_point: '0.000000', reorder_quantity: '0.000000', safety_stock: '0.000000', supplier: null, archived_at: null, holds_stock: true };
       const A = { ...I, archived_at: '2026-03-04T10:00:00Z' };
       const reply = (status: number, body: unknown, type = 'application/json') => new Response(status === 204 ? null : JSON.stringify(body), { status, headers: { 'content-type': type } });
-      const queue = [
+      const queue: Reply[] = [
+        // FE-R6: the Save's PATCH answers after 1600 ms, then its re-read.
+        later(1600, () => reply(200, { ...I, name: 'Boltx' })),
+        reply(200, { ...I, name: 'Boltx' }),
         reply(409, { type: 'urn:erp:problem:business-rule-violated', title: 'x', status: 409, rule: 'transaction.contention', message: 'Some of the same records were being changed at the same moment. Nothing was saved; try again.' }, 'application/problem+json'),
         reply(200, I),
         reply(204, null),
@@ -807,13 +812,27 @@ describe('DOM fitness — Delete item (items I-3)', () => {
         reply(200, I),
         reply(200, I),
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => queue.shift() ?? reply(500, {})));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          const next = queue.shift() ?? reply(500, {});
+          return typeof next === 'function' ? next({ url: '', method: '', headers: new Headers(), body: null }) : next;
+        }),
+      );
       const user = userEvent.setup();
       const ui = <ItemPage initial={I} canEdit canRestore canDelete />;
       renderWired(strict ? <StrictMode>{ui}</StrictMode> : ui);
       const tracker = trackRegions();
       const failures = [...tracker.firstRender];
       const steps: Array<() => Promise<void>> = [
+        () => user.type(screen.getByRole('textbox', { name: 'Name' }), 'x'),
+        // FE-R6: a Save held past 1.5 s says "Saving…" in the wait region, then the page region says saved.
+        async () => {
+          await user.click(screen.getByRole('button', { name: 'Save' }));
+          await waitFor(() => expect(screen.getAllByRole('status').at(1)).toHaveTextContent('Saving…'), { timeout: 3000 });
+          await waitFor(() => expect(screen.getAllByRole('status').at(0)).toHaveTextContent('A-1 was saved.'), { timeout: 3000 });
+          expect(screen.getAllByRole('status').at(1)).toBeEmptyDOMElement();
+        },
         () => user.click(screen.getByRole('button', { name: 'Delete item' })),
         () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete item' })),
         () => user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' })),
@@ -828,9 +847,9 @@ describe('DOM fitness — Delete item (items I-3)', () => {
         failures.push(...tracker.check());
       }
       await waitFor(() => expect(screen.getAllByRole('status').at(0)).toHaveTextContent('A-1 was restored.'));
-      expect(tracker.count).toBe(1);
+      expect(tracker.count).toBe(2); // FE-R6: the page's region + its wait-only region
       expect(failures).toEqual([]);
       vi.unstubAllGlobals();
-    });
+    }, 15_000);
   }
 });

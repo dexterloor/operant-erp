@@ -40,6 +40,12 @@ export interface ItemFormProps {
    */
   onSaveStarted?: () => void;
   /**
+   * FE-R6 (Revision 1 B-3): `true` when a Save request starts (after every guard, with `busy`), `false` when it has
+   * answered, on every outcome and even when this form has unmounted meanwhile (refused archived, or the page's own
+   * Delete 204): the page's wait-only region describes the request, not the form.
+   */
+  onBusyChange?: (busy: boolean) => void;
+  /**
    * A refused Save whose re-read found the item archived (`refused-archived`): the page is already archived and read-only
    * (this form is gone), so the page shows the server's sentence under **Not saved** — unless its own Delete answered 204
    * after this Save was sent (`sentAsOf`, the stamp taken then; items-i4-ux.md M-4, T-17), or the page is live again: a
@@ -85,7 +91,7 @@ const NUMBER_LABELS: Record<(typeof QUANTITY_FIELDS)[number], { label: string; h
  * the region says *"{sku} was saved."* and focus goes to the `h1`; after a refusal to the banner heading; after `invalid`
  * (the server's, or the empty-number check) to the first field with an error, once that error is on screen.
  */
-export function ItemForm({ item, units, save, editCode, announce, fallbackFocusRef, onSaved, onSaveStarted, onRefusedArchived }: ItemFormProps) {
+export function ItemForm({ item, units, save, editCode, announce, fallbackFocusRef, onSaved, onSaveStarted, onBusyChange, onRefusedArchived }: ItemFormProps) {
   const [loadedKey, setLoadedKey] = useState(item);
   const [values, setValues] = useState<Values>(() => valuesOf(item));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<ItemField>>({});
@@ -209,6 +215,7 @@ export function ItemForm({ item, units, save, editCode, announce, fallbackFocusR
     }
     onSaveStarted?.();
     setBusy(true);
+    onBusyChange?.(true);
     let r: SaveItemResult;
     try {
       r = await save(changes);
@@ -216,6 +223,7 @@ export function ItemForm({ item, units, save, editCode, announce, fallbackFocusR
       r = { kind: 'unreachable' };
     }
     setBusy(false);
+    onBusyChange?.(false);
     settle(r, item.sku);
   };
 
