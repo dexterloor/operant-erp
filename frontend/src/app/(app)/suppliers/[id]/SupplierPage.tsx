@@ -34,9 +34,9 @@ export interface SupplierPageProps {
   canRestore: boolean;
   /**
    * The catalogue section (S-3), or null when the viewer does not hold ListSupplierProducts' codes: then it is absent and
-   * was not fetched (A-20). `canOpenItem` = GetItem's codes.
+   * was not fetched (A-20). `canOpenItem` = GetItem's codes; `canEdit` = UpdateSupplierProduct's (S-4).
    */
-  catalogue?: { initial: CatalogueLoad; canOpenItem: boolean } | null;
+  catalogue?: { initial: CatalogueLoad; canOpenItem: boolean; canEdit: boolean } | null;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -52,14 +52,40 @@ type Cause = 'unreachable' | 'server-error';
  * remount. A refused Save whose re-read finds the supplier archived (S5 on a stale page) turns the page archived and
  * shows the server's sentence under **Not saved**, its heading focused — unless a newer live reading was committed first
  * (FE-R7): the refusal is not kept. A failed re-read → the region error (focus on its heading), Retry re-reads; 403 →
- * ST-4b; 404 → ST-5. After a create (S-2) the page speaks *"{code} was created."* once, in its region. The catalogue section (S-3, read-only) follows the editor for a ListSupplierProducts holder, its archived-parent note following the supplier on screen. No History. After a save's or restore's message is on screen the router cache is
- * refreshed once.
+ * ST-4b; 404 → ST-5. After a create (S-2) the page speaks *"{code} was created."* once, in its region. The catalogue
+ * section (S-3; Edit from S-4) follows the editor for a ListSupplierProducts holder, its archived-parent note and its
+ * actions following the supplier on screen; an entry write refused because the supplier was archived meanwhile has the
+ * page re-read the supplier (`onParentStale`, final RED M-3). No History. After a save's or restore's message is on screen
+ * the router cache is refreshed once.
  */
 export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }: SupplierPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
-  const region = useLiveRegion();
+  // Final RED M-5 (the FE-R8 location half, `WarehousePage.tsx` precedent; s3-fer8-final-red.md F-3): from S-4 every write
+  // to this page's region goes through `announce`, which counts it and returns the count — the arrival message, the
+  // supplier's Save (and its press's clear), Restore supplier (and its press's clear), and the catalogue section (its Retry
+  // press's clear and count, Edit's press clear and saved sentence). A late correction (`replaceIfCurrent`) is written only
+  // while nothing has written the region since the write it corrects, by anyone. Decided by the count, never by the text:
+  // the same sentence can be written twice.
+  const regionWrites = useRef(0);
+  // fe-r8-location-red.md L-6: only the message and the raw writer are taken (no `region` object in scope), and the raw
+  // writer is used only inside `announce` below.
+  const { message: regionMessage, announce: writeRegion } = useLiveRegion();
+  const announce = useCallback(
+    (text: string) => {
+      regionWrites.current += 1;
+      writeRegion(text);
+      return regionWrites.current;
+    },
+    [writeRegion],
+  );
+  const replaceIfCurrent = useCallback(
+    (gen: number, text: string) => {
+      if (regionWrites.current === gen) announce(text);
+    },
+    [announce],
+  );
   const [supplier, setSupplier] = useCommittedState(initial);
   const [swap, setSwap] = useState<'forbidden' | 'not-found' | null>(null);
   const [rereadError, setRereadError] = useState<{ gen: number; cause: Cause } | null>(null);
@@ -70,7 +96,7 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
   const id = initial.id;
   // After a create (S-2; S-1 D-3): the create page left *"{code} was created."* for this address (A-19 item 7). Written to
   // this page's one region, like Save's and Restore's sentences: a later writer simply replaces it.
-  useArrivalMessage(`/suppliers/${id}`, region.announce);
+  useArrivalMessage(`/suppliers/${id}`, announce);
 
   // The stamp rule (items-i3-design.md Revision 1 — FINAL §0a, as on the item page, without its delete floor): every
   // commit is stamped with the moment its reading was requested. A page-owned re-read (Retry) takes its stamp when its
@@ -119,6 +145,20 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
     if (!committedArchived.current) return;
     setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message }));
   }, []);
+  // Final RED M-3: an entry write was refused because the supplier is archived (C1 on a stale page). The page re-reads
+  // the supplier under its own stamp (`closeDelete`'s re-read shape on the warehouse page), so the archived banner, the
+  // section's note and the loss of its actions follow from what is read, not from the refusal.
+  const onParentStale = useCallback(async () => {
+    const mine = ++stamps.current;
+    const d = startDeadline(ACTION_DEADLINES_MS.reread);
+    const r = await loadSupplier(readOf(caller), id, d.signal);
+    d.cancel();
+    if (committedAsOf.current > mine) return;
+    if (r.kind === 'ok') {
+      await commit(r.supplier, mine);
+      if (r.supplier.archived_at !== null) router.refresh();
+    } else failed(r.kind, mine);
+  }, [caller, id, commit, failed, router]);
   // A restore turns the page live: the stale Save's sentence no longer describes what is on screen.
   const onRestored = useCallback(() => {
     setStaleRefusal(null);
@@ -167,7 +207,7 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
         </h1>
       </header>
       {/* Mounted from first render, above every branch below, so it never arrives already speaking. */}
-      <LiveRegion message={region.message} visuallyHidden />
+      <LiveRegion message={regionMessage} visuallyHidden />
       {rereadError ? (
         <RegionError key={`reread-${rereadError.gen}`} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={SUPPLIER_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
@@ -192,13 +232,13 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
           restore={restore}
           restoreCode={gateCode('RestoreSupplier')}
           timeZone={timeZone}
-          announce={region.announce}
+          announce={announce}
           fallbackFocusRef={h1}
           onRestored={onRestored}
         />
       ) : null}
       {canEdit && !archived ? (
-        <SupplierForm supplier={supplier} save={save} editCode={gateCode('UpdateSupplier')} announce={region.announce} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={region.clear} onRefusedArchived={onRefusedArchived} />
+        <SupplierForm supplier={supplier} save={save} editCode={gateCode('UpdateSupplier')} announce={announce} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={() => announce('')} onRefusedArchived={onRefusedArchived} />
       ) : (
         <dl className={styles.fields}>
           <dt>{SUPPLIER_PAGE.code}</dt>
@@ -213,7 +253,18 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
           <dd>{SUPPLIER_PAGE.days(supplier.payment_terms_days)}</dd>
         </dl>
       )}
-      {catalogue ? <CatalogueSection supplierId={id} initial={catalogue.initial} supplierArchived={archived} canOpenItem={catalogue.canOpenItem} announce={region.announce} clearRegion={region.clear} /> : null}
+      {catalogue ? (
+        <CatalogueSection
+          supplierId={id}
+          initial={catalogue.initial}
+          supplierArchived={archived}
+          canOpenItem={catalogue.canOpenItem}
+          canEdit={catalogue.canEdit}
+          announce={announce}
+          replaceIfCurrent={replaceIfCurrent}
+          onParentStale={() => void onParentStale()}
+        />
+      ) : null}
     </section>
   );
 }

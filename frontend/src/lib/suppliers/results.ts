@@ -1,7 +1,7 @@
 // Typed results of the supplier page's injected actions (Revision 7 A-19 item 5, Revision 8 R8-2), on the shared kinds
 // in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { CreateSupplierInput, Supplier, UpdateSupplierInput } from '../api/suppliers';
+import type { CreateSupplierInput, Supplier, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '../api/suppliers';
 import type { FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -71,3 +71,37 @@ export type CreateSupplierResult =
   | ServerError;
 
 export type CreateSupplierAction = (values: CreateSupplierValues) => Promise<CreateSupplierResult>;
+
+/**
+ * Suppliers S-4 (suppliers-plan.md Revision 1 — FINAL §R1-4 S-4): a catalogue entry's editable fields, in the Edit
+ * dialog's screen order (the first field with a 422 sentence takes focus). Not the item and not its unit: neither is a
+ * member of the update input (a name the mirrored input lacks is a type error), so `changedFields` can never send them.
+ */
+export const ENTRY_FIELDS = ['supplier_sku', 'unit_cost', 'lead_time_days', 'minimum_order_quantity'] as const satisfies readonly (keyof UpdateSupplierProductInput & string)[];
+export type EntryField = (typeof ENTRY_FIELDS)[number];
+/**
+ * The body Edit's Save sends: the changed members only (never empty: Save is unavailable while nothing changed). The
+ * dialog gives Lead time as typed text; `entrySave` turns it into a JSON number through `wholeNumberOrText` (R9-2).
+ */
+export type EntryChange = Partial<Pick<UpdateSupplierProductInput, EntryField>>;
+
+/**
+ * `PATCH /suppliers/{id}/products/{productId}`. `saved` carries the 200 body (validated as an entry, its unit included).
+ * `invalid` is a 422 mapped onto the dialog. `refused` is a 409 shown as sent with Save kept (P1, or a refusal whose
+ * re-read found the supplier live). `refused-archived`: a 409 after which the re-read found the supplier archived (C1 on a
+ * stale page, final RED M-3): the dialog shows the server's sentence with Close only, and closing has the page re-read
+ * the supplier.
+ */
+export type SaveEntryResult =
+  | { kind: 'saved'; entry: SupplierProduct }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<EntryField>; formErrors: string[] }
+  | { kind: 'refused-archived'; message: string }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/** The Edit dialog's Save for one entry: only the changed fields are sent (the dialog builds them with `changedFields`). */
+export type SaveEntryAction = (entryId: string, changes: EntryChange) => Promise<SaveEntryResult>;

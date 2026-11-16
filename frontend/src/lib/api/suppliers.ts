@@ -2,7 +2,7 @@
 // `Supplier.UpdateSupplierInput.jsonMergePatch` in `contracts/openapi.json`). Checked both ways by C-1
 // (`test/contract/wireParity.test.ts`; names only). This file imports nothing (A-18). Wire field names stay snake_case,
 // as served. Suppliers S-1 mirrors the two the editor reads and sends; S-2 the create input; S-3 the catalogue's two read
-// shapes, `SupplierProduct` and `SupplierItemReference` (suppliers-plan.md §R1-3).
+// shapes, `SupplierProduct` and `SupplierItemReference`; S-4 the catalogue entry's update input (suppliers-plan.md §R1-3).
 
 /** `GetSupplier` / `ListSuppliers` item / `UpdateSupplier` and `RestoreSupplier`'s 200 body. */
 export interface Supplier {
@@ -51,7 +51,8 @@ export interface CreateSupplierInput {
 
 /**
  * `SupplierProduct`'s `inventory_item` (served `SupplierItemReference`, PC-15 display fields): the item's id, SKU and name.
- * No unit is carried on it: the unit is on the entry, served (BK-31) but not shown until S-4 (M-8 interim), so the catalogue shows the minimum order without one (QR-8 interim).
+ * No unit is carried on it: the unit is on the entry itself (`SupplierProduct.unit_of_measure_code`, BK-31), which the
+ * catalogue shows in its Unit column and the Edit dialog after Minimum order and Unit cost (from S-4).
  */
 export interface SupplierItemReference {
   id: string;
@@ -72,6 +73,27 @@ export interface SupplierProduct {
   currency_code: string;
   lead_time_days: number;
   minimum_order_quantity: string;
-  /** The unit `minimum_order_quantity` is in (BK-31, `0b9f574`; one of the served `UnitsOfMeasure` codes, never null). Mirrored only: no screen reads it before S-4/S-5. */
+  /**
+   * The item's unit, which `minimum_order_quantity` is in and `unit_cost` is the price of one of (BK-31, `0b9f574`; PO,
+   * `bk31-cost-basis-po.md`; one of the served `UnitsOfMeasure` codes, never null). From S-4 the catalogue's Unit column
+   * and the Edit dialog's suffixes read it from here, never from anywhere else. Never sent: no input carries it.
+   */
   unit_of_measure_code: string;
+}
+
+/**
+ * `UpdateSupplierProduct`'s merge-patch body (served `SupplierProduct.UpdateSupplierProductInput.jsonMergePatch`). Every
+ * member is optional; the Edit dialog sends only the changed ones and never `null`. The item and its unit are not members:
+ * an entry's item cannot change, and its unit is the item's. `unit_cost` and `minimum_order_quantity` are sent as typed
+ * (decimal strings, QR-1).
+ */
+export interface UpdateSupplierProductInput {
+  supplier_sku?: string;
+  unit_cost?: string;
+  /**
+   * A typed non-integer is sent as typed so the server's own sentence shows (suppliers-red M-1); the served schema says
+   * integer.
+   */
+  lead_time_days?: number | string;
+  minimum_order_quantity?: string;
 }

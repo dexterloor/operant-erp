@@ -5,8 +5,8 @@ import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { wholeNumberOrText } from '../forms/wholeNumberOrText';
-import { isSupplier, loadSupplier } from './load';
-import { CREATE_SUPPLIER_FIELDS, SUPPLIER_FIELDS, type CreateSupplierAction, type RestoreSupplierAction, type SaveSupplierAction, type SupplierChange } from './results';
+import { isSupplier, isSupplierProduct, loadSupplier } from './load';
+import { CREATE_SUPPLIER_FIELDS, ENTRY_FIELDS, SUPPLIER_FIELDS, type CreateSupplierAction, type EntryChange, type RestoreSupplierAction, type SaveEntryAction, type SaveSupplierAction, type SupplierChange } from './results';
 
 // The supplier page's Save and Restore, and the create page's Create (S-2, at the end), over the BFF (Revision 8 R8-2;
 // the lib/items/wired.ts shape). Neither Save nor Restore takes an
@@ -172,6 +172,51 @@ export function supplierCreate(caller: ApiCaller, newKey: () => string = () => c
         }
       }
       return isSupplier(r.body) ? { kind: 'created', supplier: r.body } : { kind: 'server-error' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Edit a catalogue entry over the BFF (suppliers-plan.md Revision 1 — FINAL §R1-4 S-4; the `supplierSave` shape for the
+// refusal, the `locationSave` shape for the rest). No Idempotency-Key: the update is a merge patch. The body is the changed
+// members only, copied by name from `ENTRY_FIELDS` (never a spread), so neither the item nor its unit can be sent; Lead time
+// becomes a JSON number through `wholeNumberOrText` only (R9-2); the cost and the minimum order go as typed strings (QR-1).
+// The 200 body must be a whole entry, its unit included (FINAL (e) item 2). No re-read of the catalogue here: the section
+// re-reads after the dialog closes. After a 409 (other than a 422) the SUPPLIER is re-read under the same deadline, and what
+// it shows decides, as for Save on the page (no refusal code is compared but P1): archived → `refused-archived` (C1 on a
+// stale page; the page re-reads the supplier itself when the dialog closes, so nothing is committed here); otherwise the
+// refusal as sent. P1 is never `refused-archived`: its sentence says "try again".
+export function entrySave(caller: ApiCaller, supplierId: string): SaveEntryAction {
+  return async (entryId, changes) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.entrySave);
+    try {
+      const body: EntryChange = {};
+      const copy = <K extends (typeof ENTRY_FIELDS)[number]>(k: K) => {
+        if (changes[k] !== undefined) body[k] = changes[k];
+      };
+      for (const f of ENTRY_FIELDS) copy(f);
+      if (typeof body.lead_time_days === 'string') body.lead_time_days = wholeNumberOrText(body.lead_time_days);
+      const r = await caller.call('UpdateSupplierProduct', { id: supplierId, productId: entryId }, body, { signal: deadline.signal });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, ENTRY_FIELDS) };
+            if (r.rule === PLATFORM_REFUSAL.contention) return r;
+            const again = await loadSupplier(readOf(caller), supplierId, deadline.signal);
+            return again.kind === 'ok' && again.supplier.archived_at !== null ? { kind: 'refused-archived', message: r.message } : r;
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isSupplierProduct(r.body) ? { kind: 'saved', entry: r.body } : { kind: 'server-error' };
     } finally {
       deadline.cancel();
     }

@@ -38,5 +38,6 @@
   "UpdateRole",
   "UpdateStorageLocation",
   "UpdateSupplier",
+  "UpdateSupplierProduct",
   "UpdateWarehouse"
 ]

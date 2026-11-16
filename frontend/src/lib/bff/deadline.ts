@@ -43,6 +43,11 @@ export const ACTION_DEADLINES_MS = {
   supplierRestore: 30_000,
   /** Create a supplier: the request alone (the page navigates to the new supplier, which reads it). */
   supplierCreate: 30_000,
+  /**
+   * Save a supplier catalogue entry: the request + the GetSupplier re-read after a refusal (to see whether the supplier
+   * was archived meanwhile). The section re-reads its catalogue after the dialog closes, under its own deadline.
+   */
+  entrySave: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

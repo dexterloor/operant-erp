@@ -10,14 +10,17 @@ import { loadCatalogue, type CatalogueLoad } from '@/lib/suppliers/load';
 import { held, json, problem, renderWired, stubFetch, textsOf, type Reply } from './harness';
 
 // Suppliers S-3 (suppliers-plan.md Revision 1 — FINAL §R1-4 S-3 tests 2–7, test 7 as replaced by suppliers-final-red.md
-// M-2; §R1-10; Revision 0 §2.3; suppliers-ux-copy.md Revision 1 — FINAL S-3 `CATALOGUE`, `archivedParent` as replaced by
-// final RED M-1): the catalogue section on the supplier page, read-only for everyone. A plain section (ARCH (a)), not the
-// paged list core: one table over the served entries in served order, money as the served value and the entry's code
-// (`renderMoney`, the m2 interim), the minimum order QR-2 trimmed with no unit (served (BK-31) but not shown until S-4 (M-8 interim)), the item linked only for
-// a GetItem holder, a partial notice when the read answers with a cursor (G-42), the S-3 archived-parent note following
-// the page's supplier (same mount), a 403 → `denied`, a failed read → the section's own region error and Retry. The count
-// is spoken only when the section's first SUCCESSFUL load happens in the browser — a Retry after a failed first load —
-// never on first paint and never on a re-read. Test 1 (absent and not fetched) is in `supplier-gate.test.ts`.
+// M-2; §R1-10; Revision 0 §2.3; suppliers-ux-copy.md Revision 1 — FINAL S-3 `CATALOGUE`), as changed by S-4
+// (bk31-placement-confirm.md Revision 1 — FINAL R1-C, FINAL (e) items 2–3; final RED M-1's S-4 `archivedParent`): the
+// catalogue section on the supplier page. A plain section (ARCH (a)), not the paged list core: one table over the served
+// entries in served order, money as the served value and the entry's code (`renderMoney`, the m2 interim), the minimum
+// order QR-2 trimmed with no suffix and the entry's own unit (`unit_of_measure_code`, BK-31) in the Unit column after it,
+// an Actions column only for a seat that may Edit, the item linked only for a GetItem holder, a partial notice when the
+// read answers with a cursor (G-42), the archived-parent note following the page's supplier (same mount), a 403 →
+// `denied`, a failed read → the section's own region error and Retry. The count is spoken only when the section's first
+// SUCCESSFUL load happens in the browser — a Retry after a failed first load — never on first paint and never on a
+// re-read. Test 1 (absent and not fetched) is in `supplier-gate.test.ts`; the Edit dialog (S-4) is in
+// `supplier-catalogue-edit.test.tsx`.
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -40,38 +43,47 @@ const entry = (id: string, sku: string, over: Partial<SupplierProduct> = {}): Su
   ...over,
 });
 const E1 = entry('e0000000-0000-4000-8000-000000000001', 'A-100', { unit_cost: '12.5000', currency_code: 'GBP', lead_time_days: 7, minimum_order_quantity: '2.500000' });
-const E2 = entry('e0000000-0000-4000-8000-000000000002', 'B-200', { unit_cost: '250.0000', currency_code: 'JPY', lead_time_days: 1, minimum_order_quantity: '1.000000' });
-const E3 = entry('e0000000-0000-4000-8000-000000000003', 'C-300', { unit_cost: '123456789012345.1234', currency_code: 'EUR', lead_time_days: 0, minimum_order_quantity: '10.000000' });
+const E2 = entry('e0000000-0000-4000-8000-000000000002', 'B-200', { unit_cost: '250.0000', currency_code: 'JPY', lead_time_days: 1, minimum_order_quantity: '1.000000', unit_of_measure_code: 'KG' });
+const E3 = entry('e0000000-0000-4000-8000-000000000003', 'C-300', { unit_cost: '123456789012345.1234', currency_code: 'EUR', lead_time_days: 0, minimum_order_quantity: '10.000000', unit_of_measure_code: 'BOX' });
 const ok = (entries: SupplierProduct[], nextCursor: string | null = null): CatalogueLoad => ({ kind: 'ok', entries, nextCursor });
 const answer = (entries: SupplierProduct[], next_cursor: string | null = null) => json(200, { items: entries, next_cursor, previous_cursor: null, tenant_has_rows: entries.length > 0 });
 
-const show = (initial: CatalogueLoad, { supplier = ACME, canOpenItem = true, canRestore = false } = {}) =>
-  renderWired(<SupplierPage initial={supplier} canEdit={false} canRestore={canRestore} catalogue={{ initial, canOpenItem }} />);
+const show = (initial: CatalogueLoad, { supplier = ACME, canOpenItem = true, canRestore = false, canEdit = false } = {}) =>
+  renderWired(<SupplierPage initial={supplier} canEdit={false} canRestore={canRestore} catalogue={{ initial, canOpenItem, canEdit }} />);
 const pageRegion = () => document.querySelector<HTMLElement>('section > [role="status"]')!;
 const section = () => screen.getByRole('region', { name: 'Catalogue' });
 const rows = () => within(section()).queryAllByRole('row').slice(1);
 const cells = (row: HTMLElement) => within(row).getAllByRole('cell').map((c) => c.textContent);
 
-const S3_ARCHIVED = "This supplier is archived. Its catalogue comes back unchanged when the supplier is restored.";
+const S3_ARCHIVED = 'This supplier is archived. Its catalogue comes back unchanged when the supplier is restored.';
 const S4_ARCHIVED = "This catalogue can't be changed while the supplier is archived. It comes back unchanged when the supplier is restored.";
 const DENIED = "You don't have access to this supplier's catalogue.";
 const LOAD_FAILED = "The catalogue couldn't be loaded.";
 
-describe('/suppliers/[id] — the catalogue section (S-3, read-only)', () => {
-  it('heading "Catalogue" (h2); columns Supplier SKU · Item · Unit cost · Lead time · Minimum order (item\'s unit); no Actions column, no buttons', () => {
+describe('/suppliers/[id] — the catalogue section (S-3 read, S-4 columns)', () => {
+  // S-4 (bk31-placement-confirm.md Revision 1 — FINAL R1-C, FINAL (e) item 3): the column pin moved deliberately, for a
+  // view-only seat and for a seat that may Edit. Actions only when the viewer may Edit (or, from S-6, Remove).
+  it('heading "Catalogue" (h2); a view-only seat: columns Supplier SKU · Item · Unit cost · Lead time · Minimum order · Unit; no Actions column, no buttons', () => {
     show(ok([E1]));
     expect(within(section()).getByRole('heading', { level: 2, name: 'Catalogue' })).toBeInTheDocument();
-    expect(within(section()).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Supplier SKU', 'Item', 'Unit cost', 'Lead time', "Minimum order (item's unit)"]);
+    expect(within(section()).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Supplier SKU', 'Item', 'Unit cost', 'Lead time', 'Minimum order', 'Unit']);
     expect(within(section()).queryAllByRole('button')).toEqual([]);
   });
 
-  // Test 3.
-  it('test 3 — served order; 12.5000 GBP, 250.0000 JPY, 123456789012345.1234 EUR digit for digit; MOQ "2.500000" → 2.5, no unit; lead time in days', () => {
+  it('a seat that may Edit: columns Supplier SKU · Item · Unit cost · Lead time · Minimum order · Unit · Actions; one Edit per row', () => {
+    show(ok([E1, E2]), { canEdit: true });
+    expect(within(section()).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Supplier SKU', 'Item', 'Unit cost', 'Lead time', 'Minimum order', 'Unit', 'Actions']);
+    expect(within(section()).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Edit SKU-A-100', 'Edit SKU-B-200']);
+    expect(within(section()).getAllByRole('button').map((b) => b.textContent)).toEqual(['Edit', 'Edit']);
+  });
+
+  // Test 3 (S-4, FINAL (e) item 3: Minimum order '2.5', Unit 'EA'; the unit is the entry's own code, never a constant).
+  it('test 3 — served order; 12.5000 GBP, 250.0000 JPY, 123456789012345.1234 EUR digit for digit; MOQ "2.500000" → 2.5 with no suffix; the entry\'s own unit after it; lead time in days', () => {
     show(ok([E1, E2, E3]));
     expect(rows().map(cells)).toEqual([
-      ['A-100', 'SKU-A-100 — Item A-100', '12.5000 GBP', '7 days', '2.5'],
-      ['B-200', 'SKU-B-200 — Item B-200', '250.0000 JPY', '1 day', '1'],
-      ['C-300', 'SKU-C-300 — Item C-300', '123456789012345.1234 EUR', '0 days', '10'],
+      ['A-100', 'SKU-A-100 — Item A-100', '12.5000 GBP', '7 days', '2.5', 'EA'],
+      ['B-200', 'SKU-B-200 — Item B-200', '250.0000 JPY', '1 day', '1', 'KG'],
+      ['C-300', 'SKU-C-300 — Item C-300', '123456789012345.1234 EUR', '0 days', '10', 'BOX'],
     ]);
   });
 
@@ -112,16 +124,17 @@ describe('/suppliers/[id] — the catalogue section (S-3, read-only)', () => {
     expect(section().textContent).not.toContain(LOAD_FAILED);
   });
 
-  // Test 6 (final RED M-1: the S-3 text, never the S-4 one).
-  it('test 6 — archived supplier → the S-3 archived-parent note; Restore supplier → note gone, same mount, rows kept', async () => {
+  // Test 6 (final RED M-1: from S-4 the S-4 text replaces the S-3 one — the catalogue can be changed in the app once the
+  // supplier is restored).
+  it('test 6 — archived supplier → the S-4 archived-parent note; Restore supplier → note gone, same mount, rows kept', async () => {
     stubFetch([json(200, ACME), json(200, ACME)]);
     const u = userEvent.setup();
     show(ok([E1]), { supplier: ARCHIVED, canRestore: true });
-    expect(within(section()).getByText(S3_ARCHIVED)).toBeInTheDocument();
-    expect(document.body.textContent).not.toContain(S4_ARCHIVED);
+    expect(within(section()).getByText(S4_ARCHIVED)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(S3_ARCHIVED);
     const before = section();
     await u.click(screen.getByRole('button', { name: 'Restore supplier' }));
-    await waitFor(() => expect(within(section()).queryByText(S3_ARCHIVED)).toBeNull());
+    await waitFor(() => expect(within(section()).queryByText(S4_ARCHIVED)).toBeNull());
     expect(section()).toBe(before);
     expect(rows()).toHaveLength(1);
   });
@@ -303,6 +316,9 @@ describe('loadCatalogue (ListSupplierProducts)', () => {
     ['a row without currency_code', { ...E1, currency_code: undefined }],
     ['a minimum order served as a number', { ...E1, minimum_order_quantity: 2.5 }],
     ['an item reference without its name', { ...E1, inventory_item: { id: E1.inventory_item.id, sku: 'x' } }],
+    // S-4 (FINAL (e) item 2): the unit is read from the entry, so an entry without it is malformed.
+    ['a row without unit_of_measure_code', { ...E1, unit_of_measure_code: undefined }],
+    ['a unit served as a number', { ...E1, unit_of_measure_code: 1 }],
   ])('%s → server-error, never a row', async (_name, row) => {
     expect((await run([json(200, { items: [row], next_cursor: null, previous_cursor: null, tenant_has_rows: true })])).result).toEqual({ kind: 'server-error' });
   });

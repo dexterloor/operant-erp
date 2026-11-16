@@ -2,8 +2,9 @@
 // corrected by `suppliers-final-red.md`), falling back to Revision 0 Part B where Revision 1 is silent; each entry names
 // its row. Server refusals are never stored here: they render as sent (Part A, S1…S16). Each sentence holds for the web
 // app in the commit that renders it (`STATES.md:161`): S-1 has the list, the Archived view, the supplier page (edit) and
-// Restore supplier; S-2 adds the create page (UX S-2). No catalogue (S-3), no Delete supplier (S-7) — so no sentence here
-// names one (suppliers-final-red.md L-1: the create page's Currency hint carries no catalogue sentence until S-3).
+// Restore supplier; S-2 adds the create page (UX S-2); S-3 the catalogue section (read-only); S-4 Edit on a catalogue
+// entry (UX S-4, as overridden by bk31-placement-confirm.md Revision 1 — FINAL). No Add (S-5), no Remove (S-6), no Delete
+// supplier (S-7) — so no sentence here names one.
 
 /** `{n} days` / `1 day` / `0 days` (UX S-1 "payment terms cell" and "read-only terms"). */
 const days = (n: number) => (n === 1 ? '1 day' : `${n} days`);
@@ -148,19 +149,27 @@ export const NEW_SUPPLIER = {
 } as const;
 
 /**
- * UX S-3 `CATALOGUE` (suppliers-ux-copy.md Revision 1 — FINAL S-3 over Revision 0 B-7; suppliers-final-red.md M-1, M-2):
- * the catalogue section on the supplier page, read-only for everyone at S-3 (no Actions column, no Add, no `emptyNote`
- * until the commits that ship them).
+ * UX S-3 `CATALOGUE` (suppliers-ux-copy.md Revision 1 — FINAL S-3 over Revision 0 B-7; suppliers-final-red.md M-1, M-2),
+ * with S-4's columns (bk31-placement-confirm.md Revision 1 — FINAL R1-C) and row action (UX S-4 `CATALOGUE.edit`,
+ * `.actions`): the catalogue section on the supplier page. No Add and no `emptyNote` until S-5, no Remove until S-6.
  */
 export const CATALOGUE = {
   /** `heading` (h2). On the supplier's own page "Catalogue" needs no owner. */
   heading: 'Catalogue',
-  /** Columns, in order (M-8 interim: the minimum order is shown bare, so its header names the unit it is in). */
+  /**
+   * Columns, in order (R1-C): Supplier SKU · Item · Unit cost · Lead time · Minimum order · Unit · Actions (Actions only
+   * when the viewer may Edit or Remove). The minimum order is shown bare; the Unit cell after it is the entry's own served
+   * code (`EA`), so the header is back to *Minimum order* (final RED P-2).
+   */
   supplierSku: 'Supplier SKU',
   item: 'Item',
   unitCost: 'Unit cost',
   leadTime: 'Lead time',
-  minimumOrder: "Minimum order (item's unit)",
+  minimumOrder: 'Minimum order',
+  unit: 'Unit',
+  /** `actions` (column header; a header is never empty, `LOCATIONS_SECTION.actions` shape) · `edit` (row action). */
+  actions: 'Actions',
+  edit: 'Edit',
   /** Item cell: `{sku} — {name}` (the link text when the viewer may open the item). */
   itemCell: (sku: string, name: string) => `${sku} — ${name}`,
   /** Lead time cell: `{n} days` · `1 day` · `0 days`. */
@@ -176,9 +185,48 @@ export const CATALOGUE = {
   loadFailed: "The catalogue couldn't be loaded.",
   denied: "You don't have access to this supplier's catalogue.",
   /**
-   * `archivedParent` AT S-3 (suppliers-final-red.md M-1): the catalogue is read-only for everyone here, so the sentence
-   * must not imply that restoring makes it changeable. S-4 replaces it with "This catalogue can't be changed while the
-   * supplier is archived. It comes back unchanged when the supplier is restored."
+   * `archivedParent` FROM S-4 (suppliers-final-red.md M-1, REPLACES the S-3 text): Edit ships here, so restoring the
+   * supplier does make its catalogue changeable in the app.
    */
-  archivedParent: 'This supplier is archived. Its catalogue comes back unchanged when the supplier is restored.',
+  archivedParent: "This catalogue can't be changed while the supplier is archived. It comes back unchanged when the supplier is restored.",
+} as const;
+
+/**
+ * UX S-4 `EDIT_CATALOGUE_ITEM` (suppliers-ux-copy.md Revision 1 — FINAL S-4 over Revision 0 B-8, as overridden by
+ * bk31-placement-confirm.md Revision 1 — FINAL: R1-B `minimumOrderHint`, the ruled per-unit `unitCostHint` (judge ruling 1
+ * as applied, C-1), the Unit cost `per {code}` suffix (R1-D, per-unit branch)): the row's Edit dialog. Heading on a
+ * refusal: `NOT_SAVED`. `{sku}` in every sentence is the ITEM's SKU (the person's own code), never the supplier SKU.
+ */
+export const EDIT_CATALOGUE_ITEM = {
+  /** `title(sku, name)`. */
+  title: (sku: string, name: string) => `Edit ${sku} — ${name} in this catalogue`,
+  /** The item line, shown as text (the item cannot change on an entry); no `itemNote` until S-6. */
+  itemLine: (sku: string, name: string) => `Item: ${sku} — ${name}`,
+  supplierSku: 'Supplier SKU',
+  supplierSkuHint: 'The code this supplier uses for the item. If it has none, use your own SKU.',
+  /** `unitCost(currency)`: the entry's own currency. */
+  unitCost: (currency: string) => `Unit cost (${currency})`,
+  /** The Unit cost field's shown suffix (R1-D): `per {code}`, the row's served unit code. */
+  perUnit: (code: string) => `per ${code}`,
+  /** `unitCostHint`, ruled (cost basis = one of the item's units; judge ruling 1, applied per C-1). */
+  unitCostHint: "What this supplier charges for one of the item's units. Use a point for decimals and no commas, for example 12.50.",
+  leadTime: 'Lead time (days)',
+  leadTimeHint: 'How many days the goods usually take to arrive after you order. New purchase order lines take it from here; lines already on an order keep theirs.',
+  minimumOrder: 'Minimum order quantity',
+  /** `minimumOrderHint` = R1-B (final RED P-5's last sentence). */
+  minimumOrderHint: "The smallest amount this supplier accepts in one order, in the item's unit. If this is the item's preferred supplier, reorder suggestions never suggest less than this. Purchase orders don't check it. Enter 1 if there's no minimum.",
+  /** Client sentences for an emptied field on Save; no request is sent. */
+  costRequired: 'Enter the unit cost, or 0.',
+  leadTimeRequired: 'Enter a number of days, or 0.',
+  minimumRequired: "Enter the minimum order, or 1 if there's none.",
+  save: 'Save',
+  cancel: 'Cancel',
+  /** After a refusal that leaves nothing to press (C1, a 404): the dialog's one button (UX S-4 "Close only"). */
+  close: 'Close',
+  saveNothing: 'Nothing to save.',
+  /** `saved(sku)`: the dialog closes, focus back on the row's Edit. */
+  saved: (sku: string) => `${sku} was saved.`,
+  /** `savedListStale(sku)`: replaces `saved` only when the section's re-read failed and nothing else wrote the region since. */
+  savedListStale: (sku: string) => `${sku} was saved. We couldn't load the list again, so it may be out of date.`,
+  interrupted: (sku: string) => `We can't tell whether your changes to ${sku} were saved. Close this and check the catalogue before you try again.`,
 } as const;

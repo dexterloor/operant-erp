@@ -65,7 +65,10 @@ export const isSupplierProduct = (x: unknown): x is SupplierProduct =>
   typeof x.unit_cost === 'string' &&
   typeof x.currency_code === 'string' &&
   isWholeNumber(x.lead_time_days) &&
-  typeof x.minimum_order_quantity === 'string';
+  typeof x.minimum_order_quantity === 'string' &&
+  // S-4 (bk31-placement-confirm.md Revision 1 — FINAL (e) item 2): the Unit column and the Edit dialog's suffixes read
+  // the unit from the entry, so an entry without it is malformed, on the list and on the update's 200 alike.
+  typeof x.unit_of_measure_code === 'string';
 
 /**
  * `ListSupplierProducts` (suppliers-plan.md Revision 1 — FINAL §R1-4 S-3; G-42): the whole catalogue in one answer, in
