@@ -14,7 +14,8 @@ import { CREATE_ITEM_FIELDS, ITEM_FIELDS, type CreateItemAction, type DeleteItem
 // Save; live after a refused Restore). The ONE rule compared here is P1 (`PLATFORM_REFUSAL.contention`, R8-4: this file
 // is the items family's one `lib/api/problems` importer): a contention refusal is always returned as `refused`, never
 // `refused-archived`, because its sentence says "try again" (items-i1-red.md L-3, second option). A re-read that fails
-// after a refusal is told to the page (`onRereadFailed`), so a stale page is never left silent (M-1).
+// after a refusal is told to the page (`onRereadFailed`), so a stale page is never left silent (M-1) (except a Save sent
+// before the person's own 204: the page drops its region error, never the swap; po-6-red.md, the :384 residual).
 //
 // Blind spot, stated (the warehouses X-2 precedent): C-2's body-key check reads object-literal bodies only; the Save body
 // is built by `changedFields` over `ITEM_FIELDS` and copied by name below, which is what keeps `supplier_id` out of it

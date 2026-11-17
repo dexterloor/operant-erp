@@ -57,6 +57,8 @@ const AFTER = "A-1 was deleted. It's now in the archived items.";
 const AFTER_RESTORED = 'A-1 was deleted, and has since been restored.';
 const INTERRUPTED = "We can't tell whether A-1 was deleted. Press Delete item to try again.";
 const I3 = "This item is already archived. It's in the archived items.";
+/** UpdateItem's sentence for the same rule (`item-page.test.tsx` I2; item-save-after-delete RED L-2). */
+const I2 = "This item is archived, so it can't be changed until it's restored.";
 /** `TransactionContention::MESSAGE` (backend/src/Platform/Http/Problem/TransactionContention.php), 4.6 L-4. */
 const CONTENTION = 'Some of the same records were being changed at the same moment. Nothing was saved; try again.';
 const REREAD_FAILED = "We couldn't load this item again, so what's shown may be out of date.";
@@ -563,14 +565,15 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     await u.click(screen.getByRole('button', { name: 'Save' }));
     await openAndConfirm(u);
     await waitFor(() => expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument());
-    patch.release(refused('inventory_item.is_archived', I3));
+    patch.release(refused('inventory_item.is_archived', I2));
     await tick();
     await tick();
     spoken.stop();
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
     expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    // Belt and braces: with the re-read failing, no refusal can reach the page (the refusal half is T-17a/b/c).
     expect(screen.queryByText('Not saved')).toBeNull();
-    expect(screen.queryByText(I3)).toBeNull();
+    expect(screen.queryByText(I2)).toBeNull();
     expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
     expect(region().textContent).toBe(AFTER);
     expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER]);
@@ -643,6 +646,8 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     await waitFor(() => expect(calls).toHaveLength(3));
     patch.release(json(200, { ...BOLT, name: 'Boltx' }));
     await tick();
+    // L-3: the Save's failed re-read never flashes the region error while the delete's re-read is still in flight.
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
     reread.release(json(200, ARCHIVED));
     await tick();
     spoken.stop();
