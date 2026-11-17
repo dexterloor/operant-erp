@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\HttpOperation;
 use ApiPlatform\Metadata\Resource\Factory\ResourceMetadataCollectionFactoryInterface;
 use ApiPlatform\Validator\Exception\ValidationException;
 use App\Platform\Domain\IllegalTransition;
+use App\Platform\Http\NonObjectBodyRefusal;
 use Doctrine\DBAL\Exception\DriverException;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
@@ -23,6 +24,8 @@ use Symfony\Component\Serializer\Exception\MissingConstructorArgumentsException;
 use Symfony\Component\Serializer\Exception\NotEncodableValueException;
 use Symfony\Component\Serializer\Exception\NotNormalizableValueException;
 use Symfony\Component\Serializer\Exception\PartialDenormalizationException;
+use Symfony\Component\Serializer\Exception\UnexpectedValueException;
+use Symfony\Component\Serializer\NameConverter\NameConverterInterface;
 use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
 use Symfony\Component\Serializer\Normalizer\NormalizerInterface;
 
@@ -57,6 +60,19 @@ use Symfony\Component\Serializer\Normalizer\NormalizerInterface;
  *
  * `RoleGrantProposal`'s handlers rewrite this sentence for vocabulary only (UX F-1); the house choice of table + status
  * in `detail` stands (`RoleGrantProposalStatusRefusal`, roles slice 3 C2).
+ *
+ * ---------------------------------------------------------------------------
+ * A value of the wrong JSON type (`RESIDUAL_GAPS.md` G-101, closed here)
+ * ---------------------------------------------------------------------------
+ * For an operation with an `input:` class, API Platform's `AbstractItemNormalizer::denormalize` catches the serializer's
+ * field exception and rethrows it as `UnexpectedValueException('The input data is misformatted.')`, with the field
+ * exception as `previous`. Left alone that was a bare 400 with no `errors[]`. `translate()` unwraps exactly ONE level --
+ * never to the innermost exception: a property field's chain is two field exceptions deep, and the inner one expects only
+ * `null` -- and {@see self::fieldTypeRefusal()} answers it at the field's WIRE pointer with a house code: `not_a_string`,
+ * `not_a_list` for `lines`, `required` (a `null` on a `POST`) or `not_nullable` (on a `PATCH`), and `wrong_type` only for a
+ * type no input declares. The body names no PHP class, no PHP type and no submitted value: the vendor message carries
+ * all three, so it is never used. A constructor parameter left out (`MissingConstructorArgumentsException`) is one
+ * `required` entry per missing field, at its wire pointer, like every other required field.
  */
 #[AsEventListener(event: ExceptionEvent::class, priority: 0)]
 final readonly class FrameworkProblemTranslator
@@ -71,6 +87,22 @@ final readonly class FrameworkProblemTranslator
     public const MALFORMED_BODY_MESSAGE = 'The request body could not be read as the declared JSON shape.';
 
     /**
+     * The refusal of `lines` that is not a list. Public and single-sourced (G-101): the six line writers answer
+     * `lines: {"a":1}` with it, and this translator answers a `lines` of another JSON type with it, so one field gets one
+     * sentence whichever layer refuses it.
+     */
+    public const NOT_A_LIST_OF_LINES = 'This field must be a list of lines.';
+
+    /** G-101's fallback, for a JSON type no input member declares. */
+    public const WRONG_TYPE_MESSAGE = 'This field has a value of the wrong type.';
+
+    private const REQUIRED_MESSAGE = 'This field is required.';
+
+    private const NOT_NULLABLE_MESSAGE = 'This field may not be cleared.';
+
+    private const NOT_A_STRING_MESSAGE = 'This field must be a string.';
+
+    /**
      * The refusal of a body that is not a JSON object. Public and single-sourced (G-102): `NonObjectBodyRefusal` refuses
      * one on every operation that reads a body, and `PermissionRequirements` on the derived operations, before the
      * deserializer runs, with exactly this sentence.
@@ -82,6 +114,8 @@ final readonly class FrameworkProblemTranslator
         private string $basePath,
         private NormalizerInterface $normalizer,
         private ResourceMetadataCollectionFactoryInterface $operations,
+        #[Autowire(service: 'api_platform.name_converter')]
+        private NameConverterInterface $nameConverter,
     ) {
     }
 
@@ -132,6 +166,14 @@ final readonly class FrameworkProblemTranslator
 
     private function translate(\Throwable $e, Request $request): ?ApiProblem
     {
+        // G-101: API Platform's input wrapper, unwrapped exactly one level (never to the innermost field exception).
+        if ($e instanceof UnexpectedValueException
+            && !$e instanceof NotNormalizableValueException
+            && $e->getPrevious() instanceof NotNormalizableValueException
+        ) {
+            $e = $e->getPrevious();
+        }
+
         return match (true) {
             $e instanceof ApiProblem => null,
 
@@ -167,7 +209,16 @@ final readonly class FrameworkProblemTranslator
                     array_values($e->getExtraAttributes()),
                 ),
             ),
-            $e instanceof MissingConstructorArgumentsException,
+            $e instanceof MissingConstructorArgumentsException => ApiProblem::validationFailed(
+                array_map(
+                    fn (string $name): array => [
+                        'pointer' => '/'.$this->wireName($name, $e->getClass()),
+                        'code' => 'required',
+                        'message' => self::REQUIRED_MESSAGE,
+                    ],
+                    array_values($e->getMissingConstructorArguments()),
+                ),
+            ),
             $e instanceof NotEncodableValueException => ApiProblem::validationFailed([[
                 'pointer' => '',
                 'code' => 'malformed_body',
@@ -190,18 +241,10 @@ final readonly class FrameworkProblemTranslator
                 'code' => 'undeclared_field',
                 'message' => 'The field "id" is not accepted by this operation. Row identifiers are generated by the server.',
             ]]),
-            $e instanceof NotNormalizableValueException => ApiProblem::validationFailed([[
-                'pointer' => '/'.($e->getPath() ?? ''),
-                'code' => 'wrong_type',
-                'message' => \sprintf('Expected %s.', implode(' or ', $e->getExpectedTypes() ?? ['a value this operation accepts'])),
-            ]]),
+            $e instanceof NotNormalizableValueException => ApiProblem::validationFailed([$this->fieldTypeRefusal($e, $request)]),
             $e instanceof PartialDenormalizationException => ApiProblem::validationFailed(
                 array_map(
-                    static fn (NotNormalizableValueException $v): array => [
-                        'pointer' => '/'.($v->getPath() ?? ''),
-                        'code' => 'wrong_type',
-                        'message' => \sprintf('Expected %s.', implode(' or ', $v->getExpectedTypes() ?? ['a different type'])),
-                    ],
+                    fn (NotNormalizableValueException $v): array => $this->fieldTypeRefusal($v, $request),
                     $e->getErrors(),
                 ),
             ),
@@ -226,6 +269,87 @@ final readonly class FrameworkProblemTranslator
 
             default => null,
         };
+    }
+
+    /**
+     * G-101: one `errors[]` entry for a field exception, at the field's wire pointer, in house vocabulary. Messages never
+     * come from the exception (it names the PHP class, the PHP types and, on some branches, the submitted value).
+     *
+     * @return array{pointer: string, code: string, message: string}
+     */
+    private function fieldTypeRefusal(NotNormalizableValueException $e, Request $request): array
+    {
+        $path = $e->getPath();
+
+        // The whole body was the problem. Unreachable over HTTP since G-102 (a non-object body is refused before the
+        // deserializer runs); kept as a backstop.
+        if (null === $path || '' === $path) {
+            return 'array' !== $e->getCurrentType()
+                ? ['pointer' => '', 'code' => NonObjectBodyRefusal::CODE, 'message' => self::NOT_AN_OBJECT_MESSAGE]
+                : ['pointer' => '', 'code' => 'malformed_body', 'message' => self::MALFORMED_BODY_MESSAGE];
+        }
+
+        $class = $this->inputClassOf($request);
+        if (null === $class) {
+            return ['pointer' => '', 'code' => 'wrong_type', 'message' => self::WRONG_TYPE_MESSAGE];
+        }
+
+        $pointer = $this->wirePointer($path, $class);
+
+        if ('null' === $e->getCurrentType()) {
+            return 'POST' === $request->getMethod()
+                ? ['pointer' => $pointer, 'code' => 'required', 'message' => self::REQUIRED_MESSAGE]
+                : ['pointer' => $pointer, 'code' => 'not_nullable', 'message' => self::NOT_NULLABLE_MESSAGE];
+        }
+
+        $expected = array_values(array_diff($e->getExpectedTypes() ?? [], ['null']));
+
+        return match ($expected) {
+            ['string'] => ['pointer' => $pointer, 'code' => 'not_a_string', 'message' => self::NOT_A_STRING_MESSAGE],
+            ['array'] => ['pointer' => $pointer, 'code' => 'not_a_list', 'message' => self::NOT_A_LIST_OF_LINES],
+            default => ['pointer' => $pointer, 'code' => 'wrong_type', 'message' => self::WRONG_TYPE_MESSAGE],
+        };
+    }
+
+    /**
+     * The serializer's path (`reorderPoint`, `lines[0].quantity`) as a JSON pointer in wire names (`/reorder_point`,
+     * `/lines/0/quantity`): the first segment through the name converter, `[n]` as `/n`, later segments as they are.
+     */
+    private function wirePointer(string $path, string $class): string
+    {
+        $segments = explode('.', str_replace('[', '.[', $path));
+        $pointer = '';
+        foreach ($segments as $index => $segment) {
+            if (1 === preg_match('/^\[(\d+)\]\z/', $segment, $match)) {
+                $pointer .= '/'.$match[1];
+            } elseif ('' !== $segment) {
+                $pointer .= '/'.(0 === $index ? $this->wireName($segment, $class) : $segment);
+            }
+        }
+
+        return $pointer;
+    }
+
+    private function wireName(string $phpName, string $class): string
+    {
+        return $this->nameConverter->normalize($phpName, $class);
+    }
+
+    /** The class the operation deserializes into: its `input:` class, else its resource class; null outside an operation. */
+    private function inputClassOf(Request $request): ?string
+    {
+        $resourceClass = $request->attributes->get('_api_resource_class');
+        $operationName = $request->attributes->get('_api_operation_name');
+
+        if (!\is_string($resourceClass) || !\is_string($operationName)) {
+            return null;
+        }
+
+        $operation = $this->operations->create($resourceClass)->getOperation($operationName);
+        $input = $operation->getInput();
+        $class = \is_array($input) ? ($input['class'] ?? null) : null;
+
+        return \is_string($class) ? $class : ($operation->getClass() ?? $resourceClass);
     }
 
     /**

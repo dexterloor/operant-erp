@@ -29,8 +29,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *
  * The properties are promoted and non-nullable, exactly as `IssueTokenInput`'s
  * are: a missing field is a `MissingConstructorArgumentsException`, which
- * `FrameworkProblemTranslator` already renders as `validation-failed` with a
- * pointer, so "required" needs no second expression.
+ * `FrameworkProblemTranslator` renders as `validation-failed` with one `required`
+ * entry at the field's wire pointer (G-101; before it, `malformed_body` at `""`),
+ * so "required" needs no second expression.
  */
 final class ChangePasswordInput
 {

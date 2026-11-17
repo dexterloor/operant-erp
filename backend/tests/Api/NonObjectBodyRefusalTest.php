@@ -281,6 +281,14 @@ final class NonObjectBodyRefusalTest extends PurchaseOrderTestCase
         $this->sendRawBody('POST', '/items', '"x"', [IdempotencyKeyGuard::HEADER => 'order-no-type'], contentType: null);
         self::assertSame(415, $this->httpStatus(), $this->responseContent());
 
+        // Zero bytes: the deserializer's answer, unchanged (G-102 C1-deviations RED L-3).
+        $this->sendRawBody('POST', '/items', '', [IdempotencyKeyGuard::HEADER => 'order-zero-bytes']);
+        self::assertSame(422, $this->httpStatus(), $this->responseContent());
+        self::assertSame([['pointer' => '', 'code' => 'malformed_body', 'message' => FrameworkProblemTranslator::MALFORMED_BODY_MESSAGE]], $this->json()['errors'] ?? null);
+        $this->sendRawBody('PATCH', '/items/'.$own, '');
+        self::assertSame(422, $this->httpStatus(), $this->responseContent());
+        self::assertSame([['pointer' => '', 'code' => 'malformed_body', 'message' => FrameworkProblemTranslator::MALFORMED_BODY_MESSAGE]], $this->json()['errors'] ?? null);
+
         // Malformed JSON: the deserializer's malformed_body, as before.
         $this->sendRawBody('POST', '/items', '{', [IdempotencyKeyGuard::HEADER => 'order-malformed']);
         self::assertSame(422, $this->httpStatus(), $this->responseContent());
@@ -335,8 +343,10 @@ final class NonObjectBodyRefusalTest extends PurchaseOrderTestCase
 
     /**
      * T1-5. The other route into the same lookup is a body `id` key: `ItemNormalizer::updateObjectToPopulate` resolves it as
-     * a link whenever the operation allows update. No write may: every `PUT`/`PATCH` declares `api_allow_update => false`
-     * (a `POST` defaults to it).
+     * a link whenever the operation allows update. No body-reading write may. API Platform's default is to allow it on
+     * `PUT`/`PATCH` and not on `POST` (`SerializerContextBuilder`), and an operation's own `denormalizationContext`
+     * overrides the default either way, so the value is read as the serializer will resolve it, on every body-reading
+     * write (G-102 C1-deviations RED M-1: the domain was `PUT`/`PATCH` only, so a `POST` declaring `true` went unseen).
      */
     #[Test]
     public function noWriteAllowsABodyIdToBeLookedUp(): void
@@ -344,16 +354,19 @@ final class NonObjectBodyRefusalTest extends PurchaseOrderTestCase
         $domain = [];
         $offenders = [];
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
-            if (!\in_array(strtoupper((string) $operation->getMethod()), ['PUT', 'PATCH'], true)) {
+            $method = strtoupper((string) $operation->getMethod());
+            if (!\in_array($method, ['POST', 'PUT', 'PATCH'], true) || false === ($operation->canDeserialize() ?? true)) {
                 continue;
             }
             $domain[] = $name;
-            if (false !== (($operation->getDenormalizationContext() ?? [])['api_allow_update'] ?? null)) {
+            $allowsUpdate = ($operation->getDenormalizationContext() ?? [])['api_allow_update'] ?? \in_array($method, ['PUT', 'PATCH'], true);
+            if (false !== $allowsUpdate) {
                 $offenders[] = \sprintf('%s lets a body `id` be looked up as a link to another record without that record\'s permission check (G-102, the `id` door): set `api_allow_update => false`.', $name);
             }
         }
-        self::assertNotSame([], $domain, 'Anti-vacuity: no PUT or PATCH operation was found.');
+        self::assertNotSame([], $domain, 'Anti-vacuity: no body-reading write was found.');
         self::assertContains('UpdateItem', $domain, 'Anti-vacuity: UpdateItem is not in the domain.');
+        self::assertContains('CreateItem', $domain, 'Anti-vacuity: CreateItem is not in the domain.');
         self::assertSame([], $offenders, implode("\n", $offenders));
 
         // HTTP control on UpdateItem.

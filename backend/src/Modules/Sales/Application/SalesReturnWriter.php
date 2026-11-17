@@ -14,6 +14,7 @@ use App\Modules\UserManagement\Application\Contract\OwnerPredicate;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Http\Problem\FrameworkProblemTranslator;
 use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Security\Identity;
 use App\Platform\Security\RequestIdentity;
@@ -492,7 +493,7 @@ final readonly class SalesReturnWriter
         }
 
         if (!array_is_list($raw)) {
-            throw ApiProblem::validationFailed([['pointer' => '/lines', 'code' => 'not_a_list', 'message' => 'This field must be a list of lines.']]);
+            throw ApiProblem::validationFailed([['pointer' => '/lines', 'code' => 'not_a_list', 'message' => FrameworkProblemTranslator::NOT_A_LIST_OF_LINES]]);
         }
 
         if (\count($raw) > self::MAXIMUM_LINES) {

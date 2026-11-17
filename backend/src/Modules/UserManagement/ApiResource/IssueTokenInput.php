@@ -20,8 +20,8 @@ use ApiPlatform\Metadata\ApiProperty;
  *
  * The fields are `public` and untyped-nullable-free on purpose: a missing field
  * is a `MissingConstructorArgumentsException`, which
- * `FrameworkProblemTranslator` already renders as `validation-failed` with a
- * pointer.
+ * `FrameworkProblemTranslator` renders as `validation-failed` with one `required`
+ * entry at the field's wire pointer (G-101; before it, `malformed_body` at `""`).
  */
 final class IssueTokenInput
 {
