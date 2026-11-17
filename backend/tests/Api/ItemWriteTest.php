@@ -326,26 +326,43 @@ final class ItemWriteTest extends PurchaseOrderTestCase
     }
 
     /**
-     * §4 M-1 (BK-23's open item), **pinned as measured, not as designed**: a JSON number (`5`, not `"5"`) on any of the
-     * three fields is answered **400 "The input data is misformatted."**, `type` `/errors/400`, with no `errors[]` and no
-     * pointer — not the 422 `wrong_type` the design predicted by reading `FrameworkProblemTranslator`. The cause: for an
-     * operation with an `input:` class, API Platform's `AbstractItemNormalizer::denormalize` catches the serializer's
-     * `NotNormalizableValueException` and rethrows it as `UnexpectedValueException('The input data is misformatted.')`,
-     * and `FrameworkProblemTranslator` has no arm for that class, so the framework answers a bare 400. **This is a
-     * pre-existing shipped defect, recorded as `RESIDUAL_GAPS.md` G-101** (a wrong JSON type answers a 400 outside
-     * `API.md` §5.2); it is pinned here as it is today and moves in the commit that closes G-101. API-only (the web app
-     * always sends strings). C4 changes only the item `not_a_decimal` rule and sentence.
+     * §4 M-1 (BK-23's open item), moved by G-101's closing commit: a JSON number (`5`, not `"5"`) on any of the three
+     * fields is refused 422 `validation-failed` at the field's wire pointer, `not_a_string` "This field must be a string.",
+     * on a create and on an edit, and nothing is written. Until G-101 it was a bare 400 "The input data is misformatted."
+     * with no `errors[]` (API Platform wraps the serializer's field exception and the translator had no arm for the
+     * wrapper; `RESIDUAL_GAPS.md` G-101). API-only (the web app always sends strings).
      */
     #[Test]
     #[DataProvider('reorderFields')]
-    public function aJsonNumberOnAReorderFieldIsAnsweredAsMeasured(string $field): void
+    public function aJsonNumberOnAReorderFieldIsRefusedAtTheField(string $field): void
     {
-        $this->send('POST', '/items', [...self::body(), $field => 5], self::KEY);
+        $refusal = [
+            'errors' => [['pointer' => '/'.$field, 'code' => 'not_a_string', 'message' => 'This field must be a string.']],
+            'status' => 422,
+            'title' => 'Validation failed',
+            'type' => 'urn:erp:problem:validation-failed',
+        ];
 
-        self::assertSame(400, $this->httpStatus());
-        self::assertSame('The input data is misformatted.', $this->json()['detail']);
-        self::assertSame('/errors/400', $this->json()['type']);
-        self::assertArrayNotHasKey('errors', $this->json());
+        $this->send('POST', '/items', [...self::body(), $field => 5], self::KEY);
+        self::assertSame(422, $this->httpStatus());
+        $created = $this->json();
+        ksort($created);
+        self::assertSame($refusal, $created);
+        self::assertSame(0, (int) $this->owner()->fetchOne('SELECT count(*) FROM inventory_item'), 'A refused create wrote an item.');
+
+        $this->send('POST', '/items', self::body(), [IdempotencyKeyGuard::HEADER => 'another-key']);
+        self::assertSame(201, $this->httpStatus());
+        $id = $this->json()['id'];
+        $this->send('GET', '/items/'.$id);
+        $before = $this->json();
+
+        $this->send('PATCH', '/items/'.$id, [$field => 5]);
+        self::assertSame(422, $this->httpStatus());
+        $edited = $this->json();
+        ksort($edited);
+        self::assertSame($refusal, $edited);
+        $this->send('GET', '/items/'.$id);
+        self::assertSame($before, $this->json(), 'A refused edit changed the item.');
     }
 
     /** §3.1 case 1 — a foreign key is validated under the caller's tenant context. */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Platform\Security;
 
+use App\Platform\Http\NonObjectBodyRefusal;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Http\Problem\FrameworkProblemTranslator;
 use Symfony\Component\DependencyInjection\Attribute\AutowireLocator;
@@ -174,7 +175,7 @@ final readonly class PermissionRequirements
         }
 
         if (!$body instanceof \stdClass) {
-            throw ApiProblem::validationFailed([self::error('', 'not_an_object', FrameworkProblemTranslator::NOT_AN_OBJECT_MESSAGE)]);
+            throw ApiProblem::validationFailed([self::error('', NonObjectBodyRefusal::CODE, FrameworkProblemTranslator::NOT_AN_OBJECT_MESSAGE)]);
         }
 
         $fields = get_object_vars($body);

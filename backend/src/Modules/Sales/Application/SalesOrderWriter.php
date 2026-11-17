@@ -16,6 +16,7 @@ use App\Modules\UserManagement\Application\Contract\WorkspaceSettings;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Http\Problem\FrameworkProblemTranslator;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
@@ -1840,7 +1841,7 @@ final readonly class SalesOrderWriter
 
         if (!array_is_list($raw)) {
             throw ApiProblem::validationFailed([[
-                'pointer' => '/lines', 'code' => 'not_a_list', 'message' => 'This field must be a list of lines.',
+                'pointer' => '/lines', 'code' => 'not_a_list', 'message' => FrameworkProblemTranslator::NOT_A_LIST_OF_LINES,
             ]]);
         }
 

@@ -12,6 +12,7 @@ use App\Modules\Inventory\Application\Contract\StockDepletionRefused;
 use App\Platform\Http\Idempotency\IdempotencyKeyHash;
 use App\Platform\Http\Idempotency\RequestDigest;
 use App\Platform\Http\Problem\ApiProblem;
+use App\Platform\Http\Problem\FrameworkProblemTranslator;
 use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Security\RequestIdentity;
 use App\Platform\Tenancy\CurrentTenant;
@@ -485,7 +486,7 @@ final readonly class FulfilmentWriter
         }
 
         if (!array_is_list($raw)) {
-            throw ApiProblem::validationFailed([['pointer' => '/lines', 'code' => 'not_a_list', 'message' => 'This field must be a list of lines.']]);
+            throw ApiProblem::validationFailed([['pointer' => '/lines', 'code' => 'not_a_list', 'message' => FrameworkProblemTranslator::NOT_A_LIST_OF_LINES]]);
         }
 
         // Before the transaction and the order's row lock: a request refused for its size never held that lock.

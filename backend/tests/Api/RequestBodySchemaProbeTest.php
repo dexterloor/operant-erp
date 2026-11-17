@@ -20,10 +20,10 @@ use Symfony\Component\Uid\Uuid;
  *  N (nullable, BK-15 D-5): `null` is in a request field's type exactly when the server accepts an explicit `null` there
  *    without a 422 at that field.
  *  R (required): a POST field is in `required` exactly when leaving it out of the recipe's otherwise-successful request
- *    is refused with code `required` at `/<field>` — or, for a constructor parameter without default, `malformed_body`
- *    at `""` ({@see \App\Platform\Http\Problem\FrameworkProblemTranslator}). Merge-patch components never list
- *    `required` (API Platform drops it for a partial update), and no PATCH field is unconditionally required:
- *    `UpdateSalesOrder`'s "a new customer needs a new ship-to address" stays prose.
+ *    is refused with code `required` at `/<field>` — a constructor parameter without default included, since G-101
+ *    closed (before it, `malformed_body` at `""`; {@see \App\Platform\Http\Problem\FrameworkProblemTranslator}).
+ *    Merge-patch components never list `required` (API Platform drops it for a partial update), and no PATCH field is
+ *    unconditionally required: `UpdateSalesOrder`'s "a new customer needs a new ship-to address" stays prose.
  *  U (uuid): a string field refused as `not_a_uuid` for `"not-a-uuid"` is served `format: uuid`, and only those.
  *
  * ---------------------------------------------------------------------------
@@ -58,24 +58,26 @@ use Symfony\Component\Uid\Uuid;
  * ---------------------------------------------------------------------------
  * The probes, generated from the SERVED field schema (resolved through the regenerated spec)
  * ---------------------------------------------------------------------------
- *  1. `null` not in the type → plant `null` → 422 with an error at the field whose code is not `not_for_this_kind`; or,
- *     ONLY when the PHP type is non-nullable, the bare 400 "The input data is misformatted." that a JSON value the
- *     deserializer cannot place still answers (`RESIDUAL_GAPS.md` G-101). G-101's builder deletes that arm.
+ *  1. `null` not in the type → plant `null` → 422 with an error at the field whose code is not `not_for_this_kind`; when
+ *     the PHP type is non-nullable (the constructor strings, all on `POST`), exactly `required` (G-101).
  *  2. `null` in the type → plant `null` → status < 500, not 400, and no 422 error at the field (exemptions pinned two-way
  *     in {@see self::NULL_ACCEPTED_FOR_SOME_KINDS_ONLY}).
- *  3. `mixed` fields only: a value of the wrong JSON type → 422 at the field, whose code is neither `not_for_this_kind`
- *     nor `required`. (For a natively typed field this answers G-101's 400 today; extending probe 3 to them is G-101's
- *     closing test.)
+ *  3. Every field (G-101's closing test): a value of the wrong JSON type, chosen from the served base type. A natively
+ *     typed field → 422 with exactly one error, at the field: `not_a_string` for a string, `not_a_list` for an array
+ *     (any other served base type is a `LogicException`: teach the translator and this map). A `mixed` field or a line
+ *     field (the writer refuses it) → 422 at the field, whose code is neither `not_for_this_kind` nor `required`.
+ *     `probe3ByKind` is held two-way against the five kinds, with at least one native field of served base `array`.
  *  4. Every string field: `"not-a-uuid"` → with `format: uuid` the code at the field is `not_a_uuid`; without it, no
  *     `not_a_uuid` there.
  *  5. An `enum` → each member gives no 422 at the field, `"zz-not-a-member"` gives one.
  *  6. Absence. If the recipe's N-th body carries the field, the key is removed: served required → code `required` at
- *     the field (`malformed_body` at `""` for a constructor parameter without default); served not required → EXACTLY
+ *     the field (a constructor parameter without default too, since G-101); served not required → EXACTLY
  *     the unplanted control's status. If the recipe never sends it, the unplanted success already shows absence is
  *     accepted, so it must be served not required. Pins, each two-way and executed (a stale entry is red):
  *     {@see self::REQUIRED_FOR_SOME_KINDS_ONLY}, {@see self::ABSENCE_REFUSED_UNDER_ANOTHER_CODE},
  *     {@see self::ABSENCE_CHANGES_THE_OUTCOME}.
- * Any status ≥ 500 on any probe is its own failure: a shipped defect, not a description question.
+ * Any status ≥ 500 on any probe is its own failure: a shipped defect, not a description question. Any 400 is a failure
+ * too: it is outside `API.md` §5.2 (G-101).
  *
  * `CreateExport` asks for `text/csv`; its refusals are problem+json all the same, so it is planted as its recipe sends it.
  *
@@ -89,11 +91,13 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
     private const SUCCESS = 'success';
     private const REVERSAL = 'reversal';
 
+    /** The five kinds of probed field. */
+    private const KINDS = ['native ?string = null', 'native uninitialised', 'constructor', 'mixed', 'nested line'];
+
+    private const PROBE_3 = '3 (wrong type)';
+
     /** The password the T-R1-local `IssueToken` recipe sets and then presents. */
     private const PROBE_PASSWORD = 'a-probe-password-long-enough-for-e23';
-
-    /** G-101: the bare 400's detail when a JSON value cannot be placed in a natively typed field. */
-    private const G101_DETAIL = 'The input data is misformatted.';
 
     /**
      * Which recipe a `CreateAdjustmentDecision` field is probed under, two-way against that operation's cases (final RED
@@ -233,6 +237,9 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         $probed = [];
         $absenceProbed = [];
         $runs = 0;
+        /** @var array<string, int> $probe3ByKind */
+        $probe3ByKind = [];
+        $probe3NativeArrays = 0;
         foreach ($groups as $group => $keys) {
             [$operation, $recipe] = explode(' ', $group);
             self::assertArrayHasKey($operation, $routes, $operation.' has an input field but no route in the served spec.');
@@ -304,6 +311,16 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
                         $failures[] = \sprintf('%s probe %s (%s planted): answered %d — a shipped defect, not a description question; %s', $key, $name, $planted, $status, $this->bodyExcerpt());
                         continue;
                     }
+                    if (400 === $status) {
+                        $failures[] = \sprintf('%s probe %s (%s planted): answered 400 — outside API.md §5.2 (G-101); %s', $key, $name, $planted, $this->bodyExcerpt());
+                        continue;
+                    }
+                    if (self::PROBE_3 === $name) {
+                        $probe3ByKind[$case['kind']] = ($probe3ByKind[$case['kind']] ?? 0) + 1;
+                        if ('nested line' !== $case['kind'] && !$case['mixed'] && \in_array('array', (array) ($case['schema']['type'] ?? []), true)) {
+                            ++$probe3NativeArrays;
+                        }
+                    }
                     if (null !== ($why = $check($status, $codes, $errors, $this->detail()))) {
                         $failures[] = \sprintf('%s probe %s (%s planted): %s — answered %d, codes at %s: [%s]; %s',
                             $key, $name, $planted, $why, $status, $case['pointer'], implode(', ', $codes), $this->bodyExcerpt());
@@ -326,9 +343,16 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         sort($probed);
         self::assertSame($expectedCases, $probed, 'The probed set is the case set, two-way: a field went unprobed.');
         $kinds = array_count_values(array_map(static fn (string $k): string => $cases[$k]['kind'], $probed));
-        foreach (['native ?string = null', 'native uninitialised', 'constructor', 'mixed', 'nested line'] as $kind) {
+        foreach (self::KINDS as $kind) {
             self::assertGreaterThanOrEqual(1, $kinds[$kind] ?? 0, 'Anti-vacuity: no field of kind "'.$kind.'" was probed.');
         }
+        // G-101: probe 3 ran on every kind, two-way, and on at least one natively typed array (`lines`).
+        $ran = array_keys($probe3ByKind);
+        sort($ran);
+        $all = self::KINDS;
+        sort($all);
+        self::assertSame($all, $ran, 'Probe 3 (wrong type) did not run on exactly the five kinds of field.');
+        self::assertGreaterThanOrEqual(1, $probe3NativeArrays, 'Anti-vacuity: probe 3 ran on no natively typed field of served base array.');
         self::assertGreaterThan(\count($groups), $runs, 'Fewer recipe runs than (operation, recipe) groups: the probes never ran.');
     }
 
@@ -416,15 +440,15 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
 
         $probes = [];
         if (!$nullable) {
-            $g101 = !$case['phpNullable'];
-            $probes[] = ['1 (null refused)', null, false, static function (int $status, array $codes, array $errors, ?string $detail) use ($g101): ?string {
-                // G-101: a null the deserializer cannot place in a non-nullable PHP type is still a bare 400. G-101's
-                // builder deletes this arm.
-                if ($g101 && 400 === $status && self::G101_DETAIL === $detail) {
-                    return null;
-                }
+            $exact = !$case['phpNullable'];
+            $probes[] = ['1 (null refused)', null, false, static function (int $status, array $codes) use ($exact): ?string {
                 if (422 !== $status || [] === $codes) {
                     return 'its type refuses null, but null was not refused at the field';
+                }
+                // G-101: a null a non-nullable PHP type cannot hold is `required` at the field (every such field is a
+                // constructor string on a POST).
+                if ($exact && ['required'] !== $codes) {
+                    return 'its PHP type is non-nullable, but null was refused as ['.implode(', ', $codes).'], not exactly required';
                 }
 
                 return \in_array('not_for_this_kind', $codes, true) ? 'refused only as not_for_this_kind (wrong recipe for the field)' : null;
@@ -439,7 +463,21 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
             }];
         }
 
-        if ($case['mixed']) {
+        $native = !$case['mixed'] && 'nested line' !== $case['kind'];
+        if ($native) {
+            [$wrong, $code] = match ($base) {
+                'string' => [1, 'not_a_string'],
+                'array' => ['x', 'not_a_list'],
+                default => throw new \LogicException(\sprintf('%s is a natively typed field of served type %s: teach the translator (G-101, FrameworkProblemTranslator::fieldTypeRefusal()) and this map.', $key, $base)),
+            };
+            $probes[] = [self::PROBE_3, $wrong, false, static function (int $status, array $codes, array $errors) use ($code): ?string {
+                if (422 !== $status || 1 !== \count($errors) || [$code] !== $codes) {
+                    return 'a value of the wrong type was not refused with exactly one error, '.$code.' at the field';
+                }
+
+                return null;
+            }];
+        } else {
             $wrong = match ($base) {
                 'integer' => '1',
                 'boolean' => 'true',
@@ -447,7 +485,7 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
                 'array', 'object' => 'x',
                 default => throw new \LogicException(\sprintf('%s serves type %s, which this probe has no wrong value for: teach it one.', $key, $base)),
             };
-            $probes[] = ['3 (wrong type)', $wrong, false, static function (int $status, array $codes): ?string {
+            $probes[] = [self::PROBE_3, $wrong, false, static function (int $status, array $codes): ?string {
                 if (422 !== $status || [] === $codes) {
                     return 'a value of the wrong type was not refused at the field';
                 }
@@ -501,8 +539,8 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         $seen = static fn (array $errors): string => implode(', ', array_map(static fn (array $e): string => $e[0].': '.$e[1], $errors));
 
         if ($case['required']) {
-            $pointer = $case['constructorWithoutDefault'] ? '' : $case['pointer'];
-            $code = $case['constructorWithoutDefault'] ? 'malformed_body' : (self::ABSENCE_REFUSED_UNDER_ANOTHER_CODE[$key] ?? 'required');
+            $pointer = $case['pointer'];
+            $code = self::ABSENCE_REFUSED_UNDER_ANOTHER_CODE[$key] ?? 'required';
 
             return static function (int $status, array $codes, array $errors) use ($key, $pointer, $code, $seen): ?string {
                 foreach ($errors as [$at, $seenCode]) {

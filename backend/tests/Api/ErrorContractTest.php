@@ -291,9 +291,9 @@ final class ErrorContractTest extends PurchaseOrderTestCase
             ? [IdempotencyKeyGuard::HEADER => 'c5-error-contract-'.Uuid::v4()->toRfc4122()]
             : [];
 
-        // The DERIVED arm (G6-C0; G5-D0's carry (3)): a derived gate reads the body's `resource` BEFORE the decision, so `[]`
-        // is refused 422 `not_an_object` ahead of every row this probe exists to reach. A derived operation is therefore
-        // probed with a body naming the first resource of its map (byte-sorted) -- the smallest body the gate passes --
+        // The DERIVED arm (G6-C0; G5-D0's carry (3)): a derived gate reads the body's `resource` BEFORE the decision, so an
+        // empty body (`{}` on the wire) is refused 422 at `/resource` ahead of every row this probe exists to reach. A
+        // derived operation is therefore probed with a body naming the first resource of its map (byte-sorted) -- the smallest body the gate passes --
         // and the "unacceptable Accept" probe sends it too, so it reaches the 406 rather than the gate's `malformed_body`.
         $body = $hasBody ? [] : null;
         $requirement = PermissionRequirement::of($operation);

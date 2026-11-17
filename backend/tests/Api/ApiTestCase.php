@@ -221,7 +221,7 @@ abstract class ApiTestCase extends TenancyTestCase
             $path,
             // An empty PHP array means "no fields" here and is sent as `{}`: `json_encode([])` is the JSON list `[]`,
             // which every body-reading write refuses as `not_an_object` (G-102). A test that means a list sends a raw
-            // body through `client()->request()`.
+            // body through `sendRawBody()`.
             null === $body ? null : json_encode([] === $body ? new \stdClass() : $body, \JSON_THROW_ON_ERROR),
             $headers,
             $accept,
