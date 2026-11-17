@@ -21,7 +21,9 @@ import { CREATE_LOCATION_FIELDS, CREATE_WAREHOUSE_FIELDS, LOCATION_FIELDS, WAREH
 // before it sends its re-read, after the write's answer has arrived, and passes it to every commit or failure that
 // follows, the fallback answer body included. The page drops anything older than what it shows.
 // A Save also takes a stamp when it sends its PATCH; its own answer body is committed only if no 204 arrived after that
-// (a Save that answers after a delete was processed before it).
+// (a Save that answers after a delete was processed before it). The same stamp goes back with `saved` (`sentAsOf`) and
+// with a failed re-read, so the page can drop the save sentence and the region error (the items page's M-3 and the
+// po-6-red.md :384 residual); a refusal needs none, as the form is gone with the live state.
 
 export interface WarehouseSaveWiring {
   readonly caller: ApiCaller;
@@ -33,8 +35,12 @@ export interface WarehouseSaveWiring {
    * given only with a write's own answer body, is the stamp taken when that write was sent.
    */
   readonly setWarehouse: (warehouse: Warehouse, asOf: number, sentAsOf?: number) => Promise<void>;
-  /** The re-read after a save did not answer a warehouse: the page shows its region error, or swaps (ST-4b / ST-5). */
-  readonly onRereadFailed: (failure: ReadFailure, asOf: number) => void;
+  /**
+   * The re-read after a write did not answer a warehouse: the page shows its region error, or swaps (ST-4b / ST-5).
+   * `sentAsOf`, given only by Save, is the stamp taken when its PATCH was sent: the page drops the region error — never
+   * the swap — when a 204 of the person's own Delete arrived after it (po-6-red.md "Spar on the :384 residual").
+   */
+  readonly onRereadFailed: (failure: ReadFailure, asOf: number, sentAsOf?: number) => void;
   /** After a 204, before the delete's re-read: the page raises what it shows to that re-read's stamp (the 204 floor). */
   readonly onDeleted?: (asOf: number) => void;
 }
@@ -70,9 +76,9 @@ export function warehouseSave(w: WarehouseSaveWiring): SaveWarehouseAction {
         // The 200 body is the server's new state: commit it, so the page shows what was saved, as Restore does (the
         // items RED L-1, a shipped defect here: the page said "{code} was saved." over the pre-save warehouse).
         await w.setWarehouse(r.body, s, sent);
-        w.onRereadFailed(again.kind, s);
+        w.onRereadFailed(again.kind, s, sent);
       }
-      return { kind: 'saved', warehouse: r.body };
+      return { kind: 'saved', warehouse: r.body, sentAsOf: sent };
     } finally {
       deadline.cancel();
     }

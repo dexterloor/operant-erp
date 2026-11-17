@@ -99,9 +99,15 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // when that re-read fails, so no reading requested before it can undo the delete. A write's own answer body is also
   // dropped when a 204 arrived after that write was sent: it describes the warehouse before the delete. The 204 fact
   // (`deletedHere`) is cleared only by a commit that is not dropped. An older re-read landing first never drops a newer
-  // one. Known limit: when that re-read fails, the write's answer body describes the moment of the write but carries the
-  // re-read's stamp, so it can overwrite a Retry, sent in between, that read someone else's later change; the next
-  // reading corrects it.
+  // one. A Save sent before a 204 of the person's own Delete also loses its "saved" sentence (the items page's UX M-3),
+  // though its refresh stays, and its failed re-read's region error (swaps are kept); so does a Restore location sent
+  // before it (its sentence, focus and notice; its view re-read stays). That `sentAsOf` is compared only with the 204
+  // floor, never with the commit stamp: a Save's own re-read always commits above it. Known limit: when that re-read
+  // fails, the write's answer body describes the moment of the write but carries the re-read's stamp, so it can
+  // overwrite a Retry, sent in between, that read someone else's later change; the next reading corrects it. Known
+  // limit: the 204 floor is never lowered, so after a Restore a Save or a Restore location sent before the delete is
+  // still silenced (its sentence, body, failed re-read or notice); safe while such a write's 200 means it was processed
+  // before the delete; a refused Restore location then leaves its row in the Archived view, unexplained.
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
   const deletedAsOf = useRef(0);
@@ -131,13 +137,17 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   // After a create (§2 step 4.3): the create page left *"{code} was created."* for this address (A-19 item 7, S-5).
   useArrivalMessage(`/warehouses/${id}`, announce);
 
-  const failed = useCallback((f: ReadFailure, asOf?: number) => {
+  const failed = useCallback((f: ReadFailure, asOf?: number, sentAsOf?: number) => {
     if (asOf !== undefined && asOf < committedAsOf.current) return;
     if (f === 'session-ended') return;
     if (f === 'forbidden' || f === 'not-found') {
       setSwap(f);
       return;
     }
+    // The item page's rule (po-6-red.md, spar on :384): a Save sent before a 204 of the person's own Delete does not put
+    // its failed re-read over what the delete left; the delete's reading, sentence and focus stand. Compared only with
+    // the 204 floor. Swaps are kept: they say what the viewer may see now.
+    if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
     // After the form's own after-save focus, so the region error's heading takes it.
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
@@ -156,6 +166,16 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
   }, []);
   const remove = useCallback(() => warehouseDelete({ caller, id, stamp, setWarehouse, onRereadFailed: failed, onDeleted })(), [caller, id, stamp, setWarehouse, failed, onDeleted]);
   const onSaved = useCallback(() => router.refresh(), [router]);
+  // UX M-3, the items twin: a Save's sentence is not spoken over the person's own delete when the 204 came after it was sent.
+  const announceSaved = useCallback(
+    (text: string, sentAsOf: number) => {
+      if (sentAsOf < deletedAsOf.current) return;
+      announce(text);
+    },
+    [announce],
+  );
+  // The same rule for the Locations section's Restore location, which can still be out when Delete warehouse answers.
+  const deletedAfter = useCallback((sentAsOf: number) => sentAsOf < deletedAsOf.current, []);
 
   // §2 step 4.6. After a 204 the page stays: the warehouse is archived, not gone, and `warehouseDelete` has already
   // committed the re-read warehouse: archived (the ST-9b banner and Restore warehouse), or live if someone restored it
@@ -250,7 +270,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
         />
       ) : null}
       {canEdit && !actionsArchived ? (
-        <WarehouseForm warehouse={warehouse} save={save} editCode={gateCode('UpdateWarehouse')} announce={announce} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={() => announce('')} />
+        <WarehouseForm warehouse={warehouse} save={save} editCode={gateCode('UpdateWarehouse')} announce={announceSaved} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={() => announce('')} />
       ) : (
         <dl className={styles.fields}>
           <dt>{WAREHOUSE_PAGE.code}</dt>
@@ -263,7 +283,7 @@ export function WarehousePage({ initial, canEdit, canRestore, canDelete = false,
       )}
       {locations !== null ? (
         <div className={styles.locations}>
-          <LocationsSection warehouseId={id} warehouseCode={warehouse.code} initial={locations.initial} warehouseArchived={actionsArchived} canEdit={locations.canEdit} canRestore={locations.canRestore} canCreate={locations.canCreate} canDelete={locations.canDelete ?? false} announce={announce} replaceIfCurrent={replaceIfCurrent} />
+          <LocationsSection warehouseId={id} warehouseCode={warehouse.code} initial={locations.initial} warehouseArchived={actionsArchived} canEdit={locations.canEdit} canRestore={locations.canRestore} canCreate={locations.canCreate} canDelete={locations.canDelete ?? false} announce={announce} replaceIfCurrent={replaceIfCurrent} stamp={stamp} deletedAfter={deletedAfter} />
         </div>
       ) : null}
       {deleting ? (

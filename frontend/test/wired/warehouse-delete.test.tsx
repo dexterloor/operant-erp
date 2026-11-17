@@ -152,6 +152,7 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     const calls = stubFetch([json(200, { ...MAIN, name: 'Main warehousex' }), () => held, empty(204), deleteReread]);
     const u = userEvent.setup();
     renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete />);
+    const spoken = textsOf(region());
     await u.type(screen.getByRole('textbox', { name: 'Name' }), 'x');
     await u.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls).toHaveLength(2));
@@ -167,7 +168,12 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     await act(async () => {
       await new Promise((t) => setTimeout(t, 20));
     });
+    spoken.stop();
     expect(calls.map((c) => c.method)).toEqual(['PATCH', 'GET', 'DELETE', 'GET']);
+    // The M-3 twin (not the probe's W-3): the PATCH answered before the delete, but the Save was sent before the person's
+    // own 204, so "MAIN was saved." is never spoken over the delete; the refresh above stays.
+    expect(region().textContent).toBe("MAIN was deleted. It's now in the archived warehouses.");
+    expect(spoken.texts.filter((t) => t !== '')).toEqual(["MAIN was deleted. It's now in the archived warehouses."]);
   };
 
   it('an older Save re-read landing after a 204 does not turn the page live: archived banner stays, no Delete warehouse, no form (0a, P-1)', async () => {
@@ -556,6 +562,296 @@ describe('/warehouses/[id] — Delete warehouse (B-7, step 4.6)', () => {
     await waitFor(() => expect(screen.queryByText(/This warehouse was archived on/)).toBeNull());
     expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete warehouse' })).toBeInTheDocument();
+  });
+});
+
+// The item page's late-Save rules, on the warehouse page (item-save-after-delete; po-6-red.md "Spar on the :384
+// residual"; items-i4-ux.md M-3 and L-1): a Save sent before a 204 of the person's own Delete leaves the page, focus and
+// sentence exactly as after any 204. It speaks no "saved" sentence (W-2, W-3) and puts no region error over the delete
+// (W-1); its refusal shows no banner (W-4, W-5: the form is gone with the live state). The 403/404 swap and the refresh
+// after "saved" stay. C1–C3 are the controls.
+describe("/warehouses/[id] — a Save sent before the person's own Delete, answering after the 204", () => {
+  const AFTER = "MAIN was deleted. It's now in the archived warehouses.";
+  const SAVED = 'MAIN was saved.';
+  const REREAD_FAILED = "We couldn't load this warehouse again, so what's shown may be out of date.";
+  const ARCHIVED_BANNER = /This warehouse was archived on/;
+  const tick = () =>
+    act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+  const pressSaveThenDelete = async (u: ReturnType<typeof userEvent.setup>) => {
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete />);
+    const spoken = textsOf(region());
+    await u.type(screen.getByRole('textbox', { name: 'Name' }), 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    return spoken;
+  };
+
+  it('W-1 — answered 200, its re-read fails: no region error over the delete; the h1 keeps focus', async () => {
+    const patch = held();
+    const calls = stubFetch([patch.reply, empty(204), json(200, ARCHIVED), json(503, {})]);
+    const u = userEvent.setup();
+    await pressSaveThenDelete(u);
+    await waitFor(() => expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument());
+    patch.release(json(200, { ...MAIN, name: 'Main warehousex' }));
+    await tick();
+    await tick();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
+  });
+
+  it('W-2 — answered 200, its re-read fails: "MAIN was saved." is never spoken; the region keeps "After"; the refresh stays', async () => {
+    const patch = held();
+    stubFetch([patch.reply, empty(204), json(200, ARCHIVED), json(503, {})]);
+    const u = userEvent.setup();
+    const spoken = await pressSaveThenDelete(u);
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    patch.release(json(200, { ...MAIN, name: 'Main warehousex' }));
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(2));
+    await tick();
+    spoken.stop();
+    expect(spoken.texts).not.toContain(SAVED);
+    expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER]);
+    expect(region().textContent).toBe(AFTER);
+  });
+
+  it('W-3 — answered 200, its re-read reads the archived warehouse: "MAIN was saved." is never spoken; the refresh stays', async () => {
+    const patch = held();
+    stubFetch([patch.reply, empty(204), json(200, ARCHIVED), json(200, { ...ARCHIVED, name: 'Main warehousex' })]);
+    const u = userEvent.setup();
+    const spoken = await pressSaveThenDelete(u);
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    patch.release(json(200, { ...MAIN, name: 'Main warehousex' }));
+    await waitFor(() => expect(nav.refresh).toHaveBeenCalledTimes(2));
+    await tick();
+    spoken.stop();
+    expect(spoken.texts).not.toContain(SAVED);
+    expect(region().textContent).toBe(AFTER);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it('W-4 (pinned, already true) — refused after the 204: no "Not saved" banner; the h1 keeps focus; "After" only', async () => {
+    const patch = held();
+    stubFetch([patch.reply, empty(204), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    const spoken = await pressSaveThenDelete(u);
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    patch.release(refused('warehouse.is_archived', 'Fixture: this warehouse is archived.'));
+    await tick();
+    await tick();
+    spoken.stop();
+    expect(screen.queryByText('Not saved')).toBeNull();
+    expect(screen.queryByText('Fixture: this warehouse is archived.')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    expect(region().textContent).toBe(AFTER);
+    expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER]);
+  });
+
+  it('W-5 (pinned, already true) — refused before the 204 answers: the banner is gone after the 204', async () => {
+    const patch = held();
+    const del = held();
+    const calls = stubFetch([patch.reply, del.reply, json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    await pressSaveThenDelete(u);
+    await waitFor(() => expect(calls).toHaveLength(2));
+    patch.release(refused('warehouse.is_archived', 'Fixture: this warehouse is archived.'));
+    await tick();
+    del.release(empty(204));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await tick();
+    expect(screen.queryByText('Not saved')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it("C1 (control) — the delete's own re-read fails too: exactly one region error (the delete's), the same element, whose heading keeps focus", async () => {
+    const patch = held();
+    const calls = stubFetch([patch.reply, empty(204), json(503, {}), json(503, {})]);
+    const u = userEvent.setup();
+    await pressSaveThenDelete(u);
+    await waitFor(() => expect(screen.getByText(REREAD_FAILED)).toBeInTheDocument());
+    const errorHeading = () => screen.getByText(REREAD_FAILED).closest('section')!.querySelector('h2');
+    await waitFor(() => expect(errorHeading()).toHaveFocus());
+    const shown = errorHeading();
+    patch.release(json(200, { ...MAIN, name: 'Main warehousex' }));
+    await tick();
+    await tick();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+    expect(screen.getAllByText(REREAD_FAILED)).toHaveLength(1);
+    expect(errorHeading()).toHaveFocus();
+    expect(errorHeading()).toBe(shown);
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull();
+  });
+
+  it('C2 (control) — own delete, then Restore, then a Save sent after it whose re-read fails: the region error IS shown, and "MAIN was saved." is spoken', async () => {
+    const calls = stubFetch([empty(204), json(200, ARCHIVED), json(200, MAIN), json(200, MAIN), json(200, { ...MAIN, name: 'Main warehousex' }), json(503, {})]);
+    const u = userEvent.setup();
+    renderWired(<WarehousePage initial={MAIN} canEdit canRestore canDelete />);
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await u.click(await screen.findByRole('button', { name: 'Restore warehouse' }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument());
+    await u.type(screen.getByRole('textbox', { name: 'Name' }), 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    await waitFor(() => expect(region()).toHaveTextContent(SAVED));
+    expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'POST', 'GET', 'PATCH', 'GET']);
+  });
+
+  it('C3 (control) — answered 200 after the 204, its re-read answered 403: the denied state renders (the swap is kept)', async () => {
+    const patch = held();
+    const calls = stubFetch([patch.reply, empty(204), json(200, ARCHIVED), problem(403, 'permission-denied')]);
+    const u = userEvent.setup();
+    await pressSaveThenDelete(u);
+    await waitFor(() => expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument());
+    patch.release(json(200, { ...MAIN, name: 'Main warehousex' }));
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to warehouses." })).toBeInTheDocument();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+  });
+});
+
+// The same question for the Locations section's row actions. Edit, Add and Delete location are dialogs that cannot be
+// closed while their request is out, so the person cannot press Delete warehouse meanwhile. Restore location is a row
+// button: it can still be answering when the person's own Delete answers 204.
+describe("/warehouses/[id] — a Restore location sent before the person's own Delete, answering after the 204", () => {
+  const AFTER = "MAIN was deleted. It's now in the archived warehouses.";
+  const B1_LIVE = { ...B1, archived_at: null };
+  const tick = () =>
+    act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+  const restoreThenDelete = async (u: ReturnType<typeof userEvent.setup>) => {
+    const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: false };
+    renderWired(<WarehousePage initial={MAIN} canEdit={false} canRestore canDelete locations={locations} />);
+    const spoken = textsOf(region());
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await u.click(await screen.findByRole('button', { name: 'Restore location B1' }));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    return spoken;
+  };
+
+  it('restored: "B1 was restored." is never spoken over the delete; the h1 keeps focus; the view is still re-read', async () => {
+    const post = held();
+    const calls = stubFetch([json(200, coll([B1])), post.reply, empty(204), json(200, ARCHIVED), json(200, coll([]))]);
+    const u = userEvent.setup();
+    const spoken = await restoreThenDelete(u);
+    post.release(json(200, B1_LIVE));
+    await tick();
+    await tick();
+    spoken.stop();
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'POST', 'DELETE', 'GET', 'GET']);
+    expect(spoken.texts).not.toContain('B1 was restored.');
+    expect(region().textContent).toBe(AFTER);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it('refused (its warehouse is archived now): no "Not restored" banner over the delete; the h1 keeps focus', async () => {
+    const post = held();
+    const calls = stubFetch([json(200, coll([B1])), post.reply, empty(204), json(200, ARCHIVED), json(200, coll([B1]))]);
+    const u = userEvent.setup();
+    const spoken = await restoreThenDelete(u);
+    post.release(refused('storage_location.warehouse_is_archived', 'Fixture: its warehouse is archived.'));
+    await tick();
+    await tick();
+    spoken.stop();
+    // The view is re-read once, so the rows are the server's; the refusal's own "was it restored already?" read is not
+    // needed, as nothing is said either way.
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'POST', 'DELETE', 'GET', 'GET']);
+    expect(screen.queryByText('Not restored')).toBeNull();
+    expect(screen.queryByText('Fixture: its warehouse is archived.')).toBeNull();
+    expect(region().textContent).toBe(AFTER);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  // RED M-1: the check is made again after every read Restore location awaits, not only when it answers.
+  it('refused before the 204, its "restored already?" read answering after it: no notice, the h1 keeps focus', async () => {
+    const check = held();
+    const calls = stubFetch([json(200, coll([B1])), refused('transaction.contention', 'Fixture: try again.'), check.reply, empty(204), json(200, ARCHIVED), json(200, coll([B1]))]);
+    const u = userEvent.setup();
+    const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: false };
+    renderWired(<WarehousePage initial={MAIN} canEdit={false} canRestore canDelete locations={locations} />);
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await u.click(await screen.findByRole('button', { name: 'Restore location B1' }));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    check.release(json(200, coll([B1])));
+    await tick();
+    await tick();
+    expect(screen.queryByText('Not restored')).toBeNull();
+    expect(screen.queryByText('Fixture: try again.')).toBeNull();
+    expect(region().textContent).toBe(AFTER);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  // The refused branch's own re-check: its "restored already?" read finds the row gone, which would speak the server's
+  // sentence and focus the section heading. Only this case reaches that check before the trailing one.
+  it('refused before the 204, its "restored already?" read finding the row gone after it: nothing spoken, the h1 keeps focus', async () => {
+    const check = held();
+    const calls = stubFetch([json(200, coll([B1])), refused('transaction.contention', 'Fixture: try again.'), check.reply, empty(204), json(200, ARCHIVED), json(200, coll([]))]);
+    const u = userEvent.setup();
+    const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: false };
+    renderWired(<WarehousePage initial={MAIN} canEdit={false} canRestore canDelete locations={locations} />);
+    const spoken = textsOf(region());
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await u.click(await screen.findByRole('button', { name: 'Restore location B1' }));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    check.release(json(200, coll([])));
+    await tick();
+    await tick();
+    spoken.stop();
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'POST', 'GET', 'DELETE', 'GET', 'GET']);
+    expect(spoken.texts).not.toContain('Fixture: try again.');
+    expect(region().textContent).toBe(AFTER);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it('failed before the 204, its view re-read answering after it: no notice, the h1 keeps focus', async () => {
+    const view = held();
+    const calls = stubFetch([json(200, coll([B1])), problem(503, 'x'), view.reply, empty(204), json(200, ARCHIVED)]);
+    const u = userEvent.setup();
+    const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: false };
+    renderWired(<WarehousePage initial={MAIN} canEdit={false} canRestore canDelete locations={locations} />);
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await u.click(await screen.findByRole('button', { name: 'Restore location B1' }));
+    await waitFor(() => expect(calls).toHaveLength(3));
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    view.release(json(200, coll([B1])));
+    await tick();
+    await tick();
+    expect(screen.queryByText('Not restored')).toBeNull();
+    expect(screen.queryByText(RESTORE_LOCATION.interrupted('B1'))).toBeNull();
+    expect(region().textContent).toBe(AFTER);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it('control — own delete, then Restore warehouse, then a Restore location sent after it: "B1 was restored." IS spoken', async () => {
+    const calls = stubFetch([empty(204), json(200, ARCHIVED), json(200, MAIN), json(200, MAIN), json(200, coll([B1])), json(200, B1_LIVE), json(200, coll([]))]);
+    const u = userEvent.setup();
+    const locations = { initial: { kind: 'ok' as const, locations: [A1, Q1] }, canEdit: false, canRestore: true, canCreate: false, canDelete: false };
+    renderWired(<WarehousePage initial={MAIN} canEdit={false} canRestore canDelete locations={locations} />);
+    await u.click(screen.getByRole('button', { name: 'Delete warehouse' }));
+    await u.click(within(dialog()).getByRole('button', { name: 'Delete warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await u.click(await screen.findByRole('button', { name: 'Restore warehouse' }));
+    await waitFor(() => expect(region()).toHaveTextContent('MAIN was restored.'));
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
+    await u.click(await screen.findByRole('button', { name: 'Restore location B1' }));
+    await waitFor(() => expect(region().textContent).toBe('B1 was restored.'));
+    expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'POST', 'GET', 'GET', 'POST', 'GET']);
   });
 });
 

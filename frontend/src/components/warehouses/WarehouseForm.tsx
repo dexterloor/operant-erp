@@ -20,8 +20,11 @@ export interface WarehouseFormProps {
   save: SaveWarehouseAction;
   /** `gateCode('UpdateWarehouse')`, for the lost-permission sentence's label (B-8, L-9). */
   editCode: string | null;
-  /** Writes the page's status region (B-3 "After save"). */
-  announce: (text: string) => void;
+  /**
+   * Writes the page's status region (B-3 "After save"). `sentAsOf` is the stamp taken when that Save was sent: the page
+   * does not speak it when its own Delete answered 204 after that (the items page's UX M-3 rule).
+   */
+  announce: (text: string, sentAsOf: number) => void;
   /** The page's `<h1>`: focus goes there after a save. */
   fallbackFocusRef: RefObject<HTMLElement | null>;
   /** Called once per Save answered `saved`, after the message is written. */
@@ -98,7 +101,7 @@ export function WarehouseForm({ warehouse, save, editCode, announce, fallbackFoc
       case 'saved':
         setFieldErrors({});
         setNotice(null);
-        announce(WAREHOUSE_PAGE.saved(r.warehouse.code));
+        announce(WAREHOUSE_PAGE.saved(r.warehouse.code), r.sentAsOf);
         gen.current += 1;
         setFocusTarget({ gen: gen.current, to: 'h1' });
         onSaved?.();

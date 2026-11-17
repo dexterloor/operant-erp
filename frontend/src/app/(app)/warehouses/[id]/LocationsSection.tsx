@@ -117,6 +117,13 @@ export interface LocationsSectionProps {
   announce: (text: string) => number;
   /** Writes `text` only while write number `gen` is still the region's last (FE-R8: a late correction never overwrites a later sentence). */
   replaceIfCurrent: (gen: number, text: string) => void;
+  /** The page's next stamp: Restore location takes one when it sends its request. */
+  stamp: () => number;
+  /**
+   * Whether the person's own Delete warehouse answered 204 after that stamp: the Restore location then says nothing,
+   * moves no focus and shows no notice over what the delete left; its view re-read stays (the page's late-Save rule).
+   */
+  deletedAfter: (sentAsOf: number) => boolean;
 }
 
 interface Notice {
@@ -152,7 +159,7 @@ interface Notice {
  * With nothing on screen (a failed first load), `reread()` resolves `server-error` without reading: a write still speaks
  * its stale sentence, and no banner shows (the first-load region error is up; final RED L-11, accepted).
  */
-export function LocationsSection({ warehouseId, warehouseCode, initial, warehouseArchived, canEdit, canRestore, canCreate, canDelete = false, announce, replaceIfCurrent }: LocationsSectionProps) {
+export function LocationsSection({ warehouseId, warehouseCode, initial, warehouseArchived, canEdit, canRestore, canCreate, canDelete = false, announce, replaceIfCurrent, stamp, deletedAfter }: LocationsSectionProps) {
   const caller = useApiCaller();
   const list = useRef<ArchivableListHandle>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -305,6 +312,7 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
     // through a view switch, which writes only to the list's own status line), so it is given again.
     announce('');
     setRestoring(l.id);
+    const sent = stamp();
     let r: RestoreLocationResult;
     try {
       r = await restore(l.id);
@@ -312,6 +320,14 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
       r = { kind: 'unreachable' };
     }
     setRestoring(null);
+    // Sent before a 204 of the person's own Delete warehouse: its sentence, focus and notice describe a section that is
+    // now read-only. Only the view re-read stays, so the rows on screen are the server's. Checked again after every read
+    // below, before anything is said, focused or shown. If that re-read fails, the section's banner shows
+    // `LIST_STATES.refetchFailed`: true (the rows are the earlier ones), not spoken, and it takes no focus.
+    if (deletedAfter(sent)) {
+      if (r.kind !== 'session-ended') await list.current?.reread();
+      return;
+    }
     if (r.kind === 'restored') {
       // The row leaves the Archived view, and its button with it: focus the section heading, speak, then re-read.
       heading.current?.focus();
@@ -329,6 +345,10 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
       const d = startDeadline(ACTION_DEADLINES_MS.reread);
       const again = await loadLocations(readOf(caller), warehouseId, true, d.signal);
       d.cancel();
+      if (deletedAfter(sent)) {
+        await list.current?.reread();
+        return;
+      }
       if (again.kind === 'ok' && !again.locations.some((x) => x.id === l.id)) {
         heading.current?.focus();
         const said = announce(r.message !== '' ? r.message : RESTORE_LOCATION.after(l.code));
@@ -340,6 +360,8 @@ export function LocationsSection({ warehouseId, warehouseCode, initial, warehous
     }
     // Any other answer: re-read first, so the rows under the notice are the server's (an interrupted press may have committed).
     await list.current?.reread();
+    // A 204 of the person's own Delete warehouse may have landed during that read: the same rule as above.
+    if (deletedAfter(sent)) return;
     const next = failureNotice(r, l.code, (notice?.id ?? 0) + 1);
     if (next) setNotice(next);
   };
