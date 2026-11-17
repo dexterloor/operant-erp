@@ -65,6 +65,11 @@ export const ACTION_DEADLINES_MS = {
   orderRestore: 30_000,
   /** Create a purchase-order draft (PO-3): the request alone (the page navigates to the new order, which reads it). */
   orderCreate: 30_000,
+  /**
+   * Save a draft purchase order's header (PO-4a): the request + the GetPurchaseOrder re-read (also after a refusal, to see
+   * whether the page was stale).
+   */
+  orderSave: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

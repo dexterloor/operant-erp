@@ -91,3 +91,22 @@ export interface CreatePurchaseOrderInput {
   expected_at?: string | null;
   lines?: CreatePurchaseOrderNestedLine[] | null;
 }
+
+/**
+ * `UpdatePurchaseOrder`'s body (served `PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch`; PO-4a). Mirrored whole so
+ * C-1's names-both-ways check holds; the draft's header editor sends exactly the changed `warehouse_id` and nothing else:
+ * never `supplier_id` (the supplier is never changed in the app, PO D-6) and never `expected_at` (D-4 unruled). No
+ * `currency_code` is served: an order's currency is fixed at create.
+ */
+export interface UpdatePurchaseOrderInput {
+  supplier_id?: string;
+  warehouse_id?: string;
+  expected_at?: string | null;
+}
+
+/**
+ * The purchase-order refusal rules the family branches on (UX D-2: a status refusal is matched by rule code, the page
+ * re-reads and says what it found). `notDraft` (`PurchaseOrderWriter::refuseUnlessDraft`, P9): an edit of an order that
+ * is no longer a draft. Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent; po-4a-red.md L-4).
+ */
+export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft' } as const;

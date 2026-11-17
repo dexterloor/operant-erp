@@ -6,7 +6,8 @@
 // draft's banner (`RESTORE_ORDER.*`, `noneArchived`'s PO-2 form). PO-3 (row 3) adds Create purchase order: the create page
 // (`NEW_PURCHASE_ORDER.*`), `newOrder`, `createOrder`, `noneYet` in its final form and `emptyDraft` in its PO-3 form. The
 // keys whose final form names a later action (`emptyDraft`'s approving, `draftNote`, `orderedNote`) stay in earlier forms.
-// The commit that ships each action replaces its key with the next form (R1a-1 rows 4–12).
+// PO-4a (row 4) adds Save on a draft's header: the editor's keys and `draftNote` / `supplierFixed` in their PO-4a forms.
+// The commit that ships each action replaces its key with the next form (R1a-1 rows 5–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
 
@@ -20,6 +21,8 @@ export const PURCHASE_ORDER_STATUS: Readonly<Record<string, { label: string; spo
 };
 /** A served status's label; an unknown one renders as served (no enum is served: R8-5's raw-value fallback; FE-R10 candidate). */
 export const statusLabel = (status: string) => (Object.hasOwn(PURCHASE_ORDER_STATUS, status) ? PURCHASE_ORDER_STATUS[status]!.label : status);
+/** A served status's B-0 spoken words, for sentences; an unknown one as served (the label's fallback). */
+export const statusSpoken = (status: string) => (Object.hasOwn(PURCHASE_ORDER_STATUS, status) ? PURCHASE_ORDER_STATUS[status]!.spoken : status);
 
 /** UX B-1 segment tabs (CONFIRMS IA TB-4): Open · Draft · Received · Cancelled. */
 const SEGMENT_LABELS: Readonly<Record<PurchaseOrderSegment, string>> = { open: 'Open', draft: 'Draft', received: 'Received', cancelled: 'Cancelled' };
@@ -133,7 +136,11 @@ export const PURCHASE_ORDERS_PAGING = {
   }),
 } as const;
 
-/** UX B-3 / R1-B `PURCHASE_ORDER_PAGE`: the order page, read-only at PO-1 (IA L-5: the editor while draft arrives at PO-4a). */
+/**
+ * UX B-3 / R1-B `PURCHASE_ORDER_PAGE`: the order page, read-only at PO-1; from PO-4a a draft's page is its editor (IA L-5):
+ * Deliver to with B-2's hint (`NEW_PURCHASE_ORDER.warehouse` / `warehouseHint` / `warehouseOption`), Supplier and
+ * Currency as text, Save.
+ */
 export const PURCHASE_ORDER_PAGE = {
   /** `title(number, supplier)`: h1 and `<title>`. */
   title: (number: string, supplier: string) => `${number} — ${supplier}`,
@@ -150,8 +157,11 @@ export const PURCHASE_ORDER_PAGE = {
   /** `raisedByYou(name)` (display only; it pre-empts nothing, ST-4f) · `raisedByUnknown` (`created_by` null). */
   raisedByYou: (name: string) => `${name} (you)`,
   raisedByUnknown: 'Not recorded',
-  /** `draftNote`, PO-1 form (R1a-1 row 1); later forms name changing (PO-4a), deleting (PO-6) and approving (PO-8). */
-  draftNote: 'This is a draft.',
+  /**
+   * `draftNote`, PO-4a form (R1a-1 row 4; final RED apply list PO-4a): Save ships here, so it names changing (passive,
+   * R-3: true for every viewer of a draft). Later forms name deleting (PO-6) and approving (PO-8).
+   */
+  draftNote: 'This is a draft. It can be changed.',
   /** `orderedNote`, PO-1 form (R1a-1 row 1); the final form names cancelling (PO-7). */
   orderedNote: "This order has been approved, so it can't be changed.",
   /** `closedNote` (received / cancelled). */
@@ -164,6 +174,25 @@ export const PURCHASE_ORDER_PAGE = {
   deletedAfter: '.',
   /** `rereadFailed` (UX B-3, CONFIRMS the shape): a re-read after a write did not answer. */
   rereadFailed: "We couldn't load this purchase order again, so what's shown may be out of date.",
+  /**
+   * `supplierFixed` (the draft editor), PO-4a form (R1a-1 row 4; final RED apply list PO-4a): Delete ships at PO-6, so
+   * the sentence does not yet say a draft can be deleted and raised again (the final form). Passive (R-3).
+   */
+  supplierFixed: "The supplier can't be changed.",
+  /** `save` · `saveNothing` · `saved(number)` (UX B-3 / R1-B, CONFIRMS the shapes). */
+  save: 'Save',
+  saveNothing: 'Nothing to save.',
+  saved: (number: string) => `${number} was saved.`,
+  /** `interrupted(number)` (UX B-3 / R1-B): a Save whose answer was lost. */
+  interrupted: (number: string) => `We can't tell whether your changes to ${number} were saved. Reload the page to check.`,
+  /**
+   * `noLongerDraft(number, status)` (UX D-2 / R1-B): an edit refused because the order is no longer a draft, said from
+   * the re-read (`{status words}` = the B-0 spoken words) — never the server's P9 sentence (false for a draft cancelled
+   * elsewhere; developer words).
+   */
+  noLongerDraft: (number: string, status: string) => `${number} is no longer a draft: it's ${statusSpoken(status)}, so it can't be changed.`,
+  /** `changedSinceLoaded(number)` (UX D-2 / R1-B): the same refusal when the re-read failed. */
+  changedSinceLoaded: (number: string) => `${number} changed since this page was loaded, so this wasn't done. Reload the page to see where it stands.`,
 } as const;
 
 /**

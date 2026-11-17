@@ -3,20 +3,23 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { OrderHeaderForm } from '@/components/purchasing/OrderHeaderForm';
 import { RestoreActions } from '@/components/records/RestoreActions';
 import { RegionError } from '@/components/states/PageStates';
+import { Banner } from '@/components/ui/Banner';
 import { Chip } from '@/components/ui/Chip';
 import { DateTime } from '@/components/ui/DateTime';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
-import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
 import { PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RESTORE_ORDER, statusLabel } from '@/copy/purchasing';
 import type { PurchaseOrder } from '@/lib/api/purchasing';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { renderMoney } from '@/lib/format/money';
-import { loadLines, loadPurchaseOrder, type LinesLoad } from '@/lib/purchasing/load';
-import { orderRestore } from '@/lib/purchasing/wired';
+import { loadLines, loadPurchaseOrder, loadWarehouseChoices, type LinesLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
+import type { OrderChange } from '@/lib/purchasing/results';
+import { orderRestore, orderSave } from '@/lib/purchasing/wired';
 import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import listStyles from '../../Lists.module.css';
@@ -40,6 +43,14 @@ export interface PurchaseOrderPageProps {
   canOpenSupplier: boolean;
   canOpenWarehouse: boolean;
   canOpenItem: boolean;
+  /**
+   * PO-4a: the draft header editor, or null. Given by the server only for a live draft and a viewer holding
+   * UpdatePurchaseOrder's and ListWarehouses' codes, with the live warehouses read for its Deliver to (a failed read is the
+   * field's own state). Absent or null: the header is read-only text. A draft that LOADED deleted gets it from the router
+   * refresh after the restore; a draft deleted and restored on this page keeps the editor's first list (P4 re-reads it).
+   * (po-4a-red.md L-2.)
+   */
+  edit?: { warehouses: WarehouseChoicesLoad } | null;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -69,18 +80,30 @@ interface Shown {
  * the page deleted moves lost focus to the h1. After a restore's message is on screen the router cache is refreshed once.
  * The page owns one region (the restore's after-sentence and the lines Retry's count speak there). After a create (PO-3)
  * the page speaks *"{number} was created as a draft."* once, in that region, after `RouteFocus` has moved focus to its h1.
+ *
+ * From PO-4a a live draft's header is its editor (`components/purchasing/OrderHeaderForm`) when the server gave `edit`
+ * (UpdatePurchaseOrder and ListWarehouses): Supplier and Currency as text, Deliver to as a select, **Save**. A Save press
+ * empties the page's region (30d2edb), a saved answer says *"{number} was saved."* there, and the router cache is refreshed
+ * once. A refused Save whose re-read found the order no longer an editable draft commits that reading (the editor goes in
+ * the same mount: read-only, or the deleted banner with Restore) and the page shows the sentence under **Not saved**, its
+ * heading focused — UX D-2's `noLongerDraft` for an order approved or cancelled elsewhere, the server's for one deleted
+ * elsewhere — unless a newer editable reading was committed first (FE-R7). A restore clears it.
  */
-export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem }: PurchaseOrderPageProps) {
+export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null }: PurchaseOrderPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
-  const { message, announce } = useLiveRegion();
+  const { message, announce, clear } = useLiveRegion();
   // A deleted order never carries lines, from the first render on (the server reads none for it; `commit` keeps the rule).
   const firstLines: Shown['lines'] = initial.archived_at === null && initialLines !== null ? { gen: 0, value: initialLines } : null;
   const [shown, setShown] = useCommittedState<Shown>({ order: initial, lines: firstLines });
   const [swap, setSwap] = useState<'forbidden' | 'not-found' | null>(null);
   const [rereadError, setRereadError] = useState<{ gen: number; cause: Cause } | null>(null);
   const [retrying, setRetrying] = useState(false);
+  // PO-4a: a refused Save whose re-read found the order no longer an editable draft (the editor is gone): its sentence,
+  // shown under **Not saved** while the page shows an order that is not an editable draft.
+  const [staleRefusal, setStaleRefusal] = useState<{ gen: number; message: string } | null>(null);
+  const staleHeading = useRef<HTMLHeadingElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
   const id = initial.id;
   // After a create (PO-3; A-19 item 7): the create page left the sentence for this address. A later writer replaces it.
@@ -93,6 +116,9 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   // The lines last committed (a commit that keeps them reuses them; a Retry reads lines only when none are shown).
   const committedLines = useRef<Shown['lines']>(firstLines);
   const linesReads = useRef(0);
+  // Whether the reading last committed is an editable draft (live, `draft`), for the stale-refusal rule (FE-R7, the supplier
+  // page's): decided from what was committed, never from the render the Save was pressed in.
+  const committedEditable = useRef(initial.archived_at === null && initial.status === 'draft');
   const stamp = useCallback(() => ++stamps.current, []);
   const failed = useCallback((f: ReadFailure, asOf?: number) => {
     if (asOf !== undefined && asOf < committedAsOf.current) return;
@@ -114,7 +140,10 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
     async (order: PurchaseOrder, lines: LinesLoad | null, asOf: number) => {
       if (asOf < committedAsOf.current) return;
       committedAsOf.current = asOf;
+      committedEditable.current = order.archived_at === null && order.status === 'draft';
       setRereadError(null);
+      // An editable draft by any path (a restore): a stale Save's sentence describes nothing on screen.
+      if (committedEditable.current) setStaleRefusal(null);
       const next = order.archived_at !== null ? null : lines !== null ? { gen: ++linesReads.current, value: lines } : committedLines.current;
       committedLines.current = next;
       await setShown({ order, lines: next });
@@ -124,10 +153,37 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
 
   // The wiring is built when the action runs, not during render: `commit` writes the stamp refs (react-hooks/refs).
   const restore = useCallback(() => orderRestore({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed })(), [caller, id, stamp, canReadLines, commit, failed]);
-  const onRestored = useCallback(() => router.refresh(), [router]);
+  const onRestored = useCallback(() => {
+    setStaleRefusal(null);
+    router.refresh();
+  }, [router]);
+  const save = useCallback((changes: OrderChange) => orderSave({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed })(changes), [caller, id, stamp, canReadLines, commit, failed]);
+  const onSaved = useCallback(() => router.refresh(), [router]);
+  const reloadWarehouses = useCallback(async () => {
+    const d = startDeadline(ACTION_DEADLINES_MS.reread);
+    try {
+      return await loadWarehouseChoices(readOf(caller), d.signal);
+    } finally {
+      d.cancel();
+    }
+  }, [caller]);
+  const onRefusedStale = useCallback((text: string) => {
+    // FE-R7: the page shows an editable draft again (a newer reading was committed first): the refusal describes nothing
+    // on screen and is not kept.
+    if (committedEditable.current) return;
+    setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message: text }));
+  }, []);
 
   const order = shown.order;
   const archived = order.archived_at !== null;
+  const editorShown = edit !== null && !archived && order.status === 'draft';
+
+  // After the commit that renders the stale banner (focus never runs ahead of what it lands on).
+  const staleGen = staleRefusal?.gen ?? null;
+  useLayoutEffect(() => {
+    if (staleGen !== null) staleHeading.current?.focus();
+  }, [staleGen]);
+
   // A commit that turns the page deleted (a Retry that finds it deleted again) removes what had focus: when focus is then
   // lost (on <body> or a removed element), it moves to the h1.
   useLayoutEffect(() => {
@@ -156,6 +212,8 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   if (swap === 'forbidden') return <PurchaseOrdersDenied />;
   if (swap === 'not-found') return <PurchaseOrderNotFound />;
 
+  const deliverTo = canOpenWarehouse ? <Link href={`/warehouses/${order.warehouse.id}`}>{order.warehouse.name}</Link> : order.warehouse.name;
+  const supplierName = canOpenSupplier ? <Link href={`/suppliers/${order.supplier.id}`}>{order.supplier.name}</Link> : order.supplier.name;
   const raisedBy = order.created_by === null ? PURCHASE_ORDER_PAGE.raisedByUnknown : order.created_by.id === viewerId ? PURCHASE_ORDER_PAGE.raisedByYou(order.created_by.display_name) : order.created_by.display_name;
   const s = order.status;
   return (
@@ -170,6 +228,11 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
       <LiveRegion message={message} visuallyHidden />
       {rereadError ? (
         <RegionError key={`reread-${rereadError.gen}`} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={PURCHASE_ORDER_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
+      ) : null}
+      {staleRefusal && !editorShown ? (
+        <Banner key={`stale-${staleRefusal.gen}`} tone="danger" live="none" heading={NOT_SAVED} ref={staleHeading}>
+          <p>{staleRefusal.message}</p>
+        </Banner>
       ) : null}
       {order.archived_at !== null ? (
         <RestoreActions
@@ -192,13 +255,34 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
           onRestored={onRestored}
         />
       ) : null}
+      {editorShown ? (
+        <OrderHeaderForm
+          order={order}
+          warehouses={edit.warehouses}
+          reloadWarehouses={reloadWarehouses}
+          save={save}
+          editCode={gateCode('UpdatePurchaseOrder')}
+          warehousesViewCode={gateCode('ListWarehouses')}
+          supplier={supplierName}
+          deliverTo={deliverTo}
+          announce={announce}
+          fallbackFocusRef={h1}
+          onSaved={onSaved}
+          onSaveStarted={clear}
+          onRefusedStale={onRefusedStale}
+        />
+      ) : null}
       <dl className={styles.fields}>
-        <dt>{PURCHASE_ORDER_PAGE.supplier}</dt>
-        <dd>{canOpenSupplier ? <Link href={`/suppliers/${order.supplier.id}`}>{order.supplier.name}</Link> : order.supplier.name}</dd>
-        <dt>{PURCHASE_ORDER_PAGE.deliverTo}</dt>
-        <dd>{canOpenWarehouse ? <Link href={`/warehouses/${order.warehouse.id}`}>{order.warehouse.name}</Link> : order.warehouse.name}</dd>
-        <dt>{PURCHASE_ORDER_PAGE.currency}</dt>
-        <dd>{order.currency_code}</dd>
+        {!editorShown ? (
+          <>
+            <dt>{PURCHASE_ORDER_PAGE.supplier}</dt>
+            <dd>{supplierName}</dd>
+            <dt>{PURCHASE_ORDER_PAGE.deliverTo}</dt>
+            <dd>{deliverTo}</dd>
+            <dt>{PURCHASE_ORDER_PAGE.currency}</dt>
+            <dd>{order.currency_code}</dd>
+          </>
+        ) : null}
         <dt>{PURCHASE_ORDER_PAGE.expected}</dt>
         <dd>{order.expected_at !== null ? <DateTime value={order.expected_at} form="date-time" timeZone={timeZone} /> : PURCHASE_ORDER_PAGE.notSet}</dd>
         {order.ordered_at !== null ? (

@@ -1,7 +1,7 @@
 // Typed results of the purchase-order page's injected actions (Revision 7 A-19 item 5, Revision 8 R8-2), on the shared
 // kinds in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { CreatePurchaseOrderInput, PurchaseOrder } from '../api/purchasing';
+import type { CreatePurchaseOrderInput, PurchaseOrder, UpdatePurchaseOrderInput } from '../api/purchasing';
 import type { FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -45,3 +45,35 @@ export type CreateOrderResult =
   | ServerError;
 
 export type CreateOrderAction = (values: CreateOrderValues) => Promise<CreateOrderResult>;
+
+/**
+ * PO-4a: the draft header editor's fields, in screen order. Only Deliver to: Supplier is never changed in the app (PO D-6)
+ * and the expected date is absent while D-4 is unruled. A name the mirrored input lacks is a type error.
+ */
+export const ORDER_FIELDS = ['warehouse_id'] as const satisfies readonly (keyof UpdatePurchaseOrderInput & string)[];
+export type OrderField = (typeof ORDER_FIELDS)[number];
+/** What the editor hands to Save: only the changed members (`changedFields`), never one it did not change. */
+export type OrderChange = Partial<Pick<UpdatePurchaseOrderInput, OrderField>>;
+
+/**
+ * `PATCH /purchase-orders/{id}` (PO-4a; no Idempotency-Key: a merge patch, a repeat finds nothing to change). `saved`
+ * carries the 200 body. `invalid` a 422 mapped onto the form (P4 `unknown_reference` beside Deliver to). A 409 is
+ * followed by a re-read: `refused-archived` (the re-read is deleted: P8 elsewhere; the page shows the server's sentence),
+ * `no-longer-draft` (the re-read is live and not a draft: UX D-2's sentence built from it; both committed, so the
+ * editor is gone), `changed-since-loaded` (P9's rule, and the re-read failed: UX D-2's other sentence), else `refused`
+ * as sent (P1 says "try again"; the person's choice is kept).
+ */
+export type SaveOrderResult =
+  | { kind: 'saved'; order: PurchaseOrder }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<OrderField>; formErrors: string[] }
+  | { kind: 'refused-archived'; message: string }
+  | { kind: 'no-longer-draft'; order: PurchaseOrder }
+  | { kind: 'changed-since-loaded' }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type SaveOrderAction = (changes: OrderChange) => Promise<SaveOrderResult>;

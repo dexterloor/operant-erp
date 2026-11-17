@@ -6,7 +6,7 @@ import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
-import type { ActorReference, CreatePurchaseOrderInput, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine } from '@/lib/api/purchasing';
+import type { ActorReference, CreatePurchaseOrderInput, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
@@ -97,6 +97,8 @@ const MIRRORED: Record<string, string[]> = {
   NamedReference: keysOf<NamedReference>()({ id: true, name: true }),
   // Purchase orders PO-3: Create purchase order's body (the page sends supplier, warehouse and the supplier's currency only).
   'PurchaseOrder.CreatePurchaseOrderInput': keysOf<CreatePurchaseOrderInput>()({ supplier_id: true, warehouse_id: true, currency_code: true, expected_at: true, lines: true }),
+  // Purchase orders PO-4a: the draft header's merge-patch body (the editor sends the changed warehouse only).
+  'PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch': keysOf<UpdatePurchaseOrderInput>()({ supplier_id: true, warehouse_id: true, expected_at: true }),
   ActorReference: keysOf<ActorReference>()({ id: true, display_name: true }),
 };
 

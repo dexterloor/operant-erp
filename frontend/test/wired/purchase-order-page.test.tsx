@@ -101,9 +101,10 @@ describe('/purchase-orders/[id] — the header (UX B-3)', () => {
     expect(mine.container.querySelectorAll('button').length).toBe(0);
   });
 
-  it('the status notes, in their PO-1 forms (R1a-1 row 1): none names an action', () => {
+  // Moved at PO-4a (R1a-1 row 4): the draft note names changing, which ships there (Save); no note names a later action.
+  it('the status notes, in their PO-4a forms (R1a-1 rows 1 and 4): none names an action the app lacks', () => {
     const notes: Record<string, string[]> = {
-      draft: ['This is a draft.'],
+      draft: ['This is a draft. It can be changed.'],
       ordered: ["This order has been approved, so it can't be changed.", "The app doesn't send purchase orders to suppliers."],
       partially_received: ["This order has been approved, so it can't be changed.", "The app doesn't send purchase orders to suppliers."],
       received: ['This order is closed: it was received in full.'],
@@ -112,7 +113,7 @@ describe('/purchase-orders/[id] — the header (UX B-3)', () => {
     for (const [status, expected] of Object.entries(notes)) {
       const { container, unmount } = show({ order: order(status), lines: lines([line(1)]) });
       for (const t of expected) expect(screen.getByText(t, { selector: 'p' })).toBeInTheDocument();
-      for (const later of ['It can still be cancelled', 'It can be changed', 'deleted until', 'approved by someone other']) expect(container.textContent).not.toContain(later);
+      for (const later of ['It can still be cancelled', 'changed or deleted', 'deleted until', 'approved by someone other']) expect(container.textContent).not.toContain(later);
       unmount();
     }
   });
@@ -131,7 +132,7 @@ describe('/purchase-orders/[id] — the header (UX B-3)', () => {
     show({ order: order('draft', { archived_at: '2026-03-04T11:00:00Z' }), lines: null });
     expect(document.body.textContent).toMatch(/This draft was deleted on .+\./);
     expect(screen.queryByRole('button')).toBeNull();
-    expect(screen.queryByText('This is a draft.')).toBeNull();
+    expect(screen.queryByText(/This is a draft\./)).toBeNull();
     expect(screen.queryByRole('heading', { level: 2, name: 'Lines' })).toBeNull();
     expect(screen.queryByText('This draft has no lines yet.')).toBeNull();
   });

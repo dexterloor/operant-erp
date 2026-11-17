@@ -42,6 +42,7 @@
   "RestoreWarehouse",
   "RevokeRole",
   "UpdateItem",
+  "UpdatePurchaseOrder",
   "UpdateRole",
   "UpdateStorageLocation",
   "UpdateSupplier",

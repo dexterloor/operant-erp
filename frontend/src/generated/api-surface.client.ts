@@ -453,6 +453,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['inventory_item.edit'],
     },
   },
+  UpdatePurchaseOrder: {
+    method: 'PATCH',
+    template: '/api/v1/purchase-orders/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
+    },
+  },
   UpdateRole: {
     method: 'PATCH',
     template: '/api/v1/roles/{id}',
@@ -566,6 +576,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   Permission: ['code', 'description', 'module', 'sod_rows'],
   PurchaseOrder: ['archived_at', 'created_by', 'currency_code', 'expected_at', 'id', 'order_number', 'ordered_at', 'status', 'supplier', 'total_amount', 'warehouse'],
   'PurchaseOrder.CreatePurchaseOrderInput': ['currency_code', 'expected_at', 'lines', 'supplier_id', 'warehouse_id'],
+  'PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch': ['expected_at', 'supplier_id', 'warehouse_id'],
   PurchaseOrderLine: ['archived_at', 'id', 'inventory_item', 'line_number', 'quantity', 'quantity_outstanding', 'quantity_received', 'unit_cost'],
   'PurchaseOrderLine.inventory_item': ['id', 'name', 'sku'],
   Role: ['archived_at', 'description', 'holder_count', 'id', 'is_system', 'margin_exposure', 'name', 'permission_codes'],

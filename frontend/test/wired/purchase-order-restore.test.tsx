@@ -103,7 +103,8 @@ describe('/purchase-orders/[id] — a deleted draft, and Restore purchase order 
     await waitFor(() => expect(h1).toHaveFocus());
     expect(banner()).toBeNull();
     expect(screen.queryByRole('button', { name: 'Restore purchase order' })).toBeNull();
-    expect(screen.getByText('This is a draft.', { selector: 'p' })).toBeInTheDocument();
+    // PO-4a form of the draft note (R1a-1 row 4).
+    expect(screen.getByText('This is a draft. It can be changed.', { selector: 'p' })).toBeInTheDocument();
     // The re-read order (its total), and the lines that came back.
     expect(screen.getByText('50.00 GBP')).toBeInTheDocument();
     expect(linesHeading()).toBeInTheDocument();

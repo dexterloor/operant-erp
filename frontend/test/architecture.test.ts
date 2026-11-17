@@ -148,7 +148,9 @@ interface Violation {
 /** The only importers of `src/lib/api/problems.ts` (A-18 S-1): a new one is a deliberate edit here. */
 // Revision 8 R8-4: one importer per family, each pinned. Items I-1 (items-i1-red.md L-3, second option) added lib/items/wired.ts.
 // Suppliers S-1 (suppliers-plan.md Revision 0 §3, PROBLEMS_IMPORTERS row) added lib/suppliers/wired.ts (P1 on Save/Restore).
-const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/suppliers/wired.ts', 'src/lib/warehouses/wired.ts'];
+// Purchase orders PO-4a (plan Revision 0 §3 PROBLEMS_IMPORTERS row, moved from PO-2 by po-2-progress.md D-2: the first
+// action that must tell P1 apart) added lib/purchasing/wired.ts (P1 on the draft header's Save).
+const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/purchasing/wired.ts', 'src/lib/suppliers/wired.ts', 'src/lib/warehouses/wired.ts'];
 
 /** The import rules. `files` is any set of {file, source}; returns every breach. */
 function importViolations(files: readonly SourceFile[]): Violation[] {
@@ -271,6 +273,8 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
     'tenant_settings.edit',
   ],
   'src/lib/api/problems.ts': ['transaction.contention'],
+  // Purchase orders PO-4a (UX D-2: a status refusal is matched by rule code): P9's rule, compared in lib/purchasing/wired.ts.
+  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft'],
 };
 
 /** The code-shaped literals a home's top-level declarations hold (the ones `literalViolations` exempts there). */
@@ -359,7 +363,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Suppliers S-4 added: components/suppliers/EntryForm.tsx (the catalogue entry's Edit dialog, suppliers-plan.md §3).
   // Suppliers S-5 added: components/suppliers/AddEntryForm.tsx (Add to catalogue's dialog, suppliers-plan.md §R1-3).
   // Purchase orders PO-3 added: components/purchasing/NewOrderForm.tsx (the create page's form, plan §3).
-  'src/components': 68,
+  // Purchase orders PO-4a added: components/purchasing/OrderHeaderForm.tsx (the draft header's editor, plan §3).
+  'src/components': 69,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
   // Purchase orders PO-1 added: lib/api/purchasing.ts.
   'src/lib/api': 10,
@@ -384,7 +389,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Suppliers S-5 added: AddEntryForm.tsx (Add to catalogue).
   'src/components/suppliers': 4,
   // Purchase orders PO-3 added: NewOrderForm.tsx (the create page's form, with the supplier choice dialog).
-  'src/components/purchasing': 1,
+  // Purchase orders PO-4a added: OrderHeaderForm.tsx (the draft header's editor).
+  'src/components/purchasing': 2,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -1412,6 +1418,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/items/ItemForm.tsx',
       // Purchase orders PO-3 (G-F2 row): the create page's form (its supplier dialog is a sibling after it, never in it).
       'src/components/purchasing/NewOrderForm.tsx',
+      // Purchase orders PO-4a (G-F2 row): the draft header's editor.
+      'src/components/purchasing/OrderHeaderForm.tsx',
       // Suppliers S-5 (G-F2 row): Add to catalogue's dialog is a <form> (its item list sits before it, never in it).
       'src/components/suppliers/AddEntryForm.tsx',
       // Suppliers S-4 (G-F2 row): the catalogue entry's Edit dialog is a <form>, so it joins here.
@@ -1920,14 +1928,15 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
   it('the item dirs and the renderer hold no such token', () => {
     const files = scanned();
     // Positive control: the scan reads the item family and the renderer, not an empty set.
-    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/purchase-orders/PurchaseOrdersList.tsx', 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', 'src/app/(app)/purchase-orders/[id]/LinesSection.tsx', 'src/components/purchasing/NewOrderForm.tsx', 'src/app/(app)/purchase-orders/new/NewPurchaseOrderPage.tsx']));
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/purchase-orders/PurchaseOrdersList.tsx', 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', 'src/app/(app)/purchase-orders/[id]/LinesSection.tsx', 'src/components/purchasing/NewOrderForm.tsx', 'src/app/(app)/purchase-orders/new/NewPurchaseOrderPage.tsx', 'src/components/purchasing/OrderHeaderForm.tsx']));
     // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8. Suppliers S-3 added the supplier
     // dirs (src/app/(app)/suppliers: 9 files at S-3) and lib/format/money.ts (+1). Suppliers S-4: EntryForm.tsx (the Edit
     // dialog, which holds a cost and a minimum order) is in the positive control; it is counted by EXPECTED_COUNTS.
     // Suppliers S-5: AddEntryForm.tsx (the Add dialog, the same four fields) likewise. Purchase orders PO-1: lib/purchasing
     // and the order route dir (src/app/(app)/purchase-orders: 7 files at PO-1). PO-2: lib/purchasing gains results.ts and
     // wired.ts, counted by EXPECTED_COUNTS. PO-3: components/purchasing (counted by EXPECTED_COUNTS) and the order route
-    // dir's new/{page,NewPurchaseOrderPage}.tsx → 9.
+    // dir's new/{page,NewPurchaseOrderPage}.tsx → 9. PO-4a: components/purchasing/OrderHeaderForm.tsx (counted by
+    // EXPECTED_COUNTS) is in the positive control.
     expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 9);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
