@@ -11,7 +11,9 @@
 // line ships at PO-9), `ORDER_LINES.actions` / `emptyNote`; `ADD_LINE.archivedNote` is not here until BK-38.
 // PO-6 (row 6) adds Delete purchase order on a live draft: `DELETE_ORDER.*` (B-14), and the three keys that name deleting in
 // their PO-6 forms: `supplierFixed` final, `draftNote` = "…It can be changed or deleted.", `noneArchived` final.
-// The commit that ships each action replaces its key with the next form (R1a-1 rows 6–12).
+// PO-7 (row 7) adds Cancel order on an ordered or partly received order: `CANCEL_ORDER.*` (B-7, both bodies; Rev 1a: the
+// reason is single-line) and `orderedNote` in its final form ("…It can still be cancelled.").
+// The commit that ships each action replaces its key with the next form (R1a-1 rows 7–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
 
@@ -167,8 +169,8 @@ export const PURCHASE_ORDER_PAGE = {
    * approving (PO-8).
    */
   draftNote: 'This is a draft. It can be changed or deleted.',
-  /** `orderedNote`, PO-1 form (R1a-1 row 1); the final form names cancelling (PO-7). */
-  orderedNote: "This order has been approved, so it can't be changed.",
+  /** `orderedNote`, final form from PO-7 (R1a-1 row 7; R1-B): Cancel order has shipped (passive, R-3: true for every viewer). */
+  orderedNote: "This order has been approved, so it can't be changed. It can still be cancelled.",
   /** `closedNote` (received / cancelled). */
   closedReceived: 'This order is closed: it was received in full.',
   closedCancelled: 'This order is closed: it was cancelled.',
@@ -228,6 +230,32 @@ export const DELETE_ORDER = {
   after: (number: string) => `${number} was deleted. It's now in the archived purchase orders.`,
   afterRestored: (number: string) => `${number} was deleted, and has since been restored.`,
   interrupted: (number: string) => `We can't tell whether ${number} was deleted. Press Delete purchase order to try again.`,
+} as const;
+
+/**
+ * UX B-7 `CANCEL_ORDER` (PO-7; Rev 1a "as Rev 0, with no change"; R1a-1 row 7): **Cancel order** on an ordered or partly
+ * received order's page (§D-3), through its reason dialog (danger; initial focus on the dismiss). Never a bare "Cancel" on
+ * this dialog: the dismiss is **Keep order**. `close` is ST-9b's word for the one button left after a final refusal (B-7
+ * writes none; the house `Close`, as `DELETE_ORDER.close`). Heading `NOT_CANCELLED` on a refusal. The body is chosen from
+ * the status shown when the dialog opens; `after` / `afterPartly` from the status the page held before the request; both are
+ * spoken in the page's region. `alreadyCancelled` / `alreadyReceived` are UX D-2's, said from the re-read after C2. The
+ * Reason is single-line (Rev 1a, X-5) with no length cap until SEC sets one (plan R-11; owed).
+ */
+export const CANCEL_ORDER = {
+  action: 'Cancel order',
+  confirm: 'Cancel order',
+  dismiss: 'Keep order',
+  close: 'Close',
+  title: (number: string) => `Cancel ${number}?`,
+  bodyOrdered: (supplier: string) => `Nothing more will be expected on it, and it can't be reopened. The app doesn't tell ${supplier}: let them know yourself.`,
+  bodyPartly: (supplier: string) => `Goods already received stay in stock, and their receipts stay as they are. Nothing more will be expected on it, and it can't be reopened. The app doesn't tell ${supplier}: let them know yourself.`,
+  reason: 'Reason (optional)',
+  reasonHint: 'Kept with the record of the cancellation. Nothing in the app shows it yet.',
+  after: (number: string) => `${number} was cancelled. Nothing more is expected on it.`,
+  afterPartly: (number: string) => `${number} was cancelled. Goods already received stay in stock.`,
+  alreadyCancelled: (number: string) => `${number} was already cancelled.`,
+  alreadyReceived: (number: string) => `${number} was received in full meanwhile, so it can't be cancelled.`,
+  interrupted: (number: string) => `We can't tell whether ${number} was cancelled. Press Cancel order to try again.`,
 } as const;
 
 /** UX B-4 / R1-B `ORDER_LINES`: the lines on the order page, read-only at PO-1. */

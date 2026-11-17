@@ -1,4 +1,4 @@
-import { ITEM_UNAVAILABLE, PURCHASE_ORDER_REFUSAL, type CreatePurchaseOrderInput, type CreatePurchaseOrderLineInput, type PurchaseOrder } from '../api/purchasing';
+import { ITEM_UNAVAILABLE, PURCHASE_ORDER_REFUSAL, type CancelPurchaseOrderInput, type CreatePurchaseOrderInput, type CreatePurchaseOrderLineInput, type PurchaseOrder } from '../api/purchasing';
 import { PLATFORM_REFUSAL } from '../api/problems';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
@@ -6,11 +6,11 @@ import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import type { Refused } from '../results';
 import { isPurchaseOrder, isPurchaseOrderLine, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
-import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, ORDER_FIELDS, type AddLineAction, type AddLineResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type DeleteOrderAction, type DeleteOrderResult, type OrderChange, type RestoreOrderAction, type SaveOrderAction } from './results';
+import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, ORDER_FIELDS, type AddLineAction, type AddLineResult, type CancelOrderAction, type CancelOrderResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type DeleteOrderAction, type DeleteOrderResult, type OrderChange, type RestoreOrderAction, type SaveOrderAction } from './results';
 
 // The purchasing family's actions over the BFF (Revision 8 R8-2; the lib/suppliers/wired.ts shape). PO-2 shipped
 // Restore purchase order; PO-3 Create purchase order; PO-4a Save (the draft's header); PO-5 adds Add line and Delete line;
-// PO-6 Delete purchase order (both at the end of this file).
+// PO-6 Delete purchase order; PO-7 Cancel order (all three at the end of this file).
 // Restore takes no Idempotency-Key: it is guarded by `deleted_at` (a repeat is refused P12).
 // One deadline covers the request, its GetPurchaseOrder re-read and, for a ListPurchaseOrderLines holder, the order's live
 // lines. Restore compares no refusal code: a refusal is followed by a re-read, and what the re-read shows decides (live →
@@ -50,6 +50,11 @@ export interface OrderWiring {
   readonly onRereadFailed: (failure: ReadFailure, asOf: number, sentAsOf?: number) => void;
   /** PO-6: after a 204, before the delete's re-read is sent: the page raises what it shows to that re-read's stamp (the 204 floor). */
   readonly onDeleted?: (asOf: number) => void;
+  /**
+   * PO-7: after a 200 of Cancel order, before its re-read is sent: the page raises what it shows to that re-read's stamp, and
+   * a Save sent before it is silenced as before a 204 (the cancel floor, po-7-progress.md).
+   */
+  readonly onCancelled?: (asOf: number) => void;
 }
 
 /** A live order's lines, read under the action's deadline; `null` for a deleted order or a viewer without the read. */
@@ -358,6 +363,66 @@ export function orderDelete(w: OrderWiring): DeleteOrderAction {
           const stale = await afterLineRefusal(w, r, deadline.signal, false);
           // `refused-archived` cannot follow P9's rule unless the order was deleted in between: the server's sentence then.
           return stale.kind === 'refused-archived' ? { kind: 'refused', rule: r.rule, message: stale.message } : stale;
+        }
+        case 'not-found':
+        case 'forbidden':
+        case 'session-ended':
+        case 'unreachable':
+        case 'server-error':
+          return r;
+        default:
+          return { kind: 'server-error' };
+      }
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Cancel order (PO-7; the `orderDelete` shape over this family's stale rule). Body `{}` when the Reason box is empty,
+// `{ reason }` exactly as typed otherwise (X-5; the server trims, and a blank reason is none there); never `null`. No
+// Idempotency-Key: `guard:purchase_order.status` (a repeat is refused C2). One deadline covers the request and its re-read.
+// After a 200, `onCancelled` raises what the page shows to the re-read's stamp before that re-read is sent (the cancel
+// floor), then the order and its live lines are read and committed in one commit; if that re-read fails, the 200 body (the
+// server's new state) is committed with its lines under the same stamp, so the page never says "cancelled" over an ordered
+// page, and the page is told. Refusals: P1 is `contention`; C2's rule (`PurchaseOrder::cancel()`'s status guard: cancelled
+// or received in full elsewhere) is followed by a stamped re-read under the same deadline whose reading is committed
+// whatever it is (there is no typed choice to keep: the dialog is final after C2), and named — cancelled →
+// `already-cancelled`, received → `already-received` (UX D-2's sentences), anything else the refusal as sent; a failed
+// re-read is the page's region error and `changed-since-loaded`. Any other refusal (C1 DSoD-1, C3 archived) is returned as
+// sent: the page re-reads once the dialog closes (FE-D1).
+export function orderCancel(w: OrderWiring): CancelOrderAction {
+  return async (reason): Promise<CancelOrderResult> => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.orderCancel);
+    try {
+      const body: CancelPurchaseOrderInput = reason === '' ? {} : { reason };
+      const r = await w.caller.call('CancelPurchaseOrder', { id: w.id }, body, { signal: deadline.signal });
+      if (r.kind === 'ok') {
+        if (!isPurchaseOrder(r.body)) return { kind: 'server-error' };
+        const s = w.stamp();
+        w.onCancelled?.(s);
+        const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
+        if (again.kind === 'ok') await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
+        else {
+          await w.setOrder(r.body, await linesFor(w, r.body, deadline.signal), s);
+          w.onRereadFailed(again.kind, s);
+        }
+        return { kind: 'cancelled', order: r.body };
+      }
+      switch (r.kind) {
+        case 'refused': {
+          if (r.rule === PLATFORM_REFUSAL.contention) return { kind: 'contention', message: r.message };
+          if (r.rule !== PURCHASE_ORDER_REFUSAL.illegalTransition) return r;
+          const s = w.stamp();
+          const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
+          if (again.kind !== 'ok') {
+            w.onRereadFailed(again.kind, s);
+            return { kind: 'changed-since-loaded' };
+          }
+          await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
+          if (again.order.status === 'cancelled') return { kind: 'already-cancelled', order: again.order };
+          if (again.order.status === 'received') return { kind: 'already-received', order: again.order };
+          return r;
         }
         case 'not-found':
         case 'forbidden':

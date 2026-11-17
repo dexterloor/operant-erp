@@ -116,13 +116,25 @@ export interface CreatePurchaseOrderLineInput {
 }
 
 /**
+ * `CancelPurchaseOrder`'s body (served `PurchaseOrder.CancelPurchaseOrderInput`; PO-7; the body is required). The reason
+ * dialog sends `{}` when the Reason box is empty and `{ reason }` exactly as typed otherwise (the server trims, and a blank
+ * reason is none there: `PurchaseOrderCancellation::reason()`). `null` is never sent. No length is served (SEC's cap, plan
+ * R-11, is owed).
+ */
+export interface CancelPurchaseOrderInput {
+  reason?: string | null;
+}
+
+/**
  * The purchase-order refusal rules the family branches on (UX D-2: a status refusal is matched by rule code, the page
  * re-reads and says what it found). `notDraft` (`PurchaseOrderWriter::refuseUnlessDraft`, P9): an edit of an order that
  * is no longer a draft. `notListed` (PO-5, plan L1, `PurchaseOrderWriter::insertLineInside`): the order's supplier has no
- * catalogue entry for the item any more, so the new line row reads the catalogue again. Compared in
- * `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent; po-4a-red.md L-4).
+ * catalogue entry for the item any more, so the new line row reads the catalogue again. `illegalTransition` (PO-7, plan
+ * C2): `PurchaseOrder::cancel()`'s status guard (`IllegalTransition::RULE` on the `purchase_order` table) — cancelled or
+ * received in full elsewhere. Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent;
+ * po-4a-red.md L-4).
  */
-export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item' } as const;
+export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item', illegalTransition: 'purchase_order.status_transition_is_legal' } as const;
 
 /**
  * PO-5 (purchase-orders-final-red.md H-2): the one 422 violation the new line row does not render as served — an item that

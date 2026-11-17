@@ -134,3 +134,33 @@ export type DeleteLineAction = (line: PurchaseOrderLine) => Promise<DeleteLineRe
 export type DeleteOrderResult = { kind: 'deleted' } | { kind: 'no-longer-draft'; order: PurchaseOrder } | { kind: 'changed-since-loaded' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
 
 export type DeleteOrderAction = () => Promise<DeleteOrderResult>;
+
+/**
+ * `POST /purchase-orders/{id}/cancellation` (PO-7; body `{}` or `{ reason }`, no key: a repeat is refused C2). `cancelled`
+ * carries the 200 body and resolves after the stamped re-read (the order and its lines) is committed — or, when it failed,
+ * after the 200 body was committed and the page told. The stale kinds follow C2's rule and its re-read (committed whatever
+ * it read): `already-cancelled` / `already-received` (UX D-2's sentences, built from it) or `changed-since-loaded` (the
+ * re-read failed). `contention` is P1 (Cancel order kept); `refused` any other 409 as sent (C1 DSoD-1, C3 archived), final.
+ */
+export type CancelOrderResult =
+  | { kind: 'cancelled'; order: PurchaseOrder }
+  | { kind: 'already-cancelled'; order: PurchaseOrder }
+  | { kind: 'already-received'; order: PurchaseOrder }
+  | { kind: 'changed-since-loaded' }
+  | Contention
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/** Cancel order with the Reason box's text as typed (`''` = none: the body is then `{}`). */
+export type CancelOrderAction = (reason: string) => Promise<CancelOrderResult>;
+
+/**
+ * What `components/purchasing/CancelOrderDialog` branches on (kinds only, never a code): the page maps the stale kinds onto
+ * `refused` with UX D-2's sentence. `refused` and `not-found` leave Close only; `contention`, `forbidden` and an interrupted
+ * request keep Cancel order.
+ */
+export type CancelDialogResult = { kind: 'cancelled' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;

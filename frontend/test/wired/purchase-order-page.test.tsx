@@ -102,19 +102,20 @@ describe('/purchase-orders/[id] — the header (UX B-3)', () => {
   });
 
   // Moved at PO-4a (R1a-1 row 4): the draft note names changing, which ships there (Save). Moved again at PO-6 (row 6): it
-  // names deleting too (Delete purchase order ships there); no note names a later action (cancelling PO-7, approving PO-8).
-  it('the status notes, in their PO-6 forms (R1a-1 rows 1 and 6): none names an action the app lacks', () => {
+  // names deleting too (Delete purchase order ships there). Moved at PO-7 (row 7): `orderedNote` in its final form names
+  // cancelling (Cancel order ships there); no note names a later action (approving, PO-8).
+  it('the status notes, in their PO-7 forms (R1a-1 rows 1, 6 and 7): none names an action the app lacks', () => {
     const notes: Record<string, string[]> = {
       draft: ['This is a draft. It can be changed or deleted.'],
-      ordered: ["This order has been approved, so it can't be changed.", "The app doesn't send purchase orders to suppliers."],
-      partially_received: ["This order has been approved, so it can't be changed.", "The app doesn't send purchase orders to suppliers."],
+      ordered: ["This order has been approved, so it can't be changed. It can still be cancelled.", "The app doesn't send purchase orders to suppliers."],
+      partially_received: ["This order has been approved, so it can't be changed. It can still be cancelled.", "The app doesn't send purchase orders to suppliers."],
       received: ['This order is closed: it was received in full.'],
       cancelled: ['This order is closed: it was cancelled.'],
     };
     for (const [status, expected] of Object.entries(notes)) {
       const { container, unmount } = show({ order: order(status), lines: lines([line(1)]) });
       for (const t of expected) expect(screen.getByText(t, { selector: 'p' })).toBeInTheDocument();
-      for (const later of ['It can still be cancelled', "until it's approved", 'approved by someone other']) expect(container.textContent).not.toContain(later);
+      for (const later of ["until it's approved", 'approved by someone other']) expect(container.textContent).not.toContain(later);
       unmount();
     }
   });

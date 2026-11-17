@@ -80,6 +80,12 @@ export const ACTION_DEADLINES_MS = {
    * dialog closes runs under `reread`.
    */
   orderDelete: 30_000,
+  /**
+   * Cancel an ordered or partly received purchase order (PO-7): the request + the GetPurchaseOrder and lines re-read; also
+   * the re-read after C2's status refusal, to say what the order is now. The page's re-read after the dialog closes runs
+   * under `reread`.
+   */
+  orderCancel: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

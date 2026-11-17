@@ -84,3 +84,10 @@
 .readOnly dd p {
   margin: 0;
 }
+
+/* PO-7: Cancel order's Reason, the first child of the dialog's action row, on a row of its own above the buttons (the
+   suppliers dialogs' `.choice` shape). */
+.dialogField {
+  flex: 1 1 100%;
+  min-width: 0;
+}

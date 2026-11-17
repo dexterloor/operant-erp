@@ -6,7 +6,7 @@ import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
-import type { ActorReference, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput } from '@/lib/api/purchasing';
+import type { ActorReference, CancelPurchaseOrderInput, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
@@ -102,6 +102,8 @@ const MIRRORED: Record<string, string[]> = {
   // Purchase orders PO-4a: the draft header's merge-patch body (the editor sends the changed warehouse only).
   'PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch': keysOf<UpdatePurchaseOrderInput>()({ supplier_id: true, warehouse_id: true, expected_at: true }),
   ActorReference: keysOf<ActorReference>()({ id: true, display_name: true }),
+  // Purchase orders PO-7: Cancel order's body (the dialog sends the reason as typed, or nothing).
+  'PurchaseOrder.CancelPurchaseOrderInput': keysOf<CancelPurchaseOrderInput>()({ reason: true }),
 };
 
 describe('C-1 — wire parity of the hand-written lib/api types', () => {

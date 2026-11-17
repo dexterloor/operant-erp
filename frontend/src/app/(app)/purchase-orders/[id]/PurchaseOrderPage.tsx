@@ -5,6 +5,7 @@ import { flushSync } from 'react-dom';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AddLineRow } from '@/components/purchasing/AddLineRow';
+import { CancelOrderDialog } from '@/components/purchasing/CancelOrderDialog';
 import { OrderHeaderForm } from '@/components/purchasing/OrderHeaderForm';
 import { DeleteDialog } from '@/components/records/DeleteDialog';
 import { RestoreActions } from '@/components/records/RestoreActions';
@@ -15,15 +16,15 @@ import { Chip } from '@/components/ui/Chip';
 import { DateTime } from '@/components/ui/DateTime';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { COULD_NOT_REACH, NOT_ADDED, NOT_DELETED, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
-import { ADD_LINE, DELETE_ORDER, ORDER_LINES, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RESTORE_ORDER, statusLabel } from '@/copy/purchasing';
+import { ADD_LINE, CANCEL_ORDER, DELETE_ORDER, ORDER_LINES, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RESTORE_ORDER, statusLabel } from '@/copy/purchasing';
 import type { PurchaseOrder, PurchaseOrderLine } from '@/lib/api/purchasing';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { renderMoney } from '@/lib/format/money';
 import { loadCatalogueChoices, loadLines, loadPurchaseOrder, loadWarehouseChoices, type CatalogueChoicesLoad, type LinesLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
-import type { AddLineValues, OrderChange } from '@/lib/purchasing/results';
-import { lineCreate, lineDelete, orderDelete, orderRestore, orderSave } from '@/lib/purchasing/wired';
+import type { AddLineValues, CancelDialogResult, OrderChange } from '@/lib/purchasing/results';
+import { lineCreate, lineDelete, orderCancel, orderDelete, orderRestore, orderSave } from '@/lib/purchasing/wired';
 import type { DeleteResult } from '@/lib/results';
 import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
@@ -67,9 +68,13 @@ export interface PurchaseOrderPageProps {
   canDeleteLine?: boolean;
   /** PO-6: holds DeletePurchaseOrder's codes — a live draft offers **Delete purchase order** (UX B-14; plan R1-3). */
   canDelete?: boolean;
+  /** PO-7: holds CancelPurchaseOrder's codes — an ordered or partly received order offers **Cancel order** (UX B-7; plan D-2). */
+  canCancel?: boolean;
 }
 
 type Cause = 'unreachable' | 'server-error';
+/** PO-7 (plan D-2): Cancel order is offered only on a live order that is ordered or partly received (Delete covers a draft). */
+const cancellable = (o: PurchaseOrder) => o.archived_at === null && (o.status === 'ordered' || o.status === 'partially_received');
 /** What the page shows: the order and, for a live one whose lines were read, those lines (a generation per read, so a new read remounts the section on its new answer). */
 interface Shown {
   order: PurchaseOrder;
@@ -121,8 +126,20 @@ interface Shown {
  * leaves the page read-only (no actions, no note) with its region error until a later commit. P9's rule (an order approved
  * or cancelled elsewhere) shows UX D-2's sentence inside the dialog; P10 the server's; both leave Close, which re-reads.
  * While a line write is in flight the press opens nothing (one write at a time, po-6-progress.md D-3).
+ *
+ * From PO-7 an ordered or partly received order offers **Cancel order** in the header (`canCancel`, UX B-7; never on a
+ * draft, D-2; rendered for the person who raised it too — C1 is said after the press, ST-4f's third arm) through
+ * `components/purchasing/CancelOrderDialog` (one optional single-line Reason, dismiss **Keep order**), rendered on its open
+ * state alone. A 200 raises the page's cancel floor to the cancel's re-read stamp (`onCancelled`: a reading asked for
+ * before it is dropped, and a Save sent before it is silenced exactly as before a 204 — its answer body, its sentence, its
+ * refusal banner and its failed re-read), commits the re-read (or the 200 body when that failed) and, after the dialog has
+ * closed, focuses the h1, then speaks *"{number} was cancelled. …"* (`afterPartly` when the page held a partly received
+ * order before the request), then refreshes the router cache once (FE-D1). C2 (cancelled or received in full elsewhere)
+ * shows UX D-2's sentence from the re-read inside the dialog; C1 and C3 the server's; all leave Close, which re-reads. While a
+ * line write is in flight (a write started on the draft, still answering after the page turned ordered) the press opens
+ * nothing (po-7-progress.md, the cancel floor).
  */
-export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false }: PurchaseOrderPageProps) {
+export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false, canCancel = false }: PurchaseOrderPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -135,6 +152,8 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   const [retrying, setRetrying] = useState(false);
   // PO-6: the Delete dialog is open (it renders on this alone, never on what the page shows under it).
   const [deleting, setDeleting] = useState(false);
+  // PO-7: the Cancel order dialog is open (it renders on this alone, never on what the page shows under it).
+  const [cancelling, setCancelling] = useState(false);
   // PO-6 (the warehouse page's RED M-1): a 204 here is a fact that outranks a stale snapshot. If the re-read after it failed,
   // the order is still treated as deleted for the actions (no Delete purchase order, no editor, no line actions, no note)
   // until a commit that is not dropped says otherwise.
@@ -178,6 +197,15 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   // decided from what was committed, never from the render the dialog was opened in. A 204 sets it too, until a later
   // commit says otherwise.
   const committedArchived = useRef(initial.archived_at !== null);
+  // PO-7, the cancel floor (the 204 floor's twin for the person's own Cancel order): the stamp of the cancel's re-read. A
+  // Save sent before it describes the order before the cancel; what it would commit, say, show or focus is dropped.
+  const cancelledAsOf = useRef(0);
+  // PO-7: the status of the reading last committed (for `afterPartly`: the status the page held BEFORE the request, decided
+  // from what was committed, never from the render the dialog was opened in), and the one captured at the press.
+  const committedStatus = useRef(initial.status);
+  const cancelFrom = useRef(initial.status);
+  // A write sent before the person's own Delete (204) or Cancel order (200) describes the order before it (PO-6 / PO-7).
+  const beforeOwnOutcome = useCallback((sentAsOf: number) => sentAsOf < deletedAsOf.current || sentAsOf < cancelledAsOf.current, []);
   const stamp = useCallback(() => ++stamps.current, []);
   const failed = useCallback((f: ReadFailure, asOf?: number, sentAsOf?: number) => {
     if (asOf !== undefined && asOf < committedAsOf.current) return;
@@ -186,13 +214,13 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
       setSwap(f);
       return;
     }
-    // PO-6 (po-6-red.md, spar on :384; the items UX ruling L-1): a Save sent before a 204 of the person's own Delete does not
-    // put its failed re-read over what the delete left; the delete's reading, sentence and focus stand. Compared only with
-    // the 204 floor. Swaps are kept: they say what the viewer may see now.
-    if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
+    // PO-6 (po-6-red.md, spar on :384; the items UX ruling L-1): a Save sent before a 204 of the person's own Delete — or,
+    // from PO-7, before a 200 of their own Cancel order — does not put its failed re-read over what that left; its reading,
+    // sentence and focus stand. Compared only with the two floors. Swaps are kept: they say what the viewer may see now.
+    if (sentAsOf !== undefined && beforeOwnOutcome(sentAsOf)) return;
     // After RestoreActions' own after-restore focus, so the region error's heading takes it.
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
-  }, []);
+  }, [beforeOwnOutcome]);
 
   /**
    * Commits a reading. A deleted order drops its lines (none are shown on a deleted draft: the state holds the rule, from
@@ -202,8 +230,9 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   const commit = useCallback(
     async (order: PurchaseOrder, lines: LinesLoad | null, asOf: number, sentAsOf?: number) => {
       if (asOf < committedAsOf.current) return;
-      if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
+      if (sentAsOf !== undefined && beforeOwnOutcome(sentAsOf)) return;
       committedAsOf.current = asOf;
+      committedStatus.current = order.status;
       committedEditable.current = order.archived_at === null && order.status === 'draft';
       committedArchived.current = order.archived_at !== null;
       // A commit that is not dropped is newer than a 204 seen here: it clears that fact (a restore then turns the page live).
@@ -215,7 +244,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
       committedLines.current = next;
       await setShown({ order, lines: next });
     },
-    [setShown],
+    [setShown, beforeOwnOutcome],
   );
 
   // The wiring is built when the action runs, not during render: `commit` writes the stamp refs (react-hooks/refs).
@@ -244,19 +273,20 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   // Delete describes the order before the delete — its refusal is dropped (no **Not saved**, focus stays where the delete
   // put it), and so is its "saved" sentence (M-3: "the person's own Delete outranks their own Save"; the refresh stays).
   // `sentAsOf` is compared only with the 204 floor, never with the commit stamp.
+  // PO-7: the same for a Save sent before a 200 of the person's own Cancel order (the cancel floor).
   const onRefusedStale = useCallback(
     (text: string, sentAsOf: number) => {
-      if (sentAsOf < deletedAsOf.current) return;
+      if (beforeOwnOutcome(sentAsOf)) return;
       refusedStale(NOT_SAVED, text);
     },
-    [refusedStale],
+    [refusedStale, beforeOwnOutcome],
   );
   const announceSaved = useCallback(
     (text: string, sentAsOf: number) => {
-      if (sentAsOf < deletedAsOf.current) return;
+      if (beforeOwnOutcome(sentAsOf)) return;
       announce(text);
     },
-    [announce],
+    [announce, beforeOwnOutcome],
   );
   const onAddRefusedStale = useCallback((text: string) => refusedStale(NOT_ADDED, text), [refusedStale]);
   const onDeleteRefusedStale = useCallback((text: string) => refusedStale(NOT_DELETED, text), [refusedStale]);
@@ -288,6 +318,36 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   const openDelete = () => {
     if (lineWriting.current) return;
     setDeleting(true);
+  };
+  // PO-7: the cancel floor, raised before the cancel's re-read is sent (the 204 floor's shape): a reading requested earlier is
+  // dropped, and so is anything a Save sent earlier would commit, say or show. A stale "no longer a draft" banner describes an
+  // edit the person can no longer make: it goes (T-17's rule for the person's own act).
+  const onCancelled = useCallback((s: number) => {
+    // Not `Math.max`: this route dir is in the quantity scan (QR-2 backstop), which reads the token, not its meaning.
+    if (s > committedAsOf.current) committedAsOf.current = s;
+    cancelledAsOf.current = s;
+    setStaleRefusal(null);
+  }, []);
+  // PO-7: Cancel order. C2's stale kinds become the dialog's own refusal (Close only) in UX D-2's words, built from the
+  // re-read (`alreadyCancelled` / `alreadyReceived`) or, when it failed, `changedSinceLoaded`; the order number never changes.
+  // The status the page held before the request is taken here, at the press (`afterPartly`).
+  const cancelRun = useCallback(
+    async (reason: string): Promise<CancelDialogResult> => {
+      cancelFrom.current = committedStatus.current;
+      const r = await orderCancel({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed, onCancelled })(reason);
+      if (r.kind === 'already-cancelled') return { kind: 'refused', rule: '', message: CANCEL_ORDER.alreadyCancelled(r.order.order_number) };
+      if (r.kind === 'already-received') return { kind: 'refused', rule: '', message: CANCEL_ORDER.alreadyReceived(r.order.order_number) };
+      if (r.kind === 'changed-since-loaded') return { kind: 'refused', rule: '', message: PURCHASE_ORDER_PAGE.changedSinceLoaded(initial.order_number) };
+      if (r.kind === 'cancelled') return { kind: 'cancelled' };
+      return r;
+    },
+    [caller, id, stamp, canReadLines, commit, failed, onCancelled, initial.order_number],
+  );
+  // PO-7 (po-7-progress.md, the cancel floor (a)): Cancel order joins the one line write at a time — a line write started on
+  // the draft may still be answering after the page turned ordered; while it is in flight the press opens nothing.
+  const openCancel = () => {
+    if (lineWriting.current) return;
+    setCancelling(true);
   };
   const reloadCatalogue = useCallback(async () => {
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
@@ -371,6 +431,38 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
     if (r.order.archived_at !== null) router.refresh();
   };
 
+  // PO-7 (plan §4 PO-7; FE-D1, as `closeDelete`). After a 200 the cancel's re-read (or its 200 body) is committed: commit
+  // the close, focus the h1 (Cancel order is gone with the ordered state), speak B-7's `after` — `afterPartly` when the page
+  // held a partly received order before the request — then refresh the router cache once. Any other close after an answer
+  // re-reads the order and its lines, so what is under the dialog is the server's (an interrupted press may have committed).
+  // A reading that can no longer be cancelled removed the button focus goes back to, so the h1 takes focus; a reading that
+  // left the open orders refreshes the router cache.
+  const closeCancel = async ({ cancelled, reread }: { cancelled: boolean; reread: boolean }) => {
+    flushSync(() => setCancelling(false));
+    if (cancelled) {
+      h1.current?.focus();
+      announce(cancelFrom.current === 'partially_received' ? CANCEL_ORDER.afterPartly(initial.order_number) : CANCEL_ORDER.after(initial.order_number));
+      router.refresh();
+      return;
+    }
+    if (!reread) return;
+    const mine = ++stamps.current;
+    const d = startDeadline(ACTION_DEADLINES_MS.reread);
+    const r = await loadPurchaseOrder(readOf(caller), id, d.signal);
+    const lines = r.kind === 'ok' && r.order.archived_at === null && canReadLines ? await loadLines(readOf(caller), id, d.signal) : null;
+    d.cancel();
+    if (committedAsOf.current > mine) return;
+    if (r.kind !== 'ok') {
+      failed(r.kind, mine);
+      return;
+    }
+    await commit(r.order, lines, mine);
+    if (!cancellable(r.order)) {
+      h1.current?.focus();
+      router.refresh();
+    }
+  };
+
   if (swap === 'forbidden') return <PurchaseOrdersDenied />;
   if (swap === 'not-found') return <PurchaseOrderNotFound />;
 
@@ -388,6 +480,11 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
         {canDelete && actionable ? (
           <Button variant="destructive" onClick={openDelete}>
             {DELETE_ORDER.action}
+          </Button>
+        ) : null}
+        {canCancel && cancellable(order) ? (
+          <Button variant="destructive" onClick={openCancel}>
+            {CANCEL_ORDER.action}
           </Button>
         ) : null}
       </header>
@@ -536,6 +633,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
           fallbackFocusRef={h1}
         />
       ) : null}
+      {cancelling ? <CancelOrderDialog order={order} run={cancelRun} cancelCode={gateCode('CancelPurchaseOrder')} onCancelStarted={clear} onClose={(o) => void closeCancel(o)} fallbackFocusRef={h1} /> : null}
     </section>
   );
 }

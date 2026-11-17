@@ -12,6 +12,8 @@ export const NOT_CREATED = 'Not created';
 export const NOT_ADDED = 'Not added';
 /** suppliers-ux-copy.md Revision 1 — FINAL S-6 `NOT_REMOVED` (the heading rule: the catalogue's button is Remove, §B-9). */
 export const NOT_REMOVED = 'Not removed';
+/** purchase-orders-ux-copy.md B-7 / `:166` (CONFIRMS the heading rule, `ux-copy-frontend.md` §3: Cancel → Not cancelled): Cancel order's refusal heading (PO-7). */
+export const NOT_CANCELLED = 'Not cancelled';
 
 /**
  * b4-owed-copy.md Rev 2 R1-1; the B-3a fallback phrasing, F16, confirmed by ux-confirm-b4.md: where the client cannot know whether the

@@ -77,7 +77,7 @@ async function render(codes: string[]): Promise<ReactElement> {
   expect(isValidElement(el)).toBe(true);
   return el as ReactElement;
 }
-type Props = { viewerId: string; canRestore: boolean; canReadLines: boolean; canOpenSupplier: boolean; canOpenWarehouse: boolean; canOpenItem: boolean; canDelete: boolean; lines: unknown };
+type Props = { viewerId: string; canRestore: boolean; canReadLines: boolean; canOpenSupplier: boolean; canOpenWarehouse: boolean; canOpenItem: boolean; canDelete: boolean; canCancel: boolean; lines: unknown };
 const props = (el: ReactElement) => el.props as Props;
 
 describe('/purchase-orders — the list page', () => {
@@ -180,6 +180,25 @@ describe('/purchase-orders/[id] — the order page', () => {
       v.byOperation = (op) => op === 'GetPurchaseOrder' || op === operation;
       try {
         expect(props(await render([])).canDelete).toBe(expected);
+      } finally {
+        v.byOperation = null;
+      }
+    }
+  });
+
+  // PO-7: Cancel order follows CancelPurchaseOrder alone (purchase_order.cancel), on its own operation; the page offers it
+  // only on an ordered or partly received order (purchase-order-cancel.test.tsx).
+  it('PO-7 — canCancel follows CancelPurchaseOrder, on its own operation', async () => {
+    expect(props(await render(['purchase_order.view'])).canCancel).toBe(false);
+    expect(props(await render(['purchase_order.view', 'purchase_order.cancel'])).canCancel).toBe(true);
+    for (const [operation, expected] of [
+      ['CancelPurchaseOrder', true],
+      ['ApprovePurchaseOrder', false],
+      ['DeletePurchaseOrder', false],
+    ] as const) {
+      v.byOperation = (op) => op === 'GetPurchaseOrder' || op === operation;
+      try {
+        expect(props(await render([])).canCancel).toBe(expected);
       } finally {
         v.byOperation = null;
       }

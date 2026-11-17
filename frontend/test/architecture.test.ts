@@ -275,7 +275,8 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
   'src/lib/api/problems.ts': ['transaction.contention'],
   // Purchase orders PO-4a (UX D-2: a status refusal is matched by rule code): P9's rule, compared in lib/purchasing/wired.ts.
   // Purchase orders PO-5 (plan R1-5 PO-5 "L1 → … catalogue re-read"): L1's rule, compared in lib/purchasing/wired.ts.
-  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item'],
+  // Purchase orders PO-7 (plan §2.2 "Stale page", C2 → re-read): the status guard's rule, compared in lib/purchasing/wired.ts.
+  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal'],
 };
 
 /** The code-shaped literals a home's top-level declarations hold (the ones `literalViolations` exempts there). */
@@ -366,7 +367,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-3 added: components/purchasing/NewOrderForm.tsx (the create page's form, plan §3).
   // Purchase orders PO-4a added: components/purchasing/OrderHeaderForm.tsx (the draft header's editor, plan §3).
   // Purchase orders PO-5 added: components/purchasing/AddLineRow.tsx (the lines table's new line row, plan §3).
-  'src/components': 70,
+  // Purchase orders PO-7 added: components/purchasing/CancelOrderDialog.tsx (Cancel order's reason dialog, plan §3).
+  'src/components': 71,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
   // Purchase orders PO-1 added: lib/api/purchasing.ts.
   'src/lib/api': 10,
@@ -393,7 +395,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-3 added: NewOrderForm.tsx (the create page's form, with the supplier choice dialog).
   // Purchase orders PO-4a added: OrderHeaderForm.tsx (the draft header's editor).
   // Purchase orders PO-5 added: AddLineRow.tsx (the lines table's new line row).
-  'src/components/purchasing': 3,
+  // Purchase orders PO-7 added: CancelOrderDialog.tsx (Cancel order's reason dialog).
+  'src/components/purchasing': 4,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,

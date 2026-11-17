@@ -200,7 +200,7 @@ describe('/purchase-orders/[id] — a draft’s header editor (PO-4a)', () => {
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
     expect(screen.getByRole('heading', { level: 1 })).toBe(h1);
-    expect(screen.getByText("This order has been approved, so it can't be changed.")).toBeInTheDocument();
+    expect(screen.getByText("This order has been approved, so it can't be changed. It can still be cancelled.")).toBeInTheDocument();
     expect(region()).toHaveTextContent('');
   });
 
@@ -459,7 +459,7 @@ describe('/purchase-orders/[id] — a draft’s header editor (PO-4a)', () => {
     await waitFor(() => expect(screen.getByText(REREAD_FAILED)).toBeInTheDocument());
     // The Retry reads the order approved elsewhere meanwhile: read-only, and the P8 sentence stays gone.
     await u.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(screen.getByText("This order has been approved, so it can't be changed.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("This order has been approved, so it can't be changed. It can still be cancelled.")).toBeInTheDocument());
     expect(screen.queryByText(P8)).toBeNull();
     expect(screen.queryByText('Not saved')).toBeNull();
   });
