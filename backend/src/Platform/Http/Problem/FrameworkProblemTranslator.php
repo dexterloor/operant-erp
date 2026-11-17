@@ -209,16 +209,7 @@ final readonly class FrameworkProblemTranslator
                     array_values($e->getExtraAttributes()),
                 ),
             ),
-            $e instanceof MissingConstructorArgumentsException => ApiProblem::validationFailed(
-                array_map(
-                    fn (string $name): array => [
-                        'pointer' => '/'.$this->wireName($name, $e->getClass()),
-                        'code' => 'required',
-                        'message' => self::REQUIRED_MESSAGE,
-                    ],
-                    array_values($e->getMissingConstructorArguments()),
-                ),
-            ),
+            $e instanceof MissingConstructorArgumentsException => ApiProblem::validationFailed($this->missingArguments($e, $request)),
             $e instanceof NotEncodableValueException => ApiProblem::validationFailed([[
                 'pointer' => '',
                 'code' => 'malformed_body',
@@ -312,19 +303,40 @@ final readonly class FrameworkProblemTranslator
     }
 
     /**
-     * The serializer's path (`reorderPoint`, `lines[0].quantity`) as a JSON pointer in wire names (`/reorder_point`,
-     * `/lines/0/quantity`): the first segment through the name converter, `[n]` as `/n`, later segments as they are.
+     * One `required` per missing constructor argument, at its wire name. The exception's class is nullable
+     * (`MissingConstructorArgumentsException::getClass(): ?string`): without one, the operation's input class names the
+     * fields; without either, one entry at `""`, the field arm's no-class rule (G-101 C2 deviations RED L-4).
+     *
+     * @return list<array{pointer: string, code: string, message: string}>
+     */
+    private function missingArguments(MissingConstructorArgumentsException $e, Request $request): array
+    {
+        $class = $e->getClass() ?? $this->inputClassOf($request);
+        if (null === $class) {
+            return [['pointer' => '', 'code' => 'required', 'message' => self::REQUIRED_MESSAGE]];
+        }
+
+        return array_map(
+            fn (string $name): array => ['pointer' => '/'.$this->wireName($name, $class), 'code' => 'required', 'message' => self::REQUIRED_MESSAGE],
+            array_values($e->getMissingConstructorArguments()),
+        );
+    }
+
+    /**
+     * The serializer's path as a JSON pointer in wire names, as deep as it can be named truthfully: the first segment
+     * through the name converter, then any directly following `[n]` integer indices (`reorderPoint` → `/reorder_point`,
+     * `lines[0]` → `/lines/0`). It stops at the first later named or non-integer segment: the serializer emits PHP names
+     * at every level (`lines[0].unitPrice`), and only the first level has a class to convert against, so a deeper name
+     * would put a PHP name on the wire (G-101 C2 deviations RED L-3). Unreachable today: no input member is a typed
+     * collection or a class.
      */
     private function wirePointer(string $path, string $class): string
     {
-        $segments = explode('.', str_replace('[', '.[', $path));
-        $pointer = '';
-        foreach ($segments as $index => $segment) {
-            if (1 === preg_match('/^\[(\d+)\]\z/', $segment, $match)) {
-                $pointer .= '/'.$match[1];
-            } elseif ('' !== $segment) {
-                $pointer .= '/'.(0 === $index ? $this->wireName($segment, $class) : $segment);
-            }
+        preg_match('/\A([^.\[]*)((?:\[\d+\])*)/', $path, $match);
+        $pointer = '' === ($match[1] ?? '') ? '' : '/'.$this->wireName($match[1], $class);
+        preg_match_all('/\[(\d+)\]/', $match[2] ?? '', $indices);
+        foreach ($indices[1] as $index) {
+            $pointer .= '/'.$index;
         }
 
         return $pointer;

@@ -55,7 +55,7 @@ final readonly class CredentialSeal implements SealsCredentials, SealsIdentities
     /** The env variable `$declaredKeyId` is read from; named in refusals, never its value's neighbour, the key. */
     public const KEY_ID_NAME = 'AUTH_CREDENTIAL_MAC_KEY_ID';
 
-    private const SHAPE = '/^v1\.([0-9a-f]{8})\.[0-9a-f]{64}$/';
+    private const SHAPE = '/\Av1\.([0-9a-f]{8})\.[0-9a-f]{64}\z/';
 
     private string $credentialKey;
 

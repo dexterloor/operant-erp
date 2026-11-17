@@ -143,7 +143,7 @@ final readonly class AuthenticationGate
     {
         $header = $request->headers->get('Authorization');
 
-        if (!\is_string($header) || 1 !== preg_match('/^Bearer\s+(\S+)$/i', $header, $matches)) {
+        if (!\is_string($header) || 1 !== preg_match('/\ABearer\s+(\S+)\z/i', $header, $matches)) {
             return null;
         }
 

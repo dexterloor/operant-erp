@@ -319,6 +319,118 @@ final class OpenApiContractTest extends ApiTestCase
         }
     }
 
+    /**
+     * **G-103, rule C (the served-spec arm).** No served parameter schema carries a `pattern`: API Platform compiles a
+     * parameter schema's `pattern` into a validator as `'#'.$pattern.'#'`, without `D`
+     * (`vendor/api-platform/validator/Util/ParameterValidationConstraints.php`), so an ECMA-correct `^x$` would accept a
+     * value followed by one line break. The walk covers every operation's `parameters[]` and every path-level `parameters[]`
+     * (every `in`), with `$ref`s resolved, at every depth of the parameter's schema. Request bodies are out of scope: the
+     * writers and the input classes validate them, and a body-schema `pattern` is description only (final RED L-3).
+     * The source-side backstop is {@see \App\Tests\Architecture\RegexEndAnchorTest::noSrcFileHandsAPatternToTheFramework()}.
+     */
+    #[Test]
+    public function noServedParameterSchemaCarriesAPattern(): void
+    {
+        $spec = $this->regenerate();
+        $walked = 0;
+        $found = self::parameterSchemaPatterns($spec, $walked);
+        self::assertGreaterThan(0, $walked, 'Anti-vacuity: no served parameter schema was walked.');
+        self::assertSame([], $found, "A served parameter schema carries a pattern, which API Platform compiles without D (G-103):\n".implode("\n", $found));
+
+        // Control: the same walk reports a pattern nested two `$ref`s deep in a parameter's schema.
+        $synthetic = [
+            'paths' => ['/x' => [
+                'parameters' => [['$ref' => '#/components/parameters/P']],
+                'get' => ['parameters' => [['name' => 'q', 'in' => 'query', 'schema' => ['$ref' => '#/components/schemas/A']]]],
+            ]],
+            'components' => [
+                'parameters' => ['P' => ['name' => 'p', 'in' => 'path', 'schema' => ['type' => 'string']]],
+                'schemas' => [
+                    'A' => ['anyOf' => [['$ref' => '#/components/schemas/B']]],
+                    'B' => ['type' => 'object', 'properties' => ['v' => ['type' => 'string', 'pattern' => '^x$']]],
+                ],
+            ],
+        ];
+        $controlWalked = 0;
+        self::assertSame(['get /x ?q: ^x$'], self::parameterSchemaPatterns($synthetic, $controlWalked), 'The walk misses a pattern behind two $refs.');
+    }
+
+    /**
+     * @param array<string, mixed> $spec
+     *
+     * @return list<string> `method path ?name: pattern`, one per `pattern` key found under a parameter's schema
+     */
+    private static function parameterSchemaPatterns(array $spec, int &$walked): array
+    {
+        $found = [];
+        foreach ($spec['paths'] ?? [] as $path => $item) {
+            foreach ($item as $method => $operation) {
+                $parameters = 'parameters' === $method ? $operation : (\is_array($operation) ? ($operation['parameters'] ?? []) : []);
+                foreach ($parameters as $parameter) {
+                    $parameter = self::dereference($parameter, $spec);
+                    ++$walked;
+                    foreach (self::patternsUnder($parameter['schema'] ?? [], $spec, []) as $pattern) {
+                        $found[] = \sprintf('%s %s ?%s: %s', $method, $path, (string) ($parameter['name'] ?? '?'), $pattern);
+                    }
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * @param array<string, mixed> $spec
+     * @param array<string, true>  $seen
+     *
+     * @return list<string>
+     */
+    private static function patternsUnder(mixed $node, array $spec, array $seen): array
+    {
+        if (!\is_array($node)) {
+            return [];
+        }
+        if (isset($node['$ref']) && \is_string($node['$ref'])) {
+            if (isset($seen[$node['$ref']])) {
+                return [];
+            }
+            $seen[$node['$ref']] = true;
+            $node = self::dereference($node, $spec);
+        }
+        $patterns = [];
+        foreach ($node as $key => $value) {
+            if ('pattern' === $key && \is_string($value)) {
+                $patterns[] = $value;
+            } else {
+                array_push($patterns, ...self::patternsUnder($value, $spec, $seen));
+            }
+        }
+
+        return $patterns;
+    }
+
+    /**
+     * @param array<string, mixed> $spec
+     *
+     * @return array<mixed>
+     */
+    private static function dereference(mixed $node, array $spec): array
+    {
+        if (!\is_array($node)) {
+            return [];
+        }
+        if (!isset($node['$ref']) || !\is_string($node['$ref']) || !str_starts_with($node['$ref'], '#/')) {
+            return $node;
+        }
+        $target = $spec;
+        foreach (explode('/', substr($node['$ref'], 2)) as $segment) {
+            $target = $target[$segment] ?? null;
+        }
+        self::assertIsArray($target, $node['$ref'].' resolves to nothing.');
+
+        return $target;
+    }
+
     /** API-2 and API-3, as the artifact states them. */
     #[Test]
     public function theSpecIsMountedAtTheVersionedBasePathAndMentionsNoJsonLd(): void

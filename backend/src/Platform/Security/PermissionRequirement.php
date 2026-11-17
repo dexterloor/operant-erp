@@ -50,7 +50,7 @@ final readonly class PermissionRequirement
     public const DERIVED = 'derived';
 
     /** §3's `<resource>.<action>` shape (PC-1). */
-    private const CODE_SHAPE = '/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/';
+    private const CODE_SHAPE = '/\A[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\z/';
 
     /**
      * @param list<string> $codes

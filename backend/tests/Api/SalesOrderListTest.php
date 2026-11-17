@@ -333,10 +333,11 @@ final class SalesOrderListTest extends PurchaseOrderTestCase
     {
         // The codes are the ones the API actually emits, measured: `limit` and `customer_id` carry a
         // schema (`minimum`/`maximum`, `format: uuid`) that API Platform validates before the provider
-        // runs, so those refusals are the platform's `invalid_parameter`; the cursor has no schema to
-        // check and reaches the provider, which is why `malformed_cursor` survives. See the segment test
-        // for the same finding stated in full. What API-19 requires either way is that each is
-        // **refused and named**, never clamped and never ignored.
+        // runs, so those refusals are the platform's `invalid_parameter` (for `0`, `201` and `x`; a numeric
+        // string such as `1.5` or `"1\n"` passes `Range` and is the provider's `out_of_range`, G-103); the
+        // cursor has no schema to check and reaches the provider, which is why `malformed_cursor` survives.
+        // See the segment test for the same finding stated in full. What API-19 requires either way is that
+        // each is **refused and named**, never clamped and never ignored.
         foreach (['limit=0' => ['?limit', 'invalid_parameter'], 'limit=201' => ['?limit', 'invalid_parameter'],
             'limit=x' => ['?limit', 'invalid_parameter'], 'customer_id=nonsense' => ['?customer_id', 'invalid_parameter'],
             'after=not-a-cursor' => ['?after', 'malformed_cursor']] as $query => [$pointer, $code]) {

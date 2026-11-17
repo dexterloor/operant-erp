@@ -76,7 +76,7 @@ use Symfony\Component\Uid\Uuid;
 final class RequestDigest
 {
     /** Lower-case hex SHA-256: 64 characters. */
-    public const PATTERN = '/^[0-9a-f]{64}$/';
+    public const PATTERN = '/\A[0-9a-f]{64}\z/';
 
     /**
      * @param array<string, mixed> $fields every field the operation declares, each already normalised

@@ -426,7 +426,7 @@ final readonly class WarehouseWriter
             }
 
             if ('country_code' === $field) {
-                if (!\is_string($value) || 1 !== preg_match('/^[A-Z]{2}$/', $value)) {
+                if (!\is_string($value) || 1 !== preg_match('/\A[A-Z]{2}\z/', $value)) {
                     $errors[] = self::error($field, 'not_a_country_code', self::COUNTRY_SHAPE);
                 }
                 continue;

@@ -68,7 +68,7 @@ final readonly class SalesReturnCollectionProvider implements ProviderInterface
         $limit ??= self::DEFAULT_LIMIT;
         if (isset($query['limit'])) {
             $raw = $query['limit'];
-            if (!\is_string($raw) || 1 !== preg_match('/^\d+$/', $raw) || (int) $raw < 1 || (int) $raw > self::MAXIMUM_LIMIT) {
+            if (!\is_string($raw) || 1 !== preg_match('/\A\d+\z/', $raw) || (int) $raw < 1 || (int) $raw > self::MAXIMUM_LIMIT) {
                 $errors[] = self::error('limit', 'out_of_range', \sprintf('limit must be a whole number between 1 and %d.', self::MAXIMUM_LIMIT));
             } else {
                 $limit = (int) $raw;
@@ -188,7 +188,7 @@ final readonly class SalesReturnCollectionProvider implements ProviderInterface
             $cursor = null;
         }
 
-        if (null === $cursor || 1 !== preg_match('/^RET-[0-9]{6}$/', $cursor->sortKey)) {
+        if (null === $cursor || 1 !== preg_match('/\ARET-[0-9]{6}\z/', $cursor->sortKey)) {
             $errors[] = self::error($name, 'malformed_cursor', \sprintf('%s must be a cursor returned by a previous response for this view.', $name));
 
             return null;

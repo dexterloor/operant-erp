@@ -67,6 +67,76 @@ final class CursorSortKeyContractTest extends PurchaseOrderTestCase
     /** Views whose one order is by time, named by the filter that selects them (IA §5.6: an order's shipments/receipts). */
     private const TIME_ORDERED_VIEWS = ['ListFulfilments' => 'sales_order_id=', 'ListGoodsReceipts' => 'purchase_order_id='];
 
+    /**
+     * The non-timestamp views whose provider checks the cursor key's shape (G-103 E-14), derived from behaviour below and
+     * held two-way: a view that gains or loses a shape check reddens this pin.
+     */
+    private const NUMBER_KEY_CHECKED_VIEWS = ['ListCreditNotes []', 'ListSalesReturns []'];
+
+    /**
+     * **G-103 E-14: on a view that checks its cursor key's shape, a key followed by one line break is refused.** Domain,
+     * derived from behaviour (not from the key's shape: five other number-sorted views read any key as text): every keyset
+     * view the timestamp classification above does NOT mark timestamp-keyed, whose own real key with its last character
+     * replaced by `X` answers 422 `malformed_cursor` on `after`. Pinned two-way as {@see self::NUMBER_KEY_CHECKED_VIEWS}.
+     * On each: the real key → 200 (control); the real key plus `"\n"` → 422 `malformed_cursor` on `after` and on `before`.
+     * The other non-timestamp views keep the rule above: 200 or 422, never 500.
+     */
+    #[Test]
+    public function aNumberKeyFollowedByALineBreakIsRefusedWhereTheKeyIsChecked(): void
+    {
+        $lists = array_filter($this->listOperations(), static fn ($operation): bool => \in_array('after', self::declaredParameters($operation), true));
+        $fixtures = $this->listFixtures();
+        $checked = [];
+        $defects = [];
+
+        foreach ($lists as $name => $operation) {
+            [$path, $seed] = $fixtures[$name]();
+            foreach ($seed(self::ROWS)['views'] as $view) {
+                $viewPath = self::withQuery($path, $view);
+                $this->send('GET', self::withQuery($viewPath, 'limit=1'));
+                $next = $this->json()['next_cursor'] ?? null;
+                self::assertIsString($next, $name.' ['.$view.'] did not page, so no real cursor was examined.');
+                $real = Cursor::decode($next);
+                if (1 === preg_match(self::PG_ISO_TIMESTAMP, $real->sortKey)) {
+                    continue;
+                }
+                $label = $name.' ['.$view.']';
+                $mangled = (new Cursor(substr($real->sortKey, 0, -1).'X', $real->id))->encode();
+                $this->send('GET', self::withQuery($viewPath, 'limit=1&after='.urlencode($mangled)));
+                if (422 !== $this->httpStatus() || [['?after', 'malformed_cursor']] !== self::pairs($this->json())) {
+                    continue;
+                }
+                $checked[] = $label;
+
+                $this->send('GET', self::withQuery($viewPath, 'limit=1&after='.urlencode($next)));
+                if (200 !== $this->httpStatus()) {
+                    $defects[] = $label.': the real cursor answered '.$this->httpStatus().', so a 422 below would say nothing about the key.';
+                }
+                $broken = (new Cursor($real->sortKey."\n", $real->id))->encode();
+                foreach (['after', 'before'] as $parameter) {
+                    $this->send('GET', self::withQuery($viewPath, 'limit=1&'.$parameter.'='.urlencode($broken)));
+                    $pairs = 422 === $this->httpStatus() ? self::pairs($this->json()) : [];
+                    if ([['?'.$parameter, 'malformed_cursor']] !== $pairs) {
+                        $defects[] = \sprintf('%s ?%s key %s answered %d %s, not 422 malformed_cursor', $label, $parameter, json_encode($real->sortKey."\n"), $this->httpStatus(), json_encode($pairs));
+                    }
+                }
+            }
+        }
+
+        sort($checked);
+        $pinned = self::NUMBER_KEY_CHECKED_VIEWS;
+        sort($pinned);
+        self::assertGreaterThanOrEqual(2, \count($checked), 'Anti-vacuity: fewer than two views check their cursor key\'s shape.');
+        self::assertSame($pinned, $checked, 'NUMBER_KEY_CHECKED_VIEWS is two-way: the views that refuse a malformed number key are exactly these.');
+        self::assertSame([], $defects, "A cursor key followed by a line break was not refused (G-103):\n".implode("\n", $defects));
+    }
+
+    /** @param array<string, mixed> $body @return list<array{0: string, 1: string}> */
+    private static function pairs(array $body): array
+    {
+        return array_map(static fn (array $e): array => [(string) ($e['pointer'] ?? ''), (string) ($e['code'] ?? '')], $body['errors'] ?? []);
+    }
+
     #[Test]
     public function aForgedSortKeyIsRefusedOnEveryTimestampKeyedViewAndNeverA500(): void
     {

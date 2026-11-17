@@ -113,7 +113,7 @@ final readonly class PathParameterDescriptions implements ResourceMetadataCollec
         $last = (string) array_pop($words);
         if (str_ends_with($last, 'ies')) {
             $singular = substr($last, 0, -3).'y';
-        } elseif (1 === preg_match('/(ss|x|z|ch|sh)es$/', $last)) {
+        } elseif (1 === preg_match('/(ss|x|z|ch|sh)es\z/', $last)) {
             $singular = substr($last, 0, -2);
         } elseif (str_ends_with($last, 's')) {
             $singular = substr($last, 0, -1);

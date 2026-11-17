@@ -43,7 +43,7 @@ final class RoleDefinitionFields
     public const NAME_TAKEN = 'There\'s already a role named "%s", or one that differs from it only in capitals, spaces, dashes or underscores. Choose a different name.';
 
     /** The Unicode `White_Space` set the name is trimmed of (the CHECK's `btrim` covers ASCII space only). */
-    private const EDGE_SPACE = '/^[\s\x{85}\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]+|[\s\x{85}\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]+$/u';
+    private const EDGE_SPACE = '/\A[\s\x{85}\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]+|[\s\x{85}\x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]+\z/u';
 
     /**
      * `role_name_shape`'s two character classes (`DATA` D-10.1), as one PCRE class. Mirrors the CHECK exactly. Public since
@@ -172,7 +172,7 @@ final class RoleDefinitionFields
     public static function unknownCodeErrors(EntityManagerInterface $em, array $codes): array
     {
         $connection = $em->getConnection();
-        $shaped = array_values(array_filter($codes, static fn (string $code): bool => 1 === preg_match('/^[a-z_]+\.[a-z_]+$/', $code)));
+        $shaped = array_values(array_filter($codes, static fn (string $code): bool => 1 === preg_match('/\A[a-z_]+\.[a-z_]+\z/', $code)));
         $known = [] === $shaped ? [] : $connection->fetchFirstColumn(self::KNOWN_CODES, ['{'.implode(',', $shaped).'}']);
         $unknown = [];
         foreach ($codes as $i => $code) {

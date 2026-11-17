@@ -39,6 +39,58 @@ final class PaginationContractTest extends PurchaseOrderTestCase
     private const TOTAL_MEMBERS = ['total', 'totalItems', 'hydra:totalItems'];
 
     /**
+     * **G-103 E-13: a page size is exactly its digits.** For every list that declares `limit` (held equal to the committed
+     * spec's `limit` set), `limit=1%0A` (a trailing line break) and `limit=1.5` are refused with exactly one error,
+     * `out_of_range` at `?limit`, and `limit=1` answers 200 in the same method. `limit`'s schema compiles to `Range` with no
+     * `Type` (`castToNativeType` unset), which admits both numeric strings, so the provider's own `\A\d+\z` is what refuses
+     * them; before G-103 its `$` let `"1\n"` through as a page size of 1.
+     *
+     * `limit` also has a platform refusal, `invalid_parameter`, for `0`, `201` and `x` (`Range`); both are at `?limit`;
+     * pre-existing (G-103 design Q-UX-4).
+     */
+    #[Test]
+    public function aPageSizeIsExactlyItsDigits(): void
+    {
+        $spec = json_decode((string) file_get_contents(\dirname(__DIR__, 3).'/contracts/openapi.json'), true, flags: \JSON_THROW_ON_ERROR);
+        $served = [];
+        foreach ($spec['paths'] as $operations) {
+            foreach ($operations as $operation) {
+                foreach (\is_array($operation) ? ($operation['parameters'] ?? []) : [] as $parameter) {
+                    if ('limit' === ($parameter['name'] ?? null) && 'query' === ($parameter['in'] ?? null)) {
+                        $served[] = (string) $operation['operationId'];
+                    }
+                }
+            }
+        }
+        $lists = array_filter($this->listOperations(), static fn ($operation): bool => \in_array('limit', self::declaredParameters($operation), true));
+        $domain = array_keys($lists);
+        sort($domain);
+        sort($served);
+        self::assertNotSame([], $domain, 'Anti-vacuity: no list declares limit.');
+        self::assertSame($served, $domain, 'The lists declaring limit are exactly the committed spec\'s.');
+
+        $fixtures = $this->listFixtures();
+        $defects = [];
+        foreach ($domain as $name) {
+            [$path, $seed] = $fixtures[$name]();
+            $seed(1);
+            $this->send('GET', self::withQuery($path, 'limit=1'));
+            if (200 !== $this->httpStatus()) {
+                $defects[] = $name.' limit=1 answered '.$this->httpStatus().' (control)';
+            }
+            foreach (['1%0A', '1.5'] as $value) {
+                $this->send('GET', self::withQuery($path, 'limit='.$value));
+                $body = json_decode((string) $this->client()->getResponse()->getContent(), true);
+                $pairs = array_map(static fn (array $e): array => [$e['pointer'] ?? null, $e['code'] ?? null], \is_array($body) ? ($body['errors'] ?? []) : []);
+                if (422 !== $this->httpStatus() || [['?limit', 'out_of_range']] !== $pairs) {
+                    $defects[] = \sprintf('%s limit=%s answered %d %s, not 422 out_of_range at ?limit', $name, $value, $this->httpStatus(), json_encode($pairs));
+                }
+            }
+        }
+        self::assertSame([], $defects, "A page size that is not exactly its digits was not refused (G-103):\n".implode("\n", $defects));
+    }
+
+    /**
      * **API-3 / TB-2b — no response declares `application/ld+json`, and no list
      * response carries `total`, `totalItems` or `hydra:totalItems` unless its
      * path is `(bounded)`.** Every list is read on its default view, on every
