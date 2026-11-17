@@ -41,7 +41,7 @@ const line = (n: number, over: Partial<PurchaseOrderLine> = {}): PurchaseOrderLi
 });
 const lines = (ls: PurchaseOrderLine[], nextCursor: string | null = null): LinesLoad => ({ kind: 'ok', lines: ls, nextCursor });
 const show = (over: Partial<PurchaseOrderPageProps> = {}) =>
-  renderWired(<PurchaseOrderPage order={order('ordered')} lines={lines([line(1), line(2)])} viewerId={VIEWER_ID} canOpenSupplier={false} canOpenWarehouse={false} canOpenItem={false} {...over} />);
+  renderWired(<PurchaseOrderPage order={order('ordered')} lines={lines([line(1), line(2)])} viewerId={VIEWER_ID} canRestore={false} canReadLines canOpenSupplier={false} canOpenWarehouse={false} canOpenItem={false} {...over} />);
 const headers = () => screen.getAllByRole('columnheader').map((h) => h.textContent);
 const rowCells = (i: number) => [...document.querySelectorAll('tbody tr')][i]!.querySelectorAll('td');
 const cellsOf = (i: number) => [...rowCells(i)].map((c) => c.textContent);
@@ -117,21 +117,30 @@ describe('/purchase-orders/[id] — the header (UX B-3)', () => {
     }
   });
 
-  it('PO-1 ships no action: no button on any status', () => {
+  // PO-2 adds Restore purchase order on a deleted draft only (purchase-order-restore.test.tsx): a live order still has none.
+  it('a live order has no action: no button on any status, even for a RestorePurchaseOrder holder', () => {
     for (const status of ['draft', 'ordered', 'partially_received', 'received', 'cancelled']) {
-      const { container, unmount } = show({ order: order(status), lines: lines([line(1)]) });
+      const { container, unmount } = show({ order: order(status), lines: lines([line(1)]), canRestore: true });
       expect(container.querySelectorAll('button')).toHaveLength(0);
       unmount();
     }
   });
 
-  it('a deleted draft: the ST-9 banner "This draft was deleted on {date}.", no Restore, no note and no lines section', () => {
+  // Moved at PO-2: Restore purchase order is offered for its holder (purchase-order-restore.test.tsx); without it, none.
+  it('a deleted draft: the ST-9 banner "This draft was deleted on {date}.", no Restore without RestorePurchaseOrder, no note and no lines section', () => {
     show({ order: order('draft', { archived_at: '2026-03-04T11:00:00Z' }), lines: null });
     expect(document.body.textContent).toMatch(/This draft was deleted on .+\./);
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.queryByText('This is a draft.')).toBeNull();
     expect(screen.queryByRole('heading', { level: 2, name: 'Lines' })).toBeNull();
     expect(screen.queryByText('This draft has no lines yet.')).toBeNull();
+  });
+
+  // PO-2 (po-2-progress.md D-1): the page's state holds "no lines on a deleted draft", whatever it is given.
+  it('a deleted draft given lines still shows no lines section', () => {
+    show({ order: order('draft', { archived_at: '2026-03-04T11:00:00Z' }), lines: lines([line(1)]) });
+    expect(screen.queryByRole('heading', { level: 2, name: 'Lines' })).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
   });
 });
 

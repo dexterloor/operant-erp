@@ -33,6 +33,7 @@
   "ListWarehouses",
   "RejectRoleGrantProposal",
   "RestoreItem",
+  "RestorePurchaseOrder",
   "RestoreRole",
   "RestoreStorageLocation",
   "RestoreSupplier",

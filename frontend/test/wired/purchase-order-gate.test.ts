@@ -77,7 +77,7 @@ async function render(codes: string[]): Promise<ReactElement> {
   expect(isValidElement(el)).toBe(true);
   return el as ReactElement;
 }
-type Props = { viewerId: string; canOpenSupplier: boolean; canOpenWarehouse: boolean; canOpenItem: boolean; lines: unknown };
+type Props = { viewerId: string; canRestore: boolean; canReadLines: boolean; canOpenSupplier: boolean; canOpenWarehouse: boolean; canOpenItem: boolean; lines: unknown };
 const props = (el: ReactElement) => el.props as Props;
 
 describe('/purchase-orders — the list page', () => {
@@ -150,11 +150,31 @@ describe('/purchase-orders/[id] — the order page', () => {
     expect(props(await render(['purchase_order.view'])).viewerId).toBe('viewer-id-from-the-server');
   });
 
-  it('a deleted draft: its lines are not read (they went with it)', async () => {
+  // PO-2: Restore purchase order follows RestorePurchaseOrder alone (purchase_order.delete), never the view's codes; the
+  // browser reads a restored order's lines only for a ListPurchaseOrderLines holder.
+  it('PO-2 — canRestore follows RestorePurchaseOrder, canReadLines ListPurchaseOrderLines, each on its own operation', async () => {
+    expect(props(await render(['purchase_order.view']))).toMatchObject({ canRestore: false, canReadLines: true });
+    expect(props(await render(['purchase_order.view', 'purchase_order.delete']))).toMatchObject({ canRestore: true, canReadLines: true });
+    for (const [operation, expected] of [
+      ['RestorePurchaseOrder', { canRestore: true, canReadLines: false }],
+      ['ListPurchaseOrderLines', { canRestore: false, canReadLines: true }],
+    ] as const) {
+      v.byOperation = (op) => op === 'GetPurchaseOrder' || op === operation;
+      try {
+        expect(props(await render([]))).toMatchObject(expected);
+      } finally {
+        v.byOperation = null;
+      }
+    }
+  });
+
+  it('a deleted draft: its lines are not read (they went with it), and Restore is offered to a purchase_order.delete holder', async () => {
     v.archived = true;
     v.lineReads = 0;
     try {
       expect(props(await render(['purchase_order.view'])).lines).toBeNull();
+      expect(v.lineReads).toBe(0);
+      expect(props(await render(['purchase_order.view', 'purchase_order.delete']))).toMatchObject({ lines: null, canRestore: true });
       expect(v.lineReads).toBe(0);
     } finally {
       v.archived = false;

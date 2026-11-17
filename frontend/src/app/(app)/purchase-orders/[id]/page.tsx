@@ -16,7 +16,8 @@ import { PurchaseOrderPage } from './PurchaseOrderPage';
 // warehouse and item links follow GetSupplier, GetWarehouse and GetItem. The viewer's id comes from `currentViewer()`
 // here, on the server (final RED L-2), for *Raised by*'s "(you)". 401 → the session-ended notice; 403 → ST-4b; 404 or a
 // non-record id → ST-5 (`not-found.tsx`); any other failure of the order read throws to the error page (a failed lines
-// read is the section's own state). Read-only: PO-1 ships no action.
+// read is the section's own state). The one action, from PO-2, is Restore purchase order on a deleted draft, offered for
+// a RestorePurchaseOrder holder; a restore reads the lines in the browser only for a ListPurchaseOrderLines holder.
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -46,10 +47,12 @@ export default async function Page({ params }: Params) {
   if (first.kind === 'not-found') notFound();
   if (first.kind !== 'ok') throw new Error('The purchase order could not be read.');
   let lines = null;
-  // A deleted draft's lines were deleted with it (the cascade): the live list would be empty, so it is not read.
+  // A deleted draft's lines were deleted with it (the cascade): the live list would be empty, so it is not read. Nor is
+  // `?archived=true`: it serves every deleted line, also those deleted on their own, which a restore leaves deleted
+  // (po-2-progress.md D-1). The restore reads the live lines that came back.
   if (first.order.archived_at === null && viewerMay('ListPurchaseOrderLines', codes)) {
     lines = await loadLines(serverRead(session), id);
     if (lines.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
   }
-  return <PurchaseOrderPage order={first.order} lines={lines} viewerId={viewer.id} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
+  return <PurchaseOrderPage order={first.order} lines={lines} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
 }

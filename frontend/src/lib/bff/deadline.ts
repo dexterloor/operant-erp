@@ -58,6 +58,11 @@ export const ACTION_DEADLINES_MS = {
    * The section re-reads its catalogue after the dialog closes, under `reread`.
    */
   entryDelete: 30_000,
+  /**
+   * Restore a deleted purchase-order draft (PO-2): the request + the GetPurchaseOrder re-read, and, for a
+   * ListPurchaseOrderLines holder, the order's live lines (they came back with it).
+   */
+  orderRestore: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

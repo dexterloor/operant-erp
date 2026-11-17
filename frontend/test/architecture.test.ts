@@ -335,8 +335,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // lib/forms/wholeNumberOrText.ts (Revision 9 R9-2).
   // Suppliers S-3 added: lib/format/money.ts (renderMoney, Revision 9 R9-2).
   // Purchase orders PO-1 added: lib/api/purchasing.ts, lib/purchasing/load.ts (R8-2; no results or wired before PO-2's
-  // first action).
-  'src/lib': 73,
+  // first action). PO-2 added: lib/purchasing/results.ts, lib/purchasing/wired.ts (Restore purchase order).
+  'src/lib': 75,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -373,9 +373,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/items': 2,
   // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
   'src/lib/suppliers': 3,
-  // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: the purchasing loaders (results and wired arrive
-  // with PO-2's first action).
-  'src/lib/purchasing': 1,
+  // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: the purchasing loaders. PO-2 added: results and
+  // wired (Restore purchase order, the family's first action).
+  'src/lib/purchasing': 3,
   // Suppliers S-2 added: SupplierCreateForm.tsx (the create page's form). Suppliers S-4 added: EntryForm.tsx (Edit entry).
   // Suppliers S-5 added: AddEntryForm.tsx (Add to catalogue).
   'src/components/suppliers': 4,
@@ -932,14 +932,18 @@ describe('architecture — G-3: no typed bulk resource key or bulk cap (A-8)', (
   });
 
   // Purchase orders PO-1 test 13 (purchase-orders-plan.md §4 PO-1, §1.5): `purchase_order` is a bulk key, so
-  // lib/purchasing is scanned and a typed 'purchase_order' there goes red; the real lib/purchasing holds none.
+  // lib/purchasing is scanned and a typed 'purchase_order' there goes red; the real lib/purchasing holds none. PO-2 added
+  // results.ts and wired.ts (Restore purchase order); the planted control now also covers wired.ts.
   it("purchase orders PO-1: lib/purchasing is scanned, holds no 'purchase_order' literal, and a planted one goes red", () => {
     expect(keys).toContain('purchase_order');
     const real = walk('src/lib/purchasing');
-    expect(real.map((f) => f.file)).toEqual(['src/lib/purchasing/load.ts']);
+    expect(real.map((f) => f.file)).toEqual(['src/lib/purchasing/load.ts', 'src/lib/purchasing/results.ts', 'src/lib/purchasing/wired.ts']);
     expect(bulkLiteralViolations(real, keys, cap)).toEqual([]);
-    const planted: SourceFile[] = [{ file: 'src/lib/purchasing/load.ts', source: "export const r = 'purchase_order';" }];
-    expect(bulkLiteralViolations(planted, keys, cap).map((v) => `${v.file} — ${v.detail}`)).toEqual(["src/lib/purchasing/load.ts — literal 'purchase_order'"]);
+    const planted: SourceFile[] = [
+      { file: 'src/lib/purchasing/load.ts', source: "export const r = 'purchase_order';" },
+      { file: 'src/lib/purchasing/wired.ts', source: "export const r = 'purchase_order';" },
+    ];
+    expect(bulkLiteralViolations(planted, keys, cap).map((v) => `${v.file} — ${v.detail}`)).toEqual(["src/lib/purchasing/load.ts — literal 'purchase_order'", "src/lib/purchasing/wired.ts — literal 'purchase_order'"]);
   });
 
   it('reads a non-empty key set and a cap from the generated surface', () => {
@@ -1909,7 +1913,8 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
     // dirs (src/app/(app)/suppliers: 9 files at S-3) and lib/format/money.ts (+1). Suppliers S-4: EntryForm.tsx (the Edit
     // dialog, which holds a cost and a minimum order) is in the positive control; it is counted by EXPECTED_COUNTS.
     // Suppliers S-5: AddEntryForm.tsx (the Add dialog, the same four fields) likewise. Purchase orders PO-1: lib/purchasing
-    // and the order route dir (src/app/(app)/purchase-orders: 7 files at PO-1).
+    // and the order route dir (src/app/(app)/purchase-orders: 7 files at PO-1). PO-2: lib/purchasing gains results.ts and
+    // wired.ts, counted by EXPECTED_COUNTS.
     expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + 7);
     expect(quantityNumberViolations(files)).toEqual([]);
   });

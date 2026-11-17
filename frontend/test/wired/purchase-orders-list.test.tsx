@@ -339,10 +339,11 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the PO-1 copy for
     expect(screen.getByText('No purchase orders yet.', { selector: 'p' })).toBeInTheDocument();
   });
 
-  it('test 5 — Archived, empty: "No archived purchase orders." whatever tenant_has_rows', () => {
+  // Moved at PO-2 (R1a-1 row 2): Restore ships, so the sentence says the archived drafts can be restored from here.
+  it('test 5 — Archived, empty: "No archived purchase orders. Archived drafts can be restored from here." whatever tenant_has_rows', () => {
     for (const tenantHasRows of [true, false]) {
       const { unmount } = renderWired(<PurchaseOrdersList initial={ok([], { tenantHasRows })} initialArchived />);
-      expect(screen.getByText('No archived purchase orders.', { selector: 'p' })).toBeInTheDocument();
+      expect(screen.getByText('No archived purchase orders. Archived drafts can be restored from here.', { selector: 'p' })).toBeInTheDocument();
       unmount();
     }
   });
@@ -391,8 +392,9 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the PO-1 copy for
     await waitFor(() => expect(screen.getByText('No archived order\'s number starts with “PO-9”.', { selector: 'p' })).toBeInTheDocument());
   });
 
-  // Test 15 (R1-2 / UX R1a-1 row 1): the shortened forms render; no sentence names creating, approving, restoring or deleting.
-  it('test 15 — the PO-1 forms only: noneYet, emptyDraft and noneArchived name no action', () => {
+  // Test 15 (R1-2 / UX R1a-1 rows 1–2): the shortened forms render. Moved at PO-2: noneArchived names restoring (shipped
+  // here); still no sentence names creating, approving or deleting, and noneArchived says nothing of deleting (PO-6).
+  it('test 15 — the PO-2 forms: noneYet and emptyDraft name no action; noneArchived names only restoring', () => {
     const shown: string[] = [];
     for (const [initial, segment, archived] of [
       [ok([], { tenantHasRows: false }), 'open', false],
@@ -406,7 +408,7 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the PO-1 copy for
     const all = shown.join(' ');
     expect(all).toContain('No purchase orders yet.');
     expect(all).toContain('No drafts.');
-    expect(all).toContain('No archived purchase orders.');
-    for (const later of ['when someone creates it', 'starts as a draft', "until it's approved", 'can be restored', 'are deleted']) expect(all).not.toContain(later);
+    expect(all).toContain('No archived purchase orders. Archived drafts can be restored from here.');
+    for (const later of ['when someone creates it', 'starts as a draft', "until it's approved", 'deleted']) expect(all).not.toContain(later);
   });
 });

@@ -2,9 +2,10 @@
 // `docs/design/purchase-orders-ux-copy.md` Revision 1a (copy per commit, R1a-1) over Revision 1 — FINAL (R1-B) over
 // Revision 0 Part B; each entry names its key. Server refusals are never stored here: they render as sent. Each sentence
 // holds for the web app in the commit that renders it (`STATES.md:161`). PO-1 (R1a-1 row 1) is reading only: the list,
-// the Archived view and the read-only order page — so no sentence here names an action, and the keys whose final form
-// names one (`noneYet`, `emptyDraft`, `noneArchived`, `draftNote`, `orderedNote`) are in their PO-1 forms. The commit
-// that ships each action replaces its key with the next form (R1a-1 rows 2–12).
+// the Archived view and the read-only order page. PO-2 (row 2) adds the one action Restore purchase order, on a deleted
+// draft's banner, so only `RESTORE_ORDER.*` and `noneArchived`'s PO-2 form name an action; the other keys whose final
+// form names one (`noneYet`, `emptyDraft`, `draftNote`, `orderedNote`) stay in their PO-1 forms. The commit that ships
+// each action replaces its key with the next form (R1a-1 rows 3–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
 
@@ -89,8 +90,11 @@ export const PURCHASE_ORDERS_LIST = {
   /** `emptyReceived` · `emptyCancelled`. */
   emptyReceived: 'No orders have been received in full yet.',
   emptyCancelled: 'No cancelled orders.',
-  /** `noneArchived`, PO-1 form (R1a-1 row 1): the later forms name restoring (PO-2) and deleting (PO-6). */
-  noneArchived: 'No archived purchase orders.',
+  /**
+   * `noneArchived`, PO-2 form (R1a-1 row 2; final RED apply list PO-2): Restore ships here, deleting at PO-6, so the
+   * sentence names restoring and says nothing of how a draft gets here.
+   */
+  noneArchived: 'No archived purchase orders. Archived drafts can be restored from here.',
   /**
    * `noMatch(q, segment)` · `noArchivedMatch(q)` · `clearSearch` · `footer(n)`. The live form names its segment, as the
    * Archived one names its view (po-1-red.md M-2): the search is sent with the segment, so an empty answer means no order
@@ -148,9 +152,23 @@ export const PURCHASE_ORDER_PAGE = {
   closedCancelled: 'This order is closed: it was cancelled.',
   /** `noSupplierContact` (ordered and partly received, once; owner notice C-1). */
   noSupplierContact: "The app doesn't send purchase orders to suppliers.",
-  /** `deletedOn(date)` (the archived banner; R1-B, R1-10): *"This draft was deleted on {date}."* No Restore until PO-2. */
+  /** `deletedOn(date)` (the archived banner; R1-B, R1-10): *"This draft was deleted on {date}."* Its action is `RESTORE_ORDER.action` (PO-2). */
   deletedBefore: 'This draft was deleted on ',
   deletedAfter: '.',
+  /** `rereadFailed` (UX B-3, CONFIRMS the shape): a re-read after a write did not answer. */
+  rereadFailed: "We couldn't load this purchase order again, so what's shown may be out of date.",
+} as const;
+
+/**
+ * UX B-13 `RESTORE_ORDER` (PO-2; the `RESTORE_SUPPLIER` shape): in the deleted draft's banner, no dialog, heading **Not
+ * restored** on a refusal (the server's sentence as sent, W12/W13 and the rest). `after` says what comes back: the
+ * order, as a draft, with the lines deleted with it; lines deleted on their own before stay deleted (owner Q3, IA §4.2).
+ */
+export const RESTORE_ORDER = {
+  action: 'Restore purchase order',
+  after: (number: string) => `${number} was restored as a draft. Lines that were deleted on their own before it was deleted stay deleted.`,
+  alreadyRestored: (number: string) => `${number} was already restored.`,
+  interrupted: (number: string) => `We can't tell whether ${number} was restored. Press Restore purchase order to try again.`,
 } as const;
 
 /** UX B-4 / R1-B `ORDER_LINES`: the lines on the order page, read-only at PO-1. */
