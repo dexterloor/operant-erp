@@ -174,7 +174,7 @@ final readonly class PermissionRequirements
         }
 
         if (!$body instanceof \stdClass) {
-            throw ApiProblem::validationFailed([self::error('', 'not_an_object', 'The request body must be a JSON object.')]);
+            throw ApiProblem::validationFailed([self::error('', 'not_an_object', FrameworkProblemTranslator::NOT_AN_OBJECT_MESSAGE)]);
         }
 
         $fields = get_object_vars($body);

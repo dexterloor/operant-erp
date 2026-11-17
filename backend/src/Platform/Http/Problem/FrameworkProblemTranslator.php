@@ -70,6 +70,13 @@ final readonly class FrameworkProblemTranslator
      */
     public const MALFORMED_BODY_MESSAGE = 'The request body could not be read as the declared JSON shape.';
 
+    /**
+     * The refusal of a body that is not a JSON object. Public and single-sourced (G-102): `NonObjectBodyRefusal` refuses
+     * one on every operation that reads a body, and `PermissionRequirements` on the derived operations, before the
+     * deserializer runs, with exactly this sentence.
+     */
+    public const NOT_AN_OBJECT_MESSAGE = 'The request body must be a JSON object.';
+
     public function __construct(
         #[Autowire('%app.api_base_path%')]
         private string $basePath,
