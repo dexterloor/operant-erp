@@ -78,11 +78,11 @@ describe('/suppliers/[id] — the catalogue section (S-3 read, S-4 columns)', ()
   });
 
   // Test 3 (S-4, FINAL (e) item 3: Minimum order '2.5', Unit 'EA'; the unit is the entry's own code, never a constant).
-  it('test 3 — served order; 12.5000 GBP, 250.0000 JPY, 123456789012345.1234 EUR digit for digit; MOQ "2.500000" → 2.5 with no suffix; the entry\'s own unit after it; lead time in days', () => {
+  it('test 3 — served order; 12.5000 GBP → 12.50 GBP and 250.0000 JPY → 250 JPY (PO-1: the D1 form by dropping only zeros), 123456789012345.1234 EUR digit for digit as stored; MOQ "2.500000" → 2.5 with no suffix; the entry\'s own unit after it; lead time in days', () => {
     show(ok([E1, E2, E3]));
     expect(rows().map(cells)).toEqual([
-      ['A-100', 'SKU-A-100 — Item A-100', '12.5000 GBP', '7 days', '2.5', 'EA'],
-      ['B-200', 'SKU-B-200 — Item B-200', '250.0000 JPY', '1 day', '1', 'KG'],
+      ['A-100', 'SKU-A-100 — Item A-100', '12.50 GBP', '7 days', '2.5', 'EA'],
+      ['B-200', 'SKU-B-200 — Item B-200', '250 JPY', '1 day', '1', 'KG'],
       ['C-300', 'SKU-C-300 — Item C-300', '123456789012345.1234 EUR', '0 days', '10', 'BOX'],
     ]);
   });

@@ -121,10 +121,25 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
   // so with /suppliers built every supplier.view holder starts there; a holder of inventory_item.view without it keeps
   // /items. Navigation order decides, never the order of BUILT_PAGE_HREFS (pinned below with /suppliers listed last).
   it('suppliers S-1: the start page moves to /suppliers for a supplier.view holder, in navigation order', () => {
-    expect(BUILT_PAGE_HREFS).toEqual(['/suppliers', '/items', '/warehouses', '/admin/users', '/admin/roles']);
+    // Purchase orders PO-1 moved this pin deliberately: /purchase-orders joins BUILT_PAGE_HREFS (its own test is below).
+    expect(BUILT_PAGE_HREFS).toEqual(['/purchase-orders', '/suppliers', '/items', '/warehouses', '/admin/users', '/admin/roles']);
     expect(startDestination(['supplier.view', 'inventory_item.view', 'warehouse.view', 'app_user.view'])).toBe('/suppliers');
     expect(startDestination(['supplier.view'])).toBe('/suppliers');
     expect(startDestination(['inventory_item.view', 'warehouse.view'])).toBe('/items');
     expect(startDestination(['supplier.view', 'inventory_item.view'], ['/items', '/warehouses', '/suppliers'])).toBe('/suppliers');
+  });
+  // Purchase orders PO-1 test 12 (purchase-orders-plan.md §4 PO-1, owner notice N-1): Purchase orders is first in
+  // Purchasing, so with /purchase-orders built every purchase_order.view holder starts there (owner, admin, buyer,
+  // purchasing manager, and the warehouse operator, who moves from /items); supplier.view without it keeps /suppliers;
+  // inventory_item.view alone keeps /items. Navigation order decides, never the order of BUILT_PAGE_HREFS (pinned below
+  // with /purchase-orders listed last).
+  it('purchase orders PO-1: the start page moves to /purchase-orders for a purchase_order.view holder, in navigation order', () => {
+    expect(startDestination(['purchase_order.view', 'goods_receipt.view', 'supplier.view', 'inventory_item.view', 'warehouse.view'])).toBe('/purchase-orders');
+    expect(startDestination(['purchase_order.view'])).toBe('/purchase-orders');
+    expect(startDestination(['purchase_order.view', 'goods_receipt.view', 'inventory_item.view', 'warehouse.view', 'storage_location.view'])).toBe('/purchase-orders');
+    expect(startDestination(['supplier.view', 'inventory_item.view'])).toBe('/suppliers');
+    expect(startDestination(['inventory_item.view'])).toBe('/items');
+    expect(startDestination(['goods_receipt.view', 'supplier.view'])).toBe('/suppliers');
+    expect(startDestination(['purchase_order.view', 'supplier.view', 'inventory_item.view'], ['/items', '/suppliers', '/purchase-orders'])).toBe('/purchase-orders');
   });
 });

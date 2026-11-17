@@ -234,7 +234,7 @@ describe('S-4 — Save', () => {
 
   // S-4 RED L-1: the validated 200 body is committed over the row under a fresh stamp, so a reopened Edit (before the
   // re-read answers, or after it failed) starts from what was saved.
-  it('RED L-1 — cost saved as 12, its re-read held: the row shows 12.0000 GBP and a reopened Edit starts from 12.0000', async () => {
+  it('RED L-1 — cost saved as 12, its re-read held: the row shows 12.00 GBP (the PO-1 money trim) and a reopened Edit starts from 12.0000', async () => {
     const r = held();
     stubFetch([json(200, { ...A, unit_cost: '12.0000' }), r.reply]);
     const u = userEvent.setup();
@@ -243,7 +243,7 @@ describe('S-4 — Save', () => {
     await setField(u, 'Unit cost (GBP)', '12');
     await save(u);
     await waitFor(() => expect(pageRegion().textContent).toBe(SAVED_A));
-    expect(cells(rows()[0]!)[2]).toBe('12.0000 GBP');
+    expect(cells(rows()[0]!)[2]).toBe('12.00 GBP');
     await openEdit(u);
     expect(field('Unit cost (GBP)')).toHaveValue('12.0000');
     await act(async () => r.release(answer([{ ...A, unit_cost: '12.0000' }])));
@@ -735,7 +735,7 @@ describe('S-4 — the page region and the section\'s re-reads', () => {
   });
 
   // Final RED M-6, new test 10: the section's stamp rule.
-  it('test 10 — Edit A (cost 12) → 200, re-read R1 held; Edit A again (cost 13) → 200, R2 answers 13.0000; R1 answers late with 12.0000 → the row shows 13.0000 GBP', async () => {
+  it('test 10 — Edit A (cost 12) → 200, re-read R1 held; Edit A again (cost 13) → 200, R2 answers 13.0000; R1 answers late with 12.0000 → the row shows 13.00 GBP (the PO-1 money trim)', async () => {
     const r1 = held();
     stubFetch([json(200, { ...A, unit_cost: '12.0000' }), r1.reply, json(200, { ...A, unit_cost: '13.0000' }), answer([{ ...A, unit_cost: '13.0000' }])]);
     const u = userEvent.setup();
@@ -747,12 +747,12 @@ describe('S-4 — the page region and the section\'s re-reads', () => {
     await openEdit(u);
     await setField(u, 'Unit cost (GBP)', '13');
     await save(u);
-    await waitFor(() => expect(cells(rows()[0]!)[2]).toBe('13.0000 GBP'));
+    await waitFor(() => expect(cells(rows()[0]!)[2]).toBe('13.00 GBP'));
     await act(async () => r1.release(answer([{ ...A, unit_cost: '12.0000' }])));
     await act(async () => {
       await new Promise((res) => setTimeout(res, 20));
     });
-    expect(cells(rows()[0]!)[2]).toBe('13.0000 GBP');
+    expect(cells(rows()[0]!)[2]).toBe('13.00 GBP');
   });
 
   // S-4 RED L-1's stamp (plant P-2, review of ad1d395): the 200 body is committed under a FRESH stamp, so a catalogue re-read sent BEFORE the
@@ -771,12 +771,12 @@ describe('S-4 — the page region and the section\'s re-reads', () => {
     await openEdit(u);
     await setField(u, 'Unit cost (GBP)', '13');
     await save(u);
-    await waitFor(() => expect(cells(rows()[0]!)[2]).toBe('13.0000 GBP'));
+    await waitFor(() => expect(cells(rows()[0]!)[2]).toBe('13.00 GBP'));
     await act(async () => r1.release(answer([A])));
     await act(async () => {
       await new Promise((res) => setTimeout(res, 20));
     });
-    expect(cells(rows()[0]!)[2]).toBe('13.0000 GBP');
+    expect(cells(rows()[0]!)[2]).toBe('13.00 GBP');
     await openEdit(u);
     expect(field('Unit cost (GBP)')).toHaveValue('13.0000');
     await act(async () => r2.release(answer([{ ...A, lead_time_days: 9, unit_cost: '13.0000' }])));

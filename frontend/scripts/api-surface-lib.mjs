@@ -61,6 +61,11 @@ const MIRRORED = {
   SupplierItemReference: ['SupplierItemReference'],
   'SupplierProduct.UpdateSupplierProductInput.jsonMergePatch': ['SupplierProduct.UpdateSupplierProductInput.jsonMergePatch'],
   'SupplierProduct.CreateSupplierProductInput': ['SupplierProduct.CreateSupplierProductInput'],
+  PurchaseOrder: ['PurchaseOrder'],
+  PurchaseOrderLine: ['PurchaseOrderLine'],
+  'PurchaseOrderLine.inventory_item': ['PurchaseOrderLine', 'properties', 'inventory_item'],
+  NamedReference: ['NamedReference'],
+  ActorReference: ['ActorReference'],
 };
 
 const BANNER =

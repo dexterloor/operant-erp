@@ -196,6 +196,8 @@ const LITERAL_SCAN_DIRS = [
   // Suppliers S-1 (Revision 8 R8-2, R8-3 completeness): the supplier logic and components.
   'src/lib/suppliers',
   'src/components/suppliers',
+  // Purchase orders PO-1 (Revision 8 R8-2, R8-3 completeness; Revision 10 R10-2): the purchasing family's logic.
+  'src/lib/purchasing',
   'src/components/roles',
   'src/components/permissions',
   'src/components/bulk',
@@ -322,7 +324,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.1 added: copy/warehouses.ts.
   // Items I-1 (Revision 8 R8-2) added: copy/items.ts.
   // Suppliers S-1 (Revision 8 R8-2) added: copy/suppliers.ts.
-  'src/copy': 11,
+  // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: copy/purchasing.ts.
+  'src/copy': 12,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
@@ -331,7 +334,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Suppliers S-1 added: lib/api/suppliers.ts, lib/suppliers/{load,results,wired}.ts (R8-2) and
   // lib/forms/wholeNumberOrText.ts (Revision 9 R9-2).
   // Suppliers S-3 added: lib/format/money.ts (renderMoney, Revision 9 R9-2).
-  'src/lib': 71,
+  // Purchase orders PO-1 added: lib/api/purchasing.ts, lib/purchasing/load.ts (R8-2; no results or wired before PO-2's
+  // first action).
+  'src/lib': 73,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -352,7 +357,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Suppliers S-5 added: components/suppliers/AddEntryForm.tsx (Add to catalogue's dialog, suppliers-plan.md §R1-3).
   'src/components': 67,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
-  'src/lib/api': 9,
+  // Purchase orders PO-1 added: lib/api/purchasing.ts.
+  'src/lib/api': 10,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
@@ -367,6 +373,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/items': 2,
   // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
   'src/lib/suppliers': 3,
+  // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: the purchasing loaders (results and wired arrive
+  // with PO-2's first action).
+  'src/lib/purchasing': 1,
   // Suppliers S-2 added: SupplierCreateForm.tsx (the create page's form). Suppliers S-4 added: EntryForm.tsx (Edit entry).
   // Suppliers S-5 added: AddEntryForm.tsx (Add to catalogue).
   'src/components/suppliers': 4,
@@ -425,7 +434,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // app/(app)/suppliers/[id]/{page,SupplierPage,not-found}.tsx.
   // Suppliers S-2 added: app/(app)/suppliers/new/{page,NewSupplierPage}.tsx.
   // Suppliers S-3 added: app/(app)/suppliers/[id]/CatalogueSection.tsx (a section of the page, no route; ARCH (a)).
-  'src/app': 68,
+  // Purchase orders PO-1 added: app/(app)/useSegmentAddress.ts (Revision 10 R10-1, a segmented list's address writer),
+  // app/(app)/purchase-orders/{page,PurchaseOrdersList,PurchaseOrderStates}.tsx,
+  // app/(app)/purchase-orders/[id]/{page,PurchaseOrderPage,LinesSection,not-found}.tsx.
+  'src/app': 76,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -874,6 +886,8 @@ const BULK_LITERAL_DIRS = [
   'src/lib/items',
   // Suppliers S-1 (suppliers-plan.md Revision 0 §1.5, G-3): `supplier` is a bulk key.
   'src/lib/suppliers',
+  // Purchase orders PO-1 (purchase-orders-plan.md §1.5, G-3): `purchase_order` is a bulk key.
+  'src/lib/purchasing',
   'src/lib/api',
   'src/lib/auth',
   'src/lib/format',
@@ -915,6 +929,17 @@ describe('architecture — G-3: no typed bulk resource key or bulk cap (A-8)', (
     expect(bulkLiteralViolations(real, keys, cap)).toEqual([]);
     const planted: SourceFile[] = [{ file: 'src/lib/suppliers/load.ts', source: "export const r = 'supplier';" }];
     expect(bulkLiteralViolations(planted, keys, cap).map((v) => `${v.file} — ${v.detail}`)).toEqual(["src/lib/suppliers/load.ts — literal 'supplier'"]);
+  });
+
+  // Purchase orders PO-1 test 13 (purchase-orders-plan.md §4 PO-1, §1.5): `purchase_order` is a bulk key, so
+  // lib/purchasing is scanned and a typed 'purchase_order' there goes red; the real lib/purchasing holds none.
+  it("purchase orders PO-1: lib/purchasing is scanned, holds no 'purchase_order' literal, and a planted one goes red", () => {
+    expect(keys).toContain('purchase_order');
+    const real = walk('src/lib/purchasing');
+    expect(real.map((f) => f.file)).toEqual(['src/lib/purchasing/load.ts']);
+    expect(bulkLiteralViolations(real, keys, cap)).toEqual([]);
+    const planted: SourceFile[] = [{ file: 'src/lib/purchasing/load.ts', source: "export const r = 'purchase_order';" }];
+    expect(bulkLiteralViolations(planted, keys, cap).map((v) => `${v.file} — ${v.detail}`)).toEqual(["src/lib/purchasing/load.ts — literal 'purchase_order'"]);
   });
 
   it('reads a non-empty key set and a cap from the generated surface', () => {
@@ -1829,7 +1854,9 @@ describe('architecture — R8-3: components/records is props-only and names no f
  */
 // Suppliers S-3 (suppliers-plan.md §R1-3 L-8, Revision 9 R9-2): the supplier dirs (the catalogue's minimum order is a
 // served quantity, its unit cost a served decimal) and `lib/format/money.ts` join the scan.
-const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers'] as const;
+// Purchase orders PO-1 (purchase-orders-plan.md §3 QUANTITY_SCAN_DIRS row): the purchasing dirs (order totals, line
+// quantities and unit costs are served decimals); the receipt route dir joins at GR-1, components/purchasing at PO-5.
+const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/app/(app)/purchase-orders'] as const;
 const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts', 'src/lib/format/money.ts'] as const;
 // Suppliers S-3 RED L-7: widened to the money names (`amount`, `unit_cost`, `unitCost`) now that `money.ts` is scanned.
 const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served|amount|unit_cost|unitCost/i;
@@ -1877,12 +1904,13 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
   it('the item dirs and the renderer hold no such token', () => {
     const files = scanned();
     // Positive control: the scan reads the item family and the renderer, not an empty set.
-    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx']));
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/purchase-orders/PurchaseOrdersList.tsx', 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', 'src/app/(app)/purchase-orders/[id]/LinesSection.tsx']));
     // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8. Suppliers S-3 added the supplier
     // dirs (src/app/(app)/suppliers: 9 files at S-3) and lib/format/money.ts (+1). Suppliers S-4: EntryForm.tsx (the Edit
     // dialog, which holds a cost and a minimum order) is in the positive control; it is counted by EXPECTED_COUNTS.
-    // Suppliers S-5: AddEntryForm.tsx (the Add dialog, the same four fields) likewise.
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1);
+    // Suppliers S-5: AddEntryForm.tsx (the Add dialog, the same four fields) likewise. Purchase orders PO-1: lib/purchasing
+    // and the order route dir (src/app/(app)/purchase-orders: 7 files at PO-1).
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + 7);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 

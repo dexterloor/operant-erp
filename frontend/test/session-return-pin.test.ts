@@ -133,7 +133,7 @@ describe('the session-ended return path: every (app) page answers with its own a
 
   it('derives every page, whatever its extension, and each one is clean', () => {
     const pages = pagesOf(files);
-    expect(pages.map((p) => p.file).sort()).toEqual(['account/password/page.tsx', 'admin/roles/[id]/page.tsx', 'admin/roles/page.tsx', 'admin/users/[id]/page.tsx', 'admin/users/page.tsx', 'items/[id]/page.tsx', 'items/new/page.tsx', 'items/page.tsx', 'page.tsx', 'suppliers/[id]/page.tsx', 'suppliers/new/page.tsx', 'suppliers/page.tsx', 'warehouses/[id]/page.tsx', 'warehouses/new/page.tsx', 'warehouses/page.tsx']);
+    expect(pages.map((p) => p.file).sort()).toEqual(['account/password/page.tsx', 'admin/roles/[id]/page.tsx', 'admin/roles/page.tsx', 'admin/users/[id]/page.tsx', 'admin/users/page.tsx', 'items/[id]/page.tsx', 'items/new/page.tsx', 'items/page.tsx', 'page.tsx', 'purchase-orders/[id]/page.tsx', 'purchase-orders/page.tsx', 'suppliers/[id]/page.tsx', 'suppliers/new/page.tsx', 'suppliers/page.tsx', 'warehouses/[id]/page.tsx', 'warehouses/new/page.tsx', 'warehouses/page.tsx']);
     expect(pages.flatMap(pageViolations)).toEqual([]);
   });
 

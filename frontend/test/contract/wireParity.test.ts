@@ -6,6 +6,7 @@ import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
+import type { ActorReference, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
@@ -88,6 +89,13 @@ const MIRRORED: Record<string, string[]> = {
   'SupplierProduct.UpdateSupplierProductInput.jsonMergePatch': keysOf<UpdateSupplierProductInput>()({ supplier_sku: true, unit_cost: true, lead_time_days: true, minimum_order_quantity: true }),
   // Suppliers S-5: Add to catalogue's body (suppliers-plan.md §R1-3).
   'SupplierProduct.CreateSupplierProductInput': keysOf<CreateSupplierProductInput>()({ inventory_item_id: true, supplier_sku: true, unit_cost: true, lead_time_days: true, minimum_order_quantity: true }),
+  // Purchase orders PO-1 (purchase-orders-plan.md §3; Revision 10 R10-2): the order, its line, the line's inline item
+  // reference and the two references the order carries; each later commit adds the input it first sends.
+  PurchaseOrder: keysOf<PurchaseOrder>()({ id: true, order_number: true, status: true, supplier: true, warehouse: true, currency_code: true, total_amount: true, ordered_at: true, expected_at: true, created_by: true, archived_at: true }),
+  PurchaseOrderLine: keysOf<PurchaseOrderLine>()({ id: true, line_number: true, inventory_item: true, quantity: true, quantity_received: true, quantity_outstanding: true, unit_cost: true, archived_at: true }),
+  'PurchaseOrderLine.inventory_item': keysOf<PurchaseOrderItemReference>()({ id: true, sku: true, name: true }),
+  NamedReference: keysOf<NamedReference>()({ id: true, name: true }),
+  ActorReference: keysOf<ActorReference>()({ id: true, display_name: true }),
 };
 
 describe('C-1 — wire parity of the hand-written lib/api types', () => {

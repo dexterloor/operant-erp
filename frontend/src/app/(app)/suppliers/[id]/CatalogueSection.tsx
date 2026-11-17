@@ -74,7 +74,7 @@ const CHOICES_HEADING_ID = 'catalogue-item-choices-heading';
  * FINAL; suppliers-final-red.md M-1, M-2, M-3, M-5, M-6). A plain section (ARCH (a): no paged list core, no view control,
  * no sort): one table over the served entries in served order (supplier SKU), the whole catalogue in one answer (G-42).
  * Columns Supplier SKU · Item · Unit cost · Lead time · Minimum order · Unit (R1-C), and Actions for an
- * UpdateSupplierProduct or DeleteSupplierProduct holder on a live supplier. Unit cost through `renderMoney` (the m2 interim, no unit in the cell);
+ * UpdateSupplierProduct or DeleteSupplierProduct holder on a live supplier. Unit cost through `renderMoney` (D1 by dropping only zeros, Revision 10; no unit in the cell);
  * Minimum order QR-2 trimmed with no suffix; the Unit cell is the entry's OWN served `unit_of_measure_code` (BK-31), read
  * from the row and from nothing else.
  *

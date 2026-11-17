@@ -50,16 +50,22 @@ export type PagedLoad<T> =
   | { readonly kind: ReadFailure };
 
 export interface ListCopy {
-  /** The page's `h1`, per view if a function; `null` is section use (the `header` renders the section's heading, named by `headingId`). */
-  heading: string | ((archived: boolean) => string) | null;
+  /**
+   * The page's `h1`, per view if a function; `null` is section use (the `header` renders the section's heading, named by
+   * `headingId`). A list with `segments` is also given the live segment on screen (Revision 10 R10-1; none in Archived).
+   */
+  heading: string | ((archived: boolean, segment?: string) => string) | null;
   /** The default Archived toggle's label (used when there is no `header`). */
   archived: string;
   /** The default search box (used when `search` is not given). */
   searchLabel?: string;
   searchPlaceholder?: string;
   loadFailed: string;
-  /** ST-1a's settled announcement. Never called with 0: the empty heading is spoken instead (ST-2a). */
-  shown: (n: number, q: string, archived: boolean) => string;
+  /**
+   * ST-1a's settled announcement. Never called with 0: the empty heading is spoken instead (ST-2a). A list with `segments`
+   * is also given the live segment, and must name it: two segments with equal counts may not read alike (R10-1).
+   */
+  shown: (n: number, q: string, archived: boolean, segment?: string) => string;
 }
 
 export interface Column<T> {
@@ -82,6 +88,13 @@ export interface ViewControls {
   busy: boolean;
   /** Switch views. Today's `fetchView` rule: a switch while busy is ignored. Never moves focus unless the control the person used is removed by the new view. */
   switchTo(archived: boolean): void;
+  /**
+   * Revision 10 R10-1, present only with `segments`: the live segment on screen (undefined in the Archived view; before
+   * any view has loaded, the segment `segments.initial` names), and a switch to another live segment — a view switch for
+   * every R8-1 rule (no cursor, the box's text settled, announced; focus per item 6).
+   */
+  segment?: string;
+  switchToSegment?(segment: string): void;
 }
 
 export interface HeaderView extends ViewControls {
@@ -98,8 +111,11 @@ export interface EmptyView extends ViewControls {
   clearSearch(): void;
 }
 
-/** The empty state for a view and query; `null` when that state cannot occur. Its heading is also what the settled announcement speaks (ST-2a). */
-export type EmptyState = (v: EmptyView) => { heading: string; actions?: ReactNode } | null;
+/**
+ * The empty state for a view and query; `null` when that state cannot occur. Its heading is also what the settled
+ * announcement speaks (ST-2a). A list with `segments` is also given the live segment (R10-1; none in Archived).
+ */
+export type EmptyState = (v: EmptyView, segment?: string) => { heading: string; actions?: ReactNode } | null;
 
 /**
  * A whole-view list's Archived view order (A-17 item 7). `as-served` keeps the server's order and renders no caption
@@ -117,8 +133,28 @@ export type ArchivedView = { order: 'newest-deleted-first'; caption: string; row
  */
 export interface Paging<T> {
   pager: (archived: boolean) => { previous: string; next: string };
-  pageShown: (rows: readonly T[], q: string, archived: boolean) => string;
-  noMore: (archived: boolean) => { heading: string; body: string; action: string };
+  /** A list with `segments` is also given the live segment (R10-1; none in Archived), for `pageShown` and `noMore`. */
+  pageShown: (rows: readonly T[], q: string, archived: boolean, segment?: string) => string;
+  noMore: (archived: boolean, segment?: string) => { heading: string; body: string; action: string };
+}
+
+/**
+ * Named live segments of a paged list (b4-architecture.md Revision 10 R10-1; first use: purchase orders' Open · Draft ·
+ * Received · Cancelled). The live view reads one segment at a time, and `pageQuery` sends it as `status`; the Archived
+ * view reads none. `initial` is the segment the server loaded for `initial` (from the address, as `initialArchived`; when
+ * the page opened on Archived, the segment a switch back to the live view opens). `label` names each key on the
+ * segment control, which the list renders in the live view, before the `header`. Every slot that depends on the view —
+ * `load` (after `signal`), `columns`, `empty`, `notice`, `copy.shown`, `copy.heading`, `paging.pageShown`,
+ * `paging.noMore` — is given the live segment as a trailing argument, and `onViewLoaded` too, as its second argument,
+ * whenever the loaded (view, segment) pair differs from the last one loaded. Returning from Archived opens the segment
+ * shown before the switch to Archived. A list without `segments` is unchanged: none of those calls gets the argument.
+ */
+export interface Segments {
+  keys: readonly string[];
+  initial: string;
+  label: (key: string) => string;
+  /** The segment control's group name (`role="group"`), so a screen reader hears what the buttons choose between (po-1-red.md L-3). */
+  name: string;
 }
 
 export type RereadResult = { kind: 'ok' } | { kind: ReadFailure };
@@ -143,10 +179,13 @@ interface BaseProps<T> {
   initial: ListLoad<T>;
   /** The view the server loaded for `initial` (from the address, through the caller). Default: the live view. */
   initialArchived?: boolean;
-  /** Called after a load succeeded, only when its view differs from the last one loaded. The address writer is `useArchivedAddress()`. */
-  onViewLoaded?: (archived: boolean) => void;
+  /**
+   * Called after a load succeeded, only when its view differs from the last one loaded. The address writer is
+   * `useArchivedAddress()`; for a list with `segments`, `useSegmentAddress()`, called with the segment too (R10-1).
+   */
+  onViewLoaded?: (archived: boolean, segment?: string) => void;
   load: (read: Read, archived: boolean, signal: AbortSignal) => Promise<ListLoad<T>>;
-  columns: (archived: boolean) => Column<T>[];
+  columns: (archived: boolean, segment?: string) => Column<T>[];
   copy: ListCopy;
   /** In place of the default Archived toggle, in every state but `denied` (R3-1). */
   header?: (v: HeaderView) => ReactNode;
@@ -158,7 +197,7 @@ interface BaseProps<T> {
    * One line above the rows, per view (ST-9b). `listBannerUp`: the list's own refetch banner is up (a failed switch or
    * banner Retry). A notice that renders its own refetch banner hides it while this is true (locations-stale-banner H-1).
    */
-  notice?: (archived: boolean, listBannerUp: boolean) => ReactNode;
+  notice?: (archived: boolean, listBannerUp: boolean, segment?: string) => ReactNode;
   /** Under the table, given the rows on screen. */
   footer?: (rows: readonly T[]) => ReactNode;
   controller?: Ref<ArchivableListHandle>;
@@ -188,7 +227,9 @@ export type ArchivableListProps<T> = BaseProps<T> & SearchOption<T>;
 export type PagedListProps<T> = Omit<BaseProps<T>, 'paging' | 'initial' | 'load' | 'archivedView'> & {
   paging: Paging<T>;
   initial: PagedLoad<T>;
-  load: (read: Read, archived: boolean, page: PageRequest, signal: AbortSignal) => Promise<PagedLoad<T>>;
+  load: (read: Read, archived: boolean, page: PageRequest, signal: AbortSignal, segment?: string) => Promise<PagedLoad<T>>;
+  /** Named live segments (Revision 10 R10-1). Absent: one live view, and no read sends `status`. */
+  segments?: Segments;
   archivedView: { order: 'as-served'; caption: string; rows: 'plain' | 'struck' };
   search?: SearchCopy;
   matches?: undefined;
@@ -228,8 +269,8 @@ function Slot<V>({ render, v }: { render: (v: V) => ReactNode; v: V }) {
   return <>{render(v)}</>;
 }
 
-function EmptyBlock({ empty, v }: { empty: EmptyState; v: EmptyView }) {
-  const e = empty(v);
+function EmptyBlock({ empty, v, segmented }: { empty: EmptyState; v: EmptyView; segmented: boolean }) {
+  const e = segmented ? empty(v, v.segment) : empty(v);
   if (e === null) return null;
   return (
     <div className={styles.empty}>
@@ -271,6 +312,8 @@ function EndOfList({ copy, headingRef, onFirstPage }: { copy: { heading: string;
 
 interface Loaded<T> {
   archived: boolean;
+  /** The live segment these rows answer (R10-1); undefined in the Archived view and for a list without segments. */
+  segment: string | undefined;
   items: T[];
   tenantHasRows: boolean | undefined;
   /** The cursors this answer offers (always null for a whole-view list). */
@@ -332,6 +375,10 @@ interface Loaded<T> {
 export function ArchivableList<T extends { id: string; archived_at: string | null }>(props: ArchivableListProps<T> | PagedListProps<T>) {
   const { initial, initialArchived = false, onViewLoaded, columns, copy, header, headingId, empty, archivedView, notice, footer, controller, denied } = props;
   const paging = props.paging ?? null;
+  /** Named live segments (Revision 10 R10-1), on a paged list only. */
+  const segments = props.paging !== undefined ? (props.segments ?? null) : null;
+  /** The live segment a view gets: none in the Archived view, none without segments. */
+  const segmentOf = (archived: boolean, live: string | undefined) => (segments === null || archived ? undefined : live);
   if (process.env.NODE_ENV !== 'production' && copy.heading === null && headingId === undefined) {
     throw new Error('ArchivableList needs a heading: give copy.heading (the page h1) or headingId (the section heading), the focus target after a Retry (FE-R3 H-2).');
   }
@@ -340,8 +387,9 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
 
   const caller = useApiCaller();
   /** An answer as the rows on screen: the cursors it offers, and whether it is the empty page a cursor reached. */
-  const loadedOf = (archived: boolean, r: Extract<ListLoad<T> | PagedLoad<T>, { kind: 'ok' }>, page: PageRequest): Loaded<T> => ({
+  const loadedOf = (archived: boolean, r: Extract<ListLoad<T> | PagedLoad<T>, { kind: 'ok' }>, page: PageRequest, segment: string | undefined): Loaded<T> => ({
     archived,
+    segment,
     items: r.items,
     tenantHasRows: r.tenantHasRows,
     next: 'nextCursor' in r ? r.nextCursor : null,
@@ -349,13 +397,20 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     page,
     endOfList: paging !== null && page.cursor !== null && r.items.length === 0,
   });
-  const firstShown: Loaded<T> | null = initial.kind === 'ok' ? loadedOf(initialArchived, initial, FIRST_PAGE) : null;
-  /** The view last loaded; `onViewLoaded` fires when a load lands on the other one. */
-  const lastLoaded = useRef(initialArchived);
+  const firstSegment = segmentOf(initialArchived, segments?.initial);
+  const firstShown: Loaded<T> | null = initial.kind === 'ok' ? loadedOf(initialArchived, initial, FIRST_PAGE, firstSegment) : null;
+  /** The view (and, with segments, the segment) last loaded; `onViewLoaded` fires when a load lands on another. */
+  const lastLoaded = useRef<{ archived: boolean; segment: string | undefined }>({ archived: initialArchived, segment: firstSegment });
+  /**
+   * R10-1: the live segment last shown, which a switch back from Archived opens (before any live view has loaded,
+   * `segments.initial`). State for the segment control's render; the ref for handlers that outlive a render.
+   */
+  const [liveSegment, setLiveSegmentState] = useState<string | undefined>(segments?.initial);
+  const liveSegmentRef = useRef<string | undefined>(segments?.initial);
   const [shown, setShownState] = useState<Loaded<T> | null>(firstShown);
   const shownRef = useRef<Loaded<T> | null>(firstShown);
   const [firstError, setFirstError] = useState<{ gen: number; cause: Cause } | null>(initial.kind === 'ok' || initial.kind === 'forbidden' ? null : { gen: 0, cause: causeOf(initial.kind) });
-  const [refetchError, setRefetchError] = useState<{ cause: Cause; archived: boolean; page: PageRequest } | null>(null);
+  const [refetchError, setRefetchError] = useState<{ cause: Cause; archived: boolean; page: PageRequest; segment: string | undefined } | null>(null);
   const [isDenied, setDenied] = useState(initial.kind === 'forbidden');
   const [busy, setBusy] = useState(false);
   const [q, setQState] = useState('');
@@ -393,26 +448,39 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   /** The settled sentence for a view and query (ST-1a); a count of 0 speaks the empty heading instead (ST-2a). Inert actions: only the heading is read. */
   const sentenceFor = (view: Loaded<T>, query: string) => {
     const n = matches ? view.items.filter((i) => matches(i, query.toLowerCase())).length : view.items.length;
-    return n > 0 ? copy.shown(n, query, view.archived) : (empty({ archived: view.archived, q: query, tenantHasRows: view.tenantHasRows, busy: false, switchTo: NOOP, clearSearch: NOOP })?.heading ?? '');
+    if (n > 0) return segments !== null ? copy.shown(n, query, view.archived, view.segment) : copy.shown(n, query, view.archived);
+    const inert: EmptyView = { archived: view.archived, q: query, tenantHasRows: view.tenantHasRows, busy: false, switchTo: NOOP, clearSearch: NOOP };
+    return (segments !== null ? empty({ ...inert, segment: view.segment, switchToSegment: NOOP }, view.segment) : empty(inert))?.heading ?? '';
   };
   const setShown = (next: Loaded<T>) => {
     shownRef.current = next;
     setShownState(next);
   };
   const listHeading = (): HTMLElement | null => (copy.heading !== null ? h1.current : headingId !== undefined ? document.getElementById(headingId) : null);
-  const viewLoaded = (archived: boolean) => {
-    if (archived === lastLoaded.current) return;
-    lastLoaded.current = archived;
-    onViewLoaded?.(archived);
+  const viewLoaded = (archived: boolean, segment: string | undefined) => {
+    if (!archived && segment !== undefined) {
+      liveSegmentRef.current = segment;
+      setLiveSegmentState(segment);
+    }
+    if (archived === lastLoaded.current.archived && segment === lastLoaded.current.segment) return;
+    lastLoaded.current = { archived, segment };
+    // A list without segments is told the view only, exactly as before R10-1.
+    if (segments !== null) onViewLoaded?.(archived, segment);
+    else onViewLoaded?.(archived);
   };
   const run = <R,>(task: () => Promise<R>): Promise<R> => {
     const p = queue.current.then(task, task);
     queue.current = p.catch(() => undefined);
     return p;
   };
-  const readView = async (archived: boolean, page: PageRequest): Promise<ListLoad<T> | PagedLoad<T>> => {
+  const readView = async (archived: boolean, page: PageRequest, segment: string | undefined): Promise<ListLoad<T> | PagedLoad<T>> => {
     const deadline = startDeadline(ACTION_DEADLINES_MS.reread);
-    const r = props.paging !== undefined ? await props.load(readOf(caller), archived, page, deadline.signal) : await props.load(readOf(caller), archived, deadline.signal);
+    const r =
+      props.paging !== undefined
+        ? segments !== null
+          ? await props.load(readOf(caller), archived, page, deadline.signal, segment)
+          : await props.load(readOf(caller), archived, page, deadline.signal)
+        : await props.load(readOf(caller), archived, deadline.signal);
     deadline.cancel();
     return r;
   };
@@ -443,10 +511,11 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
       pendingSettle.current = query;
       return;
     }
-    void fetchView(view.archived, 'settle', { q: query, cursor: null });
+    void fetchView(view.archived, 'settle', { q: query, cursor: null }, view.segment);
   };
 
-  const fetchView = async (archived: boolean, from: Origin, page: PageRequest = FIRST_PAGE) => {
+  /** `segment`: the live segment to read (R10-1); by default the one last shown live (none in the Archived view). */
+  const fetchView = async (archived: boolean, from: Origin, page: PageRequest = FIRST_PAGE, segment: string | undefined = segmentOf(archived, liveSegmentRef.current)) => {
     if (from === 'settle' ? busyRef.current : busy) return;
     /** The control the person used, if it had focus (a mouse click in Safari leaves `<body>`): removed by the new view → focus is moved. */
     const started = document.activeElement;
@@ -457,7 +526,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     if (paging !== null && from === 'switch') settledQ.current = page.q;
     // Blank while in flight, so a repeat failure (same heading) or a success is a text change (FE-R3 defect B, M-4).
     setSaid('');
-    const r = await run(() => readView(archived, page));
+    const r = await run(() => readView(archived, page, segment));
     setBusy(false);
     busyRef.current = false;
     inFlight.current = false;
@@ -469,7 +538,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
       // X-2 / FE-R3: commit the rows first (the region still blank), then, only if focus was lost, focus the list's heading
       // (first load) or the new view's switch control (banner; a switch whose own control is gone), then write the
       // sentence — focus first, then announce (FE-D1's flushSync order).
-      const next = loadedOf(archived, r, page);
+      const next = loadedOf(archived, r, page, segment);
       flushSync(() => {
         setShown(next);
         setFirstError(null);
@@ -493,10 +562,12 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
         setSaid(sentenceFor(next, qRef.current));
       } else if (rerun === null) {
         // R8-1 items 5–6: a page read by its cursor speaks its position; the empty one, its heading; any other, ST-1a's sentence.
-        setSaid(next.endOfList ? paging.noMore(archived).heading : page.cursor !== null ? paging.pageShown(next.items, page.q, archived) : sentenceFor(next, page.q));
+        const noMore = segments !== null ? paging.noMore(archived, segment) : paging.noMore(archived);
+        const pageShown = () => (segments !== null ? paging.pageShown(next.items, page.q, archived, segment) : paging.pageShown(next.items, page.q, archived));
+        setSaid(next.endOfList ? noMore.heading : page.cursor !== null ? pageShown() : sentenceFor(next, page.q));
       }
-      viewLoaded(archived);
-      if (rerun !== null) void fetchView(archived, 'settle', { q: rerun, cursor: null });
+      viewLoaded(archived, segment);
+      if (rerun !== null) void fetchView(archived, 'settle', { q: rerun, cursor: null }, segment);
       return;
     }
     if (r.kind === 'session-ended') return;
@@ -507,11 +578,11 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
     if (shownRef.current === null) setFirstError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: causeOf(r.kind) }));
     else {
       // The failed request is kept whole: the banner's Retry repeats it exactly (R8-1 item 2).
-      setRefetchError({ cause: causeOf(r.kind), archived, page });
+      setRefetchError({ cause: causeOf(r.kind), archived, page, segment });
       searchedSinceFailure.current = false;
       failureNote.current = headingOf(causeOf(r.kind));
       setSaid(failureNote.current);
-      if (rerun !== null) void fetchView(shownRef.current.archived, 'settle', { q: rerun, cursor: null });
+      if (rerun !== null) void fetchView(shownRef.current.archived, 'settle', { q: rerun, cursor: null }, shownRef.current.segment);
     }
   };
 
@@ -546,21 +617,22 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
         // RED L-1 option (a): before any view has loaded there is nothing on screen to refresh.
         if (shownRef.current === null) return { kind: 'server-error' };
         const view = shownRef.current.archived;
-        // The page on screen, read again: same view, same search, same cursor (R8-1; L-8).
+        // The page on screen, read again: same view (and segment), same search, same cursor (R8-1; L-8).
         const page = shownRef.current.page;
+        const segment = shownRef.current.segment;
         rereading.current = true;
-        const r = await readView(view, page).finally(() => {
+        const r = await readView(view, page, segment).finally(() => {
           rereading.current = false;
         });
         if (r.kind === 'ok') {
-          const next = loadedOf(view, r, page);
+          const next = loadedOf(view, r, page, segment);
           flushSync(() => setShown(next));
           // R8-1 item 5: the empty page lands here too. A reread may remove the page button that held focus (the page is
           // empty, or no longer offers that way): only then does focus move — to the state's heading, else the list's, as a
           // page press does — taken from nowhere the person went, and nothing is announced (a reread never speaks, M-2).
           // A whole-view list keeps its reread rule (focus never moves).
           if (focusWasLost()) (next.endOfList ? endHeading.current : paging !== null ? listHeading() : null)?.focus();
-          viewLoaded(view);
+          viewLoaded(view, segment);
           return { kind: 'ok' };
         }
         if (r.kind === 'forbidden') setDenied(true);
@@ -576,8 +648,14 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
 
   if (isDenied) return <>{denied}</>;
 
-  // A paged switch reads the search in the box and no cursor; a whole-view one reads the whole view.
-  const switchTo = (to: boolean) => void fetchView(to, 'switch', paging !== null ? { q: qRef.current, cursor: null } : FIRST_PAGE);
+  // A paged switch reads the search in the box and no cursor; a whole-view one reads the whole view. A switch to the live
+  // view opens the segment last shown live (R10-1); a switch to Archived reads none.
+  const switchTo = (to: boolean) => void fetchView(to, 'switch', paging !== null ? { q: qRef.current, cursor: null } : FIRST_PAGE, segmentOf(to, liveSegmentRef.current));
+  /** R10-1: a switch to another live segment, a view switch for every R8-1 rule. The segment on screen is not read again. */
+  const switchToSegment = (to: string) => {
+    if (shown !== null && !shown.archived && shown.segment === to) return;
+    void fetchView(false, 'switch', { q: qRef.current, cursor: null }, to);
+  };
   const clearSearch = () => {
     searchedSinceFailure.current = true;
     setQ('');
@@ -604,10 +682,13 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
    */
   const goTo = (cursor: PageCursor) => {
     if (busy || rereading.current || shown === null || settledQ.current !== shown.page.q) return;
-    void fetchView(shown.archived, 'page', { q: shown.page.q, cursor });
+    void fetchView(shown.archived, 'page', { q: shown.page.q, cursor }, shown.segment);
   };
-  const cols = columns(archived);
-  const headingText = typeof copy.heading === 'function' ? copy.heading(archived) : copy.heading;
+  /** The live segment on screen: the rows' (none in Archived); before any view has loaded, the one the list opens on. */
+  const segment = segments === null ? undefined : shown !== null ? shown.segment : segmentOf(archived, liveSegment);
+  const segmentControls = segments !== null ? { segment, switchToSegment } : {};
+  const cols = segments !== null ? columns(archived, segment) : columns(archived);
+  const headingText = typeof copy.heading === 'function' ? (segments !== null ? copy.heading(archived, segment) : copy.heading(archived)) : copy.heading;
   const searchLabel = searchCopy ? (typeof searchCopy.label === 'function' ? searchCopy.label(archived) : searchCopy.label) : '';
   const struck = archived && archivedView.rows === 'struck' ? styles.struck : undefined;
 
@@ -624,7 +705,17 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
       <LiveRegion message={said} visuallyHidden />
       {header || shown ? (
         <div className={styles.toolbar}>
-          {header ? <Slot render={header} v={{ archived, busy, loaded: shown !== null, switchTo, viewControlRef }} /> : <ArchivedToggle ref={viewControlRef} archived={archived} busy={busy} onClick={() => switchTo(!archived)} label={copy.archived} />}
+          {segments !== null && !archived ? (
+            // R10-1: the segment control, live view only (a switch back from Archived opens the segment shown before it).
+            <div role="group" aria-label={segments.name} className={styles.segments}>
+              {segments.keys.map((key) => (
+                <Button key={key} aria-pressed={key === segment} onClick={() => switchToSegment(key)}>
+                  {segments.label(key)}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+          {header ? <Slot render={header} v={{ archived, busy, loaded: shown !== null, switchTo, viewControlRef, ...segmentControls }} /> : <ArchivedToggle ref={viewControlRef} archived={archived} busy={busy} onClick={() => switchTo(!archived)} label={copy.archived} />}
           {shown && searchCopy ? (
             // The hint sits outside the <label>, so it describes the box and is not part of its name.
             <SearchGroup hint={searchCopy.hint} hintId={searchHintId}>
@@ -653,15 +744,15 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
       ) : null}
       {shown ? (
         <>
-          {refetchError ? <RefetchFailedBanner heading={headingOf(refetchError.cause)} body={LIST_STATES.refetchFailed} retrying={busy} onRetry={() => void fetchView(refetchError.archived, 'banner', refetchError.page)} /> : null}
-          {notice ? notice(archived, refetchError !== null) : null}
+          {refetchError ? <RefetchFailedBanner heading={headingOf(refetchError.cause)} body={LIST_STATES.refetchFailed} retrying={busy} onRetry={() => void fetchView(refetchError.archived, 'banner', refetchError.page, refetchError.segment)} /> : null}
+          {notice ? (segments !== null ? notice(archived, refetchError !== null, segment) : notice(archived, refetchError !== null)) : null}
           <Refetchable busy={busy}>
             {paging !== null && shown.endOfList ? (
-              <EndOfList copy={paging.noMore(shown.archived)} headingRef={endHeading} onFirstPage={() => void fetchView(shown.archived, 'top', { q: settledQ.current, cursor: null })} />
+              <EndOfList copy={segments !== null ? paging.noMore(shown.archived, shown.segment) : paging.noMore(shown.archived)} headingRef={endHeading} onFirstPage={() => void fetchView(shown.archived, 'top', { q: settledQ.current, cursor: null }, shown.segment)} />
             ) : rows.length === 0 ? (
               // The empty state on screen follows the live query; the announcement, the settled one (FE-R4 keeps this split).
               // A paged list's rows answer the search they were read with, so its empty state follows that one.
-              <EmptyBlock empty={empty} v={{ archived: shown.archived, q: paging !== null ? shown.page.q : q, tenantHasRows: shown.tenantHasRows, busy, switchTo, clearSearch }} />
+              <EmptyBlock empty={empty} segmented={segments !== null} v={{ archived: shown.archived, q: paging !== null ? shown.page.q : q, tenantHasRows: shown.tenantHasRows, busy, switchTo, clearSearch, ...segmentControls }} />
             ) : (
               <table className={styles.table}>
                 {archived && archivedView.caption !== undefined ? <caption>{archivedView.caption}</caption> : null}

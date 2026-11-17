@@ -152,7 +152,7 @@ describe('built pages only (b3b-followup C-3, F-1)', () => {
   });
 
   it('codes that open no built page: no navigation landmark in the sidebar or the rail (brand kept), and no menu button', () => {
-    const codes = ['purchase_order.view', 'invoice.view'];
+    const codes = ['sales_order.view', 'invoice.view'];
     const a = render(<Sidebar permissionCodes={codes} currentPath="/" />);
     expect(screen.queryByRole('navigation')).toBeNull();
     expect(a.container.querySelector('[aria-hidden="true"]')).not.toBeNull();
