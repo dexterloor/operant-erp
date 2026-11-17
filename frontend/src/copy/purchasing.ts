@@ -3,9 +3,10 @@
 // Revision 0 Part B; each entry names its key. Server refusals are never stored here: they render as sent. Each sentence
 // holds for the web app in the commit that renders it (`STATES.md:161`). PO-1 (R1a-1 row 1) is reading only: the list,
 // the Archived view and the read-only order page. PO-2 (row 2) adds the one action Restore purchase order, on a deleted
-// draft's banner, so only `RESTORE_ORDER.*` and `noneArchived`'s PO-2 form name an action; the other keys whose final
-// form names one (`noneYet`, `emptyDraft`, `draftNote`, `orderedNote`) stay in their PO-1 forms. The commit that ships
-// each action replaces its key with the next form (R1a-1 rows 3–12).
+// draft's banner (`RESTORE_ORDER.*`, `noneArchived`'s PO-2 form). PO-3 (row 3) adds Create purchase order: the create page
+// (`NEW_PURCHASE_ORDER.*`), `newOrder`, `createOrder`, `noneYet` in its final form and `emptyDraft` in its PO-3 form. The
+// keys whose final form names a later action (`emptyDraft`'s approving, `draftNote`, `orderedNote`) stay in earlier forms.
+// The commit that ships each action replaces its key with the next form (R1a-1 rows 4–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
 
@@ -81,12 +82,18 @@ export const PURCHASE_ORDERS_LIST = {
   },
   /** `loadFailed`. */
   loadFailed: "The list of purchase orders couldn't be loaded.",
-  /** `noneYet` (`tenant_has_rows` false), PO-1 form (R1a-1 row 1): the final form names creating, which ships at PO-3. */
-  noneYet: 'No purchase orders yet.',
+  /**
+   * `noneYet` (`tenant_has_rows` false), final form from PO-3 (R1a-1 row 3; R1-B): it names creating, which ships here.
+   * Its action is `createOrder`, for a viewer who reaches the create page.
+   */
+  noneYet: 'No purchase orders yet. A purchase order is what you ask a supplier for: it appears here as a draft when someone creates it.',
+  /** `newOrder` (the live header's link) · `createOrder` (the `noneYet` and `emptyDraft` action), CONFIRMS the New/Create rule. */
+  newOrder: 'New purchase order',
+  createOrder: 'Create purchase order',
   /** `emptyOpen` (final; a state, names no action). */
   emptyOpen: "No open purchase orders. Open orders are approved orders that haven't been received in full or cancelled.",
-  /** `emptyDraft`, PO-1 form (R1a-1 row 1): the later forms name creating (PO-3) and approving (PO-8). */
-  emptyDraft: 'No drafts.',
+  /** `emptyDraft`, PO-3 form (R1a-1 row 3; final RED L-3): names creating, not approving (PO-8 ships the final form). */
+  emptyDraft: 'No drafts. A new purchase order starts as a draft.',
   /** `emptyReceived` · `emptyCancelled`. */
   emptyReceived: 'No orders have been received in full yet.',
   emptyCancelled: 'No cancelled orders.',
@@ -204,4 +211,89 @@ export const ORDER_LINES = {
 export const PURCHASING_FORBIDDEN = {
   before: 'This needs the ',
   after: ' permission, which you no longer have. Your workspace administrator can grant it.',
+} as const;
+
+/**
+ * UX B-2 `NEW_PURCHASE_ORDER` (R1-B "as Rev 0"; R1a-1 row 3: no line table; the expected date only once D-4 is ruled, so
+ * `expected` and `expectedHint` are not here). The create page of a DRAFT, header first: its lines are added on the
+ * draft's own page.
+ */
+export const NEW_PURCHASE_ORDER = {
+  /** `heading` (h1, `<title>`). */
+  heading: 'New purchase order',
+  /** `deniedResource`: ST-4b's noun for `/purchase-orders/new` without one of its operations. */
+  deniedResource: 'new purchase orders',
+  /** `supplier` · `supplierHint` (archived suppliers are never listed: the choice reads the live view only). */
+  supplier: 'Supplier',
+  supplierHint: "Only suppliers that aren't archived can be chosen.",
+  /** `warehouse` · `warehouseHint`. */
+  warehouse: 'Deliver to',
+  warehouseHint: 'The warehouse the goods are delivered to and received into.',
+  /** `currency(code)` (read-only, after a supplier is chosen; PO D-5 (a)) · `currencyBeforeSupplier`. */
+  currency: (code: string) => `Currency: ${code}, this supplier's. Costs on this order are in it, and it can't be changed later.`,
+  currencyBeforeSupplier: "The currency is the supplier's, once you choose one.",
+  /** `supplierRequired` · `warehouseRequired` (client; no request). */
+  supplierRequired: 'Choose a supplier.',
+  warehouseRequired: "Choose where it's delivered to.",
+  /** `submit` · `cancel`. */
+  submit: 'Create purchase order',
+  cancel: 'Go back',
+  /** `after(number)`: spoken once on the new order's page, focus on its h1. */
+  after: (number: string) => `${number} was created as a draft.`,
+  /** `interrupted`: the number is minted by the server, so it cannot be named; "press again" is not offered (a new key). */
+  interrupted: "We can't tell whether the purchase order was created. Check the Draft list before you try again.",
+  /**
+   * UX Revision 1b R1b-2: the select's unselected option and option label (CONFIRMS), the sentence under it when no live
+   * warehouse exists (REPLACES: it names both causes, since the live view cannot tell them apart, and where the cure is —
+   * passive, R-3) and the field's own load failure (CONFIRMS).
+   */
+  warehousePrompt: 'Choose a warehouse',
+  warehouseOption: (code: string, name: string) => `${code} — ${name}`,
+  noWarehouses: 'No warehouse can be chosen: none has been created yet, or every one is archived. Warehouses are added and restored on the Warehouses page.',
+  warehousesLoadFailed: "The warehouses couldn't be loaded.",
+} as const;
+
+/**
+ * UX Revision 1b R1b-1 `SUPPLIER_CHOICES`: the create page's supplier choice (plan §2.4: the suppliers S-5
+ * choice-list-in-a-dialog shape). Every key CONFIRMS the shipped string except `noneYet` and `allArchived` (REPLACES: each
+ * says where the cure is, passive, R-3) and `archivedNote` (NEW). The search box and paging CONFIRM `SUPPLIERS_LIST` /
+ * `SUPPLIERS_PAGING`; the dialog, columns and Choose follow `ITEM_CHOICES`; the dismiss is this area's **Go back** (R1-B).
+ */
+export const SUPPLIER_CHOICES = {
+  /** The field's button while nothing is chosen; also the dialog's title (the action it completes). */
+  open: 'Choose a supplier',
+  title: 'Choose a supplier',
+  /** The chosen supplier, then Change (its accessible name says what changes). */
+  chosen: (code: string, name: string) => `${code} — ${name}`,
+  change: 'Change',
+  changeName: 'Change supplier',
+  /** Go back: the dialog's one dismiss. */
+  dismiss: 'Go back',
+  /** The list's own heading inside the dialog (the core's focus target after a Retry). */
+  heading: 'Suppliers',
+  /** `archivedNote` (NEW, R1b-1): one line above the rows (the `ITEM_CHOICES.archivedNote` shape). */
+  archivedNote: "Archived suppliers aren't listed.",
+  /** CONFIRMS `SUPPLIERS_LIST.searchFor(false)` · `searchPlaceholder` · `searchHint`. */
+  search: 'Search by name or code',
+  placeholder: 'Start of a name or code',
+  hint: "Capitals don't matter for names. For codes they do, and so do spaces.",
+  /** Columns: Code · Name · Currency · Choose (a header, so no header cell is empty). */
+  code: 'Code',
+  name: 'Name',
+  currency: 'Currency',
+  choose: 'Choose',
+  chooseSupplier: (code: string) => `Choose ${code}`,
+  /** The settled announcement (never called with 0) and the page sentences (CONFIRM `SUPPLIERS_PAGING`). */
+  shown: (n: number, q: string) => [n === 1 ? '1 supplier shown.' : `${n} suppliers shown.`, q !== '' ? `Name or code starts with “${q}”.` : null].filter(Boolean).join(' '),
+  pageShown: (n: number, first: string, last: string) => (n === 1 ? `1 supplier shown, ${first}.` : `${n} suppliers shown, ${first} to ${last}.`),
+  searched: (q: string) => `Name or code starts with “${q}”.`,
+  pager: { previous: 'Previous', next: 'Next' },
+  noMore: { heading: 'There are no more suppliers here.', body: 'The list changed after the page you were on was loaded.', action: 'Back to the first page' },
+  /** `noneYet` (`tenant_has_rows` false) · `allArchived` (REPLACES, R1b-1: true at PO-3 — New supplier S-2, Restore supplier S-1). */
+  noneYet: 'No suppliers yet. A purchase order needs a supplier, and suppliers are added on the Suppliers page.',
+  allArchived: 'No suppliers to choose from. Every supplier here is archived, and an archived supplier can be restored from the archived suppliers.',
+  /** `noMatch(q)` (CONFIRMS `SUPPLIERS_LIST.noMatch`) · Clear search. */
+  noMatch: (q: string) => `No supplier's name or code starts with “${q}”.`,
+  clearSearch: 'Clear search',
+  loadFailed: "The suppliers couldn't be loaded.",
 } as const;

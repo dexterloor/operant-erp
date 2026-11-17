@@ -1,12 +1,14 @@
-import type { PurchaseOrder } from '../api/purchasing';
+import type { CreatePurchaseOrderInput, PurchaseOrder } from '../api/purchasing';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
+import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { isPurchaseOrder, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
-import type { RestoreOrderAction } from './results';
+import { CREATE_ORDER_FIELDS, type CreateOrderAction, type RestoreOrderAction } from './results';
 
-// The purchase-order page's actions over the BFF (Revision 8 R8-2; the lib/suppliers/wired.ts shape). PO-2 ships one:
-// Restore purchase order. It takes no Idempotency-Key: the restore is guarded by `deleted_at` (a repeat is refused P12).
+// The purchasing family's actions over the BFF (Revision 8 R8-2; the lib/suppliers/wired.ts shape). PO-2 shipped
+// Restore purchase order; PO-3 adds Create purchase order (at the end of this file). Restore takes no Idempotency-Key:
+// it is guarded by `deleted_at` (a repeat is refused P12).
 // One deadline covers the request, its GetPurchaseOrder re-read and, for a ListPurchaseOrderLines holder, the order's live
 // lines. No refusal code is compared on the page or here: a refusal is followed by a re-read, and what the re-read shows
 // decides (live → `already-live`; still deleted → the refusal as sent, Restore kept — P1 included, whose sentence says
@@ -83,6 +85,40 @@ export function orderRestore(w: OrderWiring): RestoreOrderAction {
         w.onRereadFailed(again.kind, s);
       }
       return { kind: 'restored', order: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Create purchase order (PO-3; the `supplierCreate` shape). `CreatePurchaseOrder` requires an Idempotency-Key but the page
+// never replays one (a lost answer says "check the Draft list", never "press again"), so a fresh key is minted for EVERY
+// submit (`newKey`) and never stored. The body is the three members copied by name (never a spread): the chosen supplier,
+// the chosen warehouse and that supplier's served currency (PO D-5 (a)). Never `lines` (the draft is created header-first;
+// `lines: []` would be refused by the server's minimum of one) and never `expected_at` (D-4 unruled). No re-read: the page
+// navigates to the new order, which reads it. No refusal code is compared.
+export function orderCreate(caller: ApiCaller, newKey: () => string = () => crypto.randomUUID()): CreateOrderAction {
+  return async (values) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.orderCreate);
+    try {
+      const body: CreatePurchaseOrderInput = { supplier_id: values.supplier_id, warehouse_id: values.warehouse_id, currency_code: values.currency_code };
+      const r = await caller.call('CreatePurchaseOrder', {}, body, { signal: deadline.signal, idempotencyKey: newKey() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused':
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, CREATE_ORDER_FIELDS) };
+            return r;
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isPurchaseOrder(r.body) ? { kind: 'created', order: r.body } : { kind: 'server-error' };
     } finally {
       deadline.cancel();
     }

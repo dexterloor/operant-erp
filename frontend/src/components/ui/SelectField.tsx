@@ -30,7 +30,8 @@ export interface SelectFieldProps {
  * label names the select; `aria-invalid` only while there is an error; `aria-describedby` = the hint id then the error id.
  * Options are the given values in the given order, each shown by `labelOf`. A value the list lacks (a record's own value,
  * if the enum ever narrowed) is kept as the first option, so the select never shows a value the record does not have.
- * Never the native `disabled` attribute (ST-4e). Nothing is decided from a value here.
+ * Never the native `disabled` attribute (ST-4e). Nothing is decided from a value here. Revision 10 R10-5: the values may
+ * also be records' served ids, each labelled by the caller from served fields (never by its id), with no preselection.
  */
 export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(function SelectField({ id, name, label, options, labelOf, value, onChange, hints, error, prompt }, ref) {
   const hintId = `${id}-hint`;

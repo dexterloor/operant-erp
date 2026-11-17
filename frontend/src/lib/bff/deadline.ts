@@ -63,6 +63,8 @@ export const ACTION_DEADLINES_MS = {
    * ListPurchaseOrderLines holder, the order's live lines (they came back with it).
    */
   orderRestore: 30_000,
+  /** Create a purchase-order draft (PO-3): the request alone (the page navigates to the new order, which reads it). */
+  orderCreate: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

@@ -1,4 +1,6 @@
 import { isPurchaseOrderSegment, PURCHASE_ORDER_SEGMENTS, type ActorReference, type NamedReference, type PurchaseOrder, type PurchaseOrderLine, type PurchaseOrderSegment } from '../api/purchasing';
+import type { Supplier } from '../api/suppliers';
+import type { Warehouse } from '../api/warehouses';
 import { pageQuery, type PageRequest, type Read, type ReadFailure } from '../bff/reads';
 
 // The purchasing family's loaders (the lib/suppliers/load.ts shape; b4-architecture.md Revision 10 R10-2: one family
@@ -103,3 +105,55 @@ export function addressedView(query: Readonly<Record<string, string | string[] |
   return { archived, segment };
 }
 
+
+/**
+ * PO-3: one row of the create page's supplier choice list (purchase-orders-plan.md Revision 0 §4 PO-3). A `Pick` of the
+ * mirrored `Supplier` — never a hand-written projection — so C-1's check of `Supplier` holds it (the suppliers M-7 rule
+ * for `ItemChoice`). `currency_code` is what the new order is sent in (PO D-5 (a)).
+ */
+export type SupplierChoice = Pick<Supplier, 'id' | 'code' | 'name' | 'currency_code' | 'archived_at'>;
+/** A `PagedLoad<SupplierChoice>` for the paged list core (structurally; `lib` imports nothing from `app`). */
+export type SupplierChoicesLoad =
+  | { readonly kind: 'ok'; readonly items: SupplierChoice[]; readonly nextCursor: string | null; readonly previousCursor: string | null; readonly tenantHasRows: boolean }
+  | { readonly kind: ReadFailure };
+
+const isSupplierChoice = (x: unknown): x is SupplierChoice =>
+  isObject(x) && typeof x.id === 'string' && typeof x.code === 'string' && typeof x.name === 'string' && typeof x.currency_code === 'string' && isNullableString(x.archived_at);
+
+/**
+ * `ListSuppliers` for the create page's supplier choice (the `loadItemChoices` shape, suppliers-final-red.md M-3/M-4): the
+ * LIVE view only, one page for a search and a cursor, its query built only by `pageQuery(false, …)` — never `archived`,
+ * `limit`, `sort` or `status`, at most one cursor, `q` as typed only when not empty. Each row must carry the five chosen
+ * members, the answer both cursors and `tenant_has_rows` (without it a workspace whose suppliers are all archived would
+ * read "No suppliers yet."). Run over the browser transport only (the dialog opens on a press).
+ */
+export async function loadSupplierChoices(read: Read, page: PageRequest, signal?: AbortSignal): Promise<SupplierChoicesLoad> {
+  const a = await read('ListSuppliers', { query: pageQuery(false, page), signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown; next_cursor?: unknown; previous_cursor?: unknown; tenant_has_rows?: unknown } | null;
+  const items = body?.items;
+  if (!Array.isArray(items) || !items.every(isSupplierChoice) || !isCursor(body?.next_cursor) || !isCursor(body?.previous_cursor) || typeof body?.tenant_has_rows !== 'boolean') {
+    return { kind: 'server-error' };
+  }
+  return { kind: 'ok', items, nextCursor: body.next_cursor, previousCursor: body.previous_cursor, tenantHasRows: body.tenant_has_rows };
+}
+
+/** PO-3: one option of the create page's warehouse select (Revision 10 R10-5): a `Pick` of the mirrored `Warehouse`. */
+export type WarehouseChoice = Pick<Warehouse, 'id' | 'code' | 'name'>;
+export type WarehouseChoicesLoad = { readonly kind: 'ok'; readonly warehouses: WarehouseChoice[] } | { readonly kind: ReadFailure };
+
+const isWarehouseChoice = (x: unknown): x is WarehouseChoice => isObject(x) && typeof x.id === 'string' && typeof x.code === 'string' && typeof x.name === 'string';
+
+/**
+ * `ListWarehouses` for the create page's Deliver to select (plan §2.4): the LIVE view, the whole set in one answer (the
+ * read is not paged), in served order. It sends no query at all — never `archived`, never `q` — so an archived warehouse is
+ * never offered. Run over the server transport on first render, the browser one for the field's Retry.
+ */
+export async function loadWarehouseChoices(read: Read, signal?: AbortSignal): Promise<WarehouseChoicesLoad> {
+  const a = await read('ListWarehouses', { query: new URLSearchParams(), signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown } | null;
+  const items = body?.items;
+  if (!Array.isArray(items) || !items.every(isWarehouseChoice)) return { kind: 'server-error' };
+  return { kind: 'ok', warehouses: items.map(({ id, code, name }) => ({ id, code, name })) };
+}

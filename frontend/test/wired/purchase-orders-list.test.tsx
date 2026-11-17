@@ -323,10 +323,11 @@ describe('/purchase-orders — the Archived view (L-4; R1-B)', () => {
   });
 });
 
-describe('/purchase-orders — ST-9a empty states (test 5) and the PO-1 copy forms (test 15)', () => {
+describe('/purchase-orders — ST-9a empty states (test 5) and the per-commit copy forms (test 15)', () => {
   it.each([
     ['open', 'No open purchase orders. Open orders are approved orders that haven\'t been received in full or cancelled.'],
-    ['draft', 'No drafts.'],
+    // Moved at PO-3 (R1a-1 row 3; final RED L-3): Create purchase order ships, so the Draft segment says how a draft starts.
+    ['draft', 'No drafts. A new purchase order starts as a draft.'],
     ['received', 'No orders have been received in full yet.'],
     ['cancelled', 'No cancelled orders.'],
   ] as const)('test 5 — %s, no search, orders elsewhere (tenant_has_rows true): "%s"', (segment, sentence) => {
@@ -334,9 +335,11 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the PO-1 copy for
     expect(screen.getByText(sentence, { selector: 'p' })).toBeInTheDocument();
   });
 
-  it.each(PURCHASE_ORDER_SEGMENTS)('test 5 — %s with no order at all (tenant_has_rows false): "No purchase orders yet."', (segment) => {
+  // Moved at PO-3 (R1a-1 row 3): `noneYet` takes its final form, which names creating (shipped here).
+  const NONE_YET = 'No purchase orders yet. A purchase order is what you ask a supplier for: it appears here as a draft when someone creates it.';
+  it.each(PURCHASE_ORDER_SEGMENTS)('test 5 — %s with no order at all (tenant_has_rows false): noneYet in its final form', (segment) => {
     renderWired(<PurchaseOrdersList initial={ok([], { tenantHasRows: false })} initialSegment={segment} />);
-    expect(screen.getByText('No purchase orders yet.', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByText(NONE_YET, { selector: 'p' })).toBeInTheDocument();
   });
 
   // Moved at PO-2 (R1a-1 row 2): Restore ships, so the sentence says the archived drafts can be restored from here.
@@ -392,9 +395,10 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the PO-1 copy for
     await waitFor(() => expect(screen.getByText('No archived order\'s number starts with “PO-9”.', { selector: 'p' })).toBeInTheDocument());
   });
 
-  // Test 15 (R1-2 / UX R1a-1 rows 1–2): the shortened forms render. Moved at PO-2: noneArchived names restoring (shipped
-  // here); still no sentence names creating, approving or deleting, and noneArchived says nothing of deleting (PO-6).
-  it('test 15 — the PO-2 forms: noneYet and emptyDraft name no action; noneArchived names only restoring', () => {
+  // Test 15 (R1-2 / UX R1a-1 rows 1–3): the per-commit forms render. Moved at PO-2: noneArchived names restoring. Moved at
+  // PO-3: noneYet takes its final form and emptyDraft its PO-3 form, both naming creating (shipped here); still no sentence
+  // names approving or deleting (PO-8, PO-6).
+  it('test 15 — the PO-3 forms: noneYet final and emptyDraft name creating only; noneArchived names only restoring', () => {
     const shown: string[] = [];
     for (const [initial, segment, archived] of [
       [ok([], { tenantHasRows: false }), 'open', false],
@@ -406,9 +410,9 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the PO-1 copy for
       unmount();
     }
     const all = shown.join(' ');
-    expect(all).toContain('No purchase orders yet.');
-    expect(all).toContain('No drafts.');
+    expect(all).toContain(NONE_YET);
+    expect(all).toContain('No drafts. A new purchase order starts as a draft.');
     expect(all).toContain('No archived purchase orders. Archived drafts can be restored from here.');
-    for (const later of ['when someone creates it', 'starts as a draft', "until it's approved", 'deleted']) expect(all).not.toContain(later);
+    for (const later of ["until it's approved", 'approved', 'deleted']) expect(all).not.toContain(later);
   });
 });

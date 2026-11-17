@@ -1,0 +1,69 @@
+/* The purchasing family's forms (purchase-orders-plan.md §3): the supplier and warehouse pages' look, tokens only. The
+   focus ring is global. */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 32rem;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+/* PO-3: the Supplier field (a group named by its legend): the chosen supplier with Change, or Choose a supplier. */
+.choiceField {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.choiceField legend {
+  padding: 0;
+  margin-bottom: var(--space-3);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+}
+
+.choiceField p,
+.muted {
+  margin: 0;
+}
+
+.hint {
+  color: var(--fg-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+/* A field's client or 422 sentence (TextField's `.error` look, tokens only). */
+.error {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  color: var(--danger-subtle-fg);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.error svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* The supplier choice dialog's list area, a full row above its Go back. */
+.choices {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}

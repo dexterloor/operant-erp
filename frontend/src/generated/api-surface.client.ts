@@ -63,6 +63,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['inventory_item.create'],
     },
   },
+  CreatePurchaseOrder: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders',
+    pathParams: [],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.create'],
+    },
+  },
   CreateRoleGrantProposal: {
     method: 'POST',
     template: '/api/v1/users/{id}/role-grant-proposals',
@@ -555,6 +565,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   OfferedRole: ['conflicts_with', 'id', 'margin_exposure_with', 'name', 'refusal', 'requires_owner_confirmation'],
   Permission: ['code', 'description', 'module', 'sod_rows'],
   PurchaseOrder: ['archived_at', 'created_by', 'currency_code', 'expected_at', 'id', 'order_number', 'ordered_at', 'status', 'supplier', 'total_amount', 'warehouse'],
+  'PurchaseOrder.CreatePurchaseOrderInput': ['currency_code', 'expected_at', 'lines', 'supplier_id', 'warehouse_id'],
   PurchaseOrderLine: ['archived_at', 'id', 'inventory_item', 'line_number', 'quantity', 'quantity_outstanding', 'quantity_received', 'unit_cost'],
   'PurchaseOrderLine.inventory_item': ['id', 'name', 'sku'],
   Role: ['archived_at', 'description', 'holder_count', 'id', 'is_system', 'margin_exposure', 'name', 'permission_codes'],

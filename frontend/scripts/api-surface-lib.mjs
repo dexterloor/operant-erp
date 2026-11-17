@@ -62,6 +62,7 @@ const MIRRORED = {
   'SupplierProduct.UpdateSupplierProductInput.jsonMergePatch': ['SupplierProduct.UpdateSupplierProductInput.jsonMergePatch'],
   'SupplierProduct.CreateSupplierProductInput': ['SupplierProduct.CreateSupplierProductInput'],
   PurchaseOrder: ['PurchaseOrder'],
+  'PurchaseOrder.CreatePurchaseOrderInput': ['PurchaseOrder.CreatePurchaseOrderInput'],
   PurchaseOrderLine: ['PurchaseOrderLine'],
   'PurchaseOrderLine.inventory_item': ['PurchaseOrderLine', 'properties', 'inventory_item'],
   NamedReference: ['NamedReference'],

@@ -17,6 +17,7 @@ import { gateCode } from '@/lib/bff/surface';
 import { renderMoney } from '@/lib/format/money';
 import { loadLines, loadPurchaseOrder, type LinesLoad } from '@/lib/purchasing/load';
 import { orderRestore } from '@/lib/purchasing/wired';
+import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import listStyles from '../../Lists.module.css';
 import { useCommittedState } from '../../useCommittedState';
@@ -66,7 +67,8 @@ interface Shown {
  * failure older than what is shown is dropped. A failed re-read → the region error (focus on its heading), whose Retry
  * re-reads the order (and its lines, when it turns live with none shown); 403 → ST-4b; 404 → ST-5. A commit that turns
  * the page deleted moves lost focus to the h1. After a restore's message is on screen the router cache is refreshed once.
- * The page owns one region (the restore's after-sentence and the lines Retry's count speak there).
+ * The page owns one region (the restore's after-sentence and the lines Retry's count speak there). After a create (PO-3)
+ * the page speaks *"{number} was created as a draft."* once, in that region, after `RouteFocus` has moved focus to its h1.
  */
 export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem }: PurchaseOrderPageProps) {
   const caller = useApiCaller();
@@ -81,6 +83,8 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   const [retrying, setRetrying] = useState(false);
   const h1 = useRef<HTMLHeadingElement>(null);
   const id = initial.id;
+  // After a create (PO-3; A-19 item 7): the create page left the sentence for this address. A later writer replaces it.
+  useArrivalMessage(`/purchase-orders/${id}`, announce);
 
   // The stamp rule (items-i3-design.md Revision 1 — FINAL §0a; the supplier page's): every commit is stamped with the
   // moment its reading was requested, and one older than what is on screen is dropped.

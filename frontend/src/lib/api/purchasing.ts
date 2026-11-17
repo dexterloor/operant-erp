@@ -70,3 +70,24 @@ export interface PurchaseOrderLine {
 export const PURCHASE_ORDER_SEGMENTS = ['open', 'draft', 'received', 'cancelled'] as const;
 export type PurchaseOrderSegment = (typeof PURCHASE_ORDER_SEGMENTS)[number];
 export const isPurchaseOrderSegment = (x: unknown): x is PurchaseOrderSegment => typeof x === 'string' && (PURCHASE_ORDER_SEGMENTS as readonly string[]).includes(x);
+
+/** One member of `CreatePurchaseOrderInput.lines` (served inline). Mirrored only so the input's names are whole; never sent. */
+export interface CreatePurchaseOrderNestedLine {
+  inventory_item_id: string;
+  quantity: string;
+  unit_cost: string;
+}
+
+/**
+ * `CreatePurchaseOrder`'s body (served `PurchaseOrder.CreatePurchaseOrderInput`; PO-3). The create page sends exactly
+ * `supplier_id`, `warehouse_id` and `currency_code` = the chosen supplier's served code (PO D-5 (a)). `expected_at` is not
+ * sent while D-4 (which instant a chosen day sends) is unruled, and `lines` NEVER: the draft is created header-first and its
+ * lines are added on its page (plan §2.4; a `lines: []` would be refused by the server's minimum of one).
+ */
+export interface CreatePurchaseOrderInput {
+  supplier_id: string;
+  warehouse_id: string;
+  currency_code?: string | null;
+  expected_at?: string | null;
+  lines?: CreatePurchaseOrderNestedLine[] | null;
+}
