@@ -69,7 +69,8 @@ const withUnit = (served: string, code: string) => (
  * stock line when the committed item's `holds_stock` is true (the only place the page shows it, I3-4); after a 204 the
  * page stays and turns archived. The person's own Delete outranks their own Save (items-i4-ux.md M-4 T-17, M-3):
  * once its 204 is handled, a **Not saved** banner already showing is cleared, and a Save sent before that 204 neither
- * shows its refusal nor speaks its "saved" sentence. After a save's, restore's or delete's message is on screen the router cache is refreshed
+ * shows its refusal nor speaks its "saved" sentence, nor puts its failed re-read's region error over the delete (losing
+ * access is still shown). After a save's, restore's or delete's message is on screen the router cache is refreshed
  * once.
  */
 export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: ItemPageProps) {
@@ -120,13 +121,17 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   // 204 sets it too: the delete is a fact even when its re-read fails, until a later commit says otherwise.
   const committedArchived = useRef(initial.archived_at !== null);
   const stamp = useCallback(() => ++stamps.current, []);
-  const failed = useCallback((f: ReadFailure, asOf?: number) => {
+  const failed = useCallback((f: ReadFailure, asOf?: number, sentAsOf?: number) => {
     if (asOf !== undefined && asOf < committedAsOf.current) return;
     if (f === 'session-ended') return;
     if (f === 'forbidden' || f === 'not-found') {
       setSwap(f);
       return;
     }
+    // po-6-red.md (spar on :384; the items UX ruling L-1), the PO-6 twin: a Save sent before a 204 of the person's own
+    // Delete does not put its failed re-read over what the delete left; the delete's reading, sentence and focus stand.
+    // Compared only with the 204 floor. Swaps are kept: they say what the viewer may see now.
+    if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
     // After the form's own after-save focus, so the region error's heading takes it.
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);

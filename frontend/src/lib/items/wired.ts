@@ -30,7 +30,8 @@ import { CREATE_ITEM_FIELDS, ITEM_FIELDS, type CreateItemAction, type DeleteItem
 // follows, the fallback answer body included. The page drops anything older than what it shows.
 // A Save also takes a stamp when it sends its PATCH; its own answer body is committed only if no 204 arrived after that
 // (a Save that answers after a delete was processed before it; i3-0a0b RED H-1, the warehouse rule). The same stamp goes
-// back with `saved` and `refused-archived` (`sentAsOf`), so the page can drop what such a Save would say (I-4 T-17, M-3).
+// back with `saved` and `refused-archived` (`sentAsOf`), so the page can drop what such a Save would say (I-4 T-17, M-3),
+// and with a failed re-read at both of Save's sites, so the page can drop its region error (po-6-red.md, the :384 residual).
 
 export interface ItemWiring {
   readonly caller: ApiCaller;
@@ -42,8 +43,12 @@ export interface ItemWiring {
    * only with a write's own answer body, is the stamp taken when that write was sent.
    */
   readonly setItem: (item: Item, asOf: number, sentAsOf?: number) => Promise<void>;
-  /** A re-read after a write did not answer an item: the page shows its region error, or swaps (ST-4b / ST-5). */
-  readonly onRereadFailed: (failure: ReadFailure, asOf: number) => void;
+  /**
+   * A re-read after a write did not answer an item: the page shows its region error, or swaps (ST-4b / ST-5). `sentAsOf`,
+   * given only by Save (both sites), is the stamp taken when its PATCH was sent: the page drops the region error — never the
+   * swap — when a 204 of the person's own Delete arrived after it (po-6-red.md "Spar on the :384 residual", the item twin).
+   */
+  readonly onRereadFailed: (failure: ReadFailure, asOf: number, sentAsOf?: number) => void;
   /** After a 204, before the delete's re-read: the page raises what it shows to that re-read's stamp (the 204 floor). */
   readonly onDeleted?: (asOf: number) => void;
 }
@@ -72,7 +77,7 @@ export function itemSave(w: ItemWiring): SaveItemAction {
               // P1 says "try again": it is never shown as the page's archived-elsewhere refusal (L-3).
               return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message, sentAsOf: sent };
             }
-            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s, sent);
             return r;
           }
           case 'not-found':
@@ -93,7 +98,7 @@ export function itemSave(w: ItemWiring): SaveItemAction {
         // The 200 body is the server's new state: commit it, so the page shows what was saved (L-1, Restore's rule),
         // unless a 204 arrived after this Save was sent (the body is then the item before the delete; RED H-1).
         await w.setItem(r.body, s, sent);
-        w.onRereadFailed(again.kind, s);
+        w.onRereadFailed(again.kind, s, sent);
       }
       return { kind: 'saved', item: r.body, sentAsOf: sent };
     } finally {

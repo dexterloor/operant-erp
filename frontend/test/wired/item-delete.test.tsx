@@ -547,6 +547,87 @@ describe('/items/[id] — Delete item: the stamp rule (0a, carried to I-3)', () 
     // UX M-3 (I-4): this Save answered after the person's own 204, so "A-1 was saved." is never spoken over the delete.
     expect(region().textContent).toBe(AFTER);
     expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER]);
+    // T1 (po-6-red.md "Spar on the :384 residual", the item twin; the items UX ruling L-1): nor does its failed re-read put
+    // the region error over what the delete left — the page, focus and sentence are exactly as after any 204.
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it('T2 — a Save refused because the item is archived, answering after the 204, whose re-read fails: no "Not saved", no region error; the h1 keeps focus, "After" only', async () => {
+    const patch = held();
+    const calls = stubFetch([patch.reply, empty(204), json(200, ARCHIVED), json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    const spoken = textsOf(region());
+    await u.type(field('Name')!, 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await openAndConfirm(u);
+    await waitFor(() => expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument());
+    patch.release(refused('inventory_item.is_archived', I3));
+    await tick();
+    await tick();
+    spoken.stop();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+    expect(screen.queryByText(REREAD_FAILED)).toBeNull();
+    expect(screen.queryByText('Not saved')).toBeNull();
+    expect(screen.queryByText(I3)).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    expect(region().textContent).toBe(AFTER);
+    expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER]);
+    expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument();
+    expect(deleteButton()).toBeNull();
+    expect(field('Name')).toBeNull();
+  });
+
+  it("C1 (control) — the delete's own re-read fails too: exactly one region error (the delete's), whose heading keeps focus after the Save's late failure", async () => {
+    const patch = held();
+    const calls = stubFetch([patch.reply, empty(204), json(503, {}), json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name')!, 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await openAndConfirm(u);
+    await waitFor(() => expect(screen.getByText(REREAD_FAILED)).toBeInTheDocument());
+    const errorHeading = () => screen.getByText(REREAD_FAILED).closest('section')!.querySelector('h2');
+    await waitFor(() => expect(errorHeading()).toHaveFocus());
+    const shown = errorHeading();
+    patch.release(json(200, { ...BOLT, name: 'Boltx' }));
+    await tick();
+    await tick();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
+    expect(screen.getAllByText(REREAD_FAILED)).toHaveLength(1);
+    expect(errorHeading()).toHaveFocus();
+    expect(errorHeading()).toBe(shown);
+    expect(deleteButton()).toBeNull();
+    expect(field('Name')).toBeNull();
+  });
+
+  it('C2 (control) — own delete, then Restore, then a Save sent after it whose re-read fails: the region error IS shown', async () => {
+    const calls = stubFetch([empty(204), json(200, ARCHIVED), json(200, BOLT), json(200, BOLT), json(200, { ...BOLT, name: 'Boltx' }), json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    await openAndConfirm(u);
+    await waitFor(() => expect(region()).toHaveTextContent(AFTER));
+    await u.click(await screen.findByRole('button', { name: 'Restore item' }));
+    await waitFor(() => expect(field('Name')).toBeInTheDocument());
+    await u.type(field('Name')!, 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(REREAD_FAILED)).toBeInTheDocument();
+    expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET', 'POST', 'GET', 'PATCH', 'GET']);
+  });
+
+  it('C3 (control) — a Save answering 200 after the 204 whose re-read is answered 403: the denied state renders (the swap is kept)', async () => {
+    const patch = held();
+    const calls = stubFetch([patch.reply, empty(204), json(200, ARCHIVED), problem(403, 'permission-denied')]);
+    const u = userEvent.setup();
+    show();
+    await u.type(field('Name')!, 'x');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await openAndConfirm(u);
+    await waitFor(() => expect(screen.getByText(ARCHIVED_BANNER)).toBeInTheDocument());
+    patch.release(json(200, { ...BOLT, name: 'Boltx' }));
+    expect(await screen.findByRole('heading', { level: 1, name: "You don't have access to items." })).toBeInTheDocument();
+    expect(calls.map((c) => c.method)).toEqual(['PATCH', 'DELETE', 'GET', 'GET']);
   });
 
   it("…and the same when the Save answers while the delete's re-read is in flight (H-1)", async () => {
