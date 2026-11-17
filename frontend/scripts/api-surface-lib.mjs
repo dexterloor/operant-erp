@@ -70,6 +70,12 @@ const MIRRORED = {
   'PurchaseOrderLine.inventory_item': ['PurchaseOrderLine', 'properties', 'inventory_item'],
   NamedReference: ['NamedReference'],
   ActorReference: ['ActorReference'],
+  GoodsReceipt: ['GoodsReceipt'],
+  'GoodsReceipt.purchase_order': ['GoodsReceipt', 'properties', 'purchase_order'],
+  'GoodsReceipt.lines[]': ['GoodsReceipt', 'properties', 'lines', 'items'],
+  'GoodsReceipt.lines[].purchase_order_line': ['GoodsReceipt', 'properties', 'lines', 'items', 'properties', 'purchase_order_line'],
+  'GoodsReceipt.lines[].inventory_item': ['GoodsReceipt', 'properties', 'lines', 'items', 'properties', 'inventory_item'],
+  'GoodsReceipt.lines[].storage_location': ['GoodsReceipt', 'properties', 'lines', 'items', 'properties', 'storage_location'],
 };
 
 const BANNER =

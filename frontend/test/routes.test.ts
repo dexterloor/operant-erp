@@ -123,7 +123,8 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
   // /items. Navigation order decides, never the order of BUILT_PAGE_HREFS (pinned below with /suppliers listed last).
   it('suppliers S-1: the start page moves to /suppliers for a supplier.view holder, in navigation order', () => {
     // Purchase orders PO-1 moved this pin deliberately: /purchase-orders joins BUILT_PAGE_HREFS (its own test is below).
-    expect(BUILT_PAGE_HREFS).toEqual(['/purchase-orders', '/suppliers', '/items', '/warehouses', '/admin/users', '/admin/roles']);
+    // Goods receipts GR-1 moved it again: /goods-receipts joins (its own test is below).
+    expect(BUILT_PAGE_HREFS).toEqual(['/purchase-orders', '/goods-receipts', '/suppliers', '/items', '/warehouses', '/admin/users', '/admin/roles']);
     expect(startDestination(['supplier.view', 'inventory_item.view', 'warehouse.view', 'app_user.view'])).toBe('/suppliers');
     expect(startDestination(['supplier.view'])).toBe('/suppliers');
     expect(startDestination(['inventory_item.view', 'warehouse.view'])).toBe('/items');
@@ -140,7 +141,21 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
     expect(startDestination(['purchase_order.view', 'goods_receipt.view', 'inventory_item.view', 'warehouse.view', 'storage_location.view'])).toBe('/purchase-orders');
     expect(startDestination(['supplier.view', 'inventory_item.view'])).toBe('/suppliers');
     expect(startDestination(['inventory_item.view'])).toBe('/items');
-    expect(startDestination(['goods_receipt.view', 'supplier.view'])).toBe('/suppliers');
+    // Goods receipts GR-1 moved this line deliberately (owner notice N-1): goods_receipt.view now starts at /goods-receipts.
+    expect(startDestination(['goods_receipt.view', 'supplier.view'])).toBe('/goods-receipts');
     expect(startDestination(['purchase_order.view', 'supplier.view', 'inventory_item.view'], ['/items', '/suppliers', '/purchase-orders'])).toBe('/purchase-orders');
+  });
+  // Goods receipts GR-1 (purchase-orders-plan.md §1.5, §4 GR-1 "start page for viewer → /goods-receipts", owner notice N-1):
+  // Goods receipts follows Purchase orders and precedes Suppliers in Purchasing, so with /goods-receipts built a holder of
+  // goods_receipt.view WITHOUT purchase_order.view — the default viewer (every .view but audit_log, supplier_product and
+  // purchase_order) — moves from /suppliers to /goods-receipts; every purchase_order.view holder keeps /purchase-orders;
+  // supplier.view without goods_receipt.view keeps /suppliers. Navigation order decides (pinned with /goods-receipts last).
+  it('goods receipts GR-1: the viewer shape starts at /goods-receipts; purchase_order.view holders keep /purchase-orders', () => {
+    const viewer = ['forecast.view', 'goods_receipt.view', 'supplier.view', 'inventory_item.view', 'stock_level.view', 'stock_movement.view', 'warehouse.view', 'storage_location.view', 'customer.view', 'sales_order.view', 'fulfilment.view', 'invoice.view', 'app_user.view', 'role.view'];
+    expect(startDestination(viewer)).toBe('/goods-receipts');
+    expect(startDestination(['goods_receipt.view'])).toBe('/goods-receipts');
+    expect(startDestination(['purchase_order.view', 'goods_receipt.view', 'supplier.view'])).toBe('/purchase-orders');
+    expect(startDestination(['supplier.view', 'inventory_item.view'])).toBe('/suppliers');
+    expect(startDestination(['goods_receipt.view', 'supplier.view'], ['/suppliers', '/items', '/goods-receipts'])).toBe('/goods-receipts');
   });
 });

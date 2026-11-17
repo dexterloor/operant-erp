@@ -22,7 +22,7 @@ import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { renderMoney } from '@/lib/format/money';
-import { loadCatalogueChoices, loadLines, loadPurchaseOrder, loadWarehouseChoices, type CatalogueChoicesLoad, type LinesLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
+import { loadCatalogueChoices, loadLines, loadPurchaseOrder, loadWarehouseChoices, type CatalogueChoicesLoad, type LinesLoad, type ReceiptsLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
 import type { AddLineValues, CancelDialogResult, OrderChange } from '@/lib/purchasing/results';
 import { lineCreate, lineDelete, orderCancel, orderDelete, orderRestore, orderSave } from '@/lib/purchasing/wired';
 import type { DeleteResult } from '@/lib/results';
@@ -33,6 +33,7 @@ import { useCommittedState } from '../../useCommittedState';
 import { PurchaseOrderNotFound, PurchaseOrdersDenied } from '../PurchaseOrderStates';
 import styles from '../PurchaseOrders.module.css';
 import { LinesSection } from './LinesSection';
+import { ReceiptsSection } from './ReceiptsSection';
 
 export interface PurchaseOrderPageProps {
   /** GetPurchaseOrder on first render. */
@@ -70,6 +71,14 @@ export interface PurchaseOrderPageProps {
   canDelete?: boolean;
   /** PO-7: holds CancelPurchaseOrder's codes — an ordered or partly received order offers **Cancel order** (UX B-7; plan D-2). */
   canCancel?: boolean;
+  /**
+   * GR-1: the Receipts section's first page (ListGoodsReceipts with this order's id as its fixed filter, R10-4), or null.
+   * Given by the server only for a live order and a ListGoodsReceipts holder (A-20: absent, not fetched, otherwise). Shown
+   * while the order on the page is live; a draft deleted on this page loses it.
+   */
+  receipts?: ReceiptsLoad | null;
+  /** GR-1: holds GetGoodsReceipt's codes — each receipt number in the section links to its page. */
+  canOpenReceipt?: boolean;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -139,7 +148,7 @@ interface Shown {
  * line write is in flight (a write started on the draft, still answering after the page turned ordered) the press opens
  * nothing (po-7-progress.md, the cancel floor).
  */
-export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false, canCancel = false }: PurchaseOrderPageProps) {
+export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false, canCancel = false, receipts = null, canOpenReceipt = false }: PurchaseOrderPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -615,6 +624,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
           lineWrites={{ begin: beginLineWrite, end: endLineWrite }}
         />
       ) : null}
+      {receipts !== null && !archived && !deletedHere ? <ReceiptsSection orderId={order.id} orderNumber={order.order_number} initial={receipts} canOpenReceipt={canOpenReceipt} /> : null}
       {deleting ? (
         <DeleteDialog
           copy={{

@@ -3,8 +3,9 @@
 // (`test/contract/wireParity.test.ts`; names only). This file imports nothing (A-18). Wire field names stay snake_case,
 // as served. Purchase orders PO-1 mirrors the three shapes the list and the read-only order page read
 // (purchase-orders-plan.md §3; Revision 10 R10-2: one `purchasing` family for the order and receipt folders); each later
-// commit adds the input it first sends. It also holds the served enum of `ListPurchaseOrders`' `status` parameter (the
-// list's segments, Revision 10 R10-1), so copy may name them (copy imports only lib/api).
+// commit adds the input it first sends; GR-1 adds `GoodsReceipt` and its inline references (read only). It also holds the
+// served enum of `ListPurchaseOrders`' `status` parameter (the list's segments, Revision 10 R10-1), so copy may name them
+// (copy imports only lib/api).
 
 /** `PurchaseOrder.supplier` / `.warehouse` (served `NamedReference`, PC-15 display fields): the record's id and name. */
 export interface NamedReference {
@@ -60,6 +61,51 @@ export interface PurchaseOrderLine {
   quantity_outstanding: string;
   unit_cost: string;
   archived_at: string | null;
+}
+
+/** `GoodsReceipt.purchase_order` (served inline; GR-1): the order a receipt was recorded against, by id and number. */
+export interface GoodsReceiptOrderReference {
+  id: string;
+  order_number: string;
+}
+
+/** `GoodsReceipt.lines[].purchase_order_line` (served inline): the order line a receipt line received, by id and number. */
+export interface GoodsReceiptOrderLineReference {
+  id: string;
+  line_number: number;
+}
+
+/** `GoodsReceipt.lines[].storage_location` (served inline): the location received into, by id and code (no warehouse id). */
+export interface GoodsReceiptLocationReference {
+  id: string;
+  code: string;
+}
+
+/**
+ * One line of a goods receipt (served inline in `GoodsReceipt.lines`). `quantity` is a decimal string (scale 6, rendered by
+ * `lib/format/quantity.ts`), never a number. The item reference is the order line's `{id, sku, name}` shape; no unit is
+ * served (BK-33), so a quantity heading carries the interim *item's unit* (QR-8). No cost is served on a receipt.
+ */
+export interface GoodsReceiptLine {
+  id: string;
+  purchase_order_line: GoodsReceiptOrderLineReference;
+  inventory_item: PurchaseOrderItemReference;
+  quantity: string;
+  storage_location: GoodsReceiptLocationReference;
+}
+
+/**
+ * `GetGoodsReceipt` / `ListGoodsReceipts` item (GR-1; Revision 10 R10-2: the same `purchasing` family). Deletion class
+ * `none`: no `archived_at` is served and a receipt is never changed (IA L-5a). `received_by` is nullable (API-O-33, PC-11
+ * (4a)); `received_at` an RFC 3339 instant.
+ */
+export interface GoodsReceipt {
+  id: string;
+  receipt_number: string;
+  received_at: string;
+  purchase_order: GoodsReceiptOrderReference;
+  received_by: ActorReference | null;
+  lines: GoodsReceiptLine[];
 }
 
 /**

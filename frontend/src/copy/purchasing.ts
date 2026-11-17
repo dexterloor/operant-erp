@@ -13,6 +13,8 @@
 // their PO-6 forms: `supplierFixed` final, `draftNote` = "…It can be changed or deleted.", `noneArchived` final.
 // PO-7 (row 7) adds Cancel order on an ordered or partly received order: `CANCEL_ORDER.*` (B-7, both bodies; Rev 1a: the
 // reason is single-line) and `orderedNote` in its final form ("…It can still be cancelled.").
+// GR-1 (row 8) adds reading receipts: `GOODS_RECEIPTS_LIST.*` (with `noneYet` in its GR-1 form, no link), the register's
+// paging words and `GOODS_RECEIPT_PAGE.*`; the order page's Receipts section uses `forOrder` / `forOrderEmpty`.
 // The commit that ships each action replaces its key with the next form (R1a-1 rows 7–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
@@ -443,4 +445,84 @@ export const SUPPLIER_CHOICES = {
   noMatch: (q: string) => `No supplier's name or code starts with “${q}”.`,
   clearSearch: 'Clear search',
   loadFailed: "The suppliers couldn't be loaded.",
+} as const;
+
+/**
+ * UX B-9 `GOODS_RECEIPTS_LIST` (GR-1; R1-B "as Rev 0, except that `noneYet` follows R1-C"; R1a-1 row 8): the register at
+ * `/goods-receipts` and the order page's Receipts section (`forOrder`, `forOrderEmpty`). No cost on any receipt surface
+ * (UX D-6). `noneYet` is GR-1's form, slot 1 only and with **no link** (final RED L-3 Note A): its reason names Receive,
+ * which ships at GR-2 with the full sentence and `noneYetLink`.
+ */
+export const GOODS_RECEIPTS_LIST = {
+  /** `heading` (CONFIRMS nav). */
+  heading: 'Goods receipts',
+  /** ST-4b's `{resource}` (B-0 `resourcePlural`): *"You don't have access to goods receipts."* */
+  resourcePlural: 'goods receipts',
+  /** Columns: Receipt · Purchase order · Received · Received by · Lines (*Received* DT date and time; *Lines* a count). */
+  receipt: 'Receipt',
+  purchaseOrder: 'Purchase order',
+  received: 'Received',
+  receivedBy: 'Received by',
+  lines: 'Lines',
+  /** `receivedByUnknown` (`received_by` nullable, PC-11 (4a)). */
+  receivedByUnknown: 'Not recorded',
+  /** `caption` (the served order; rendered through the list's `notice`, R10-1). */
+  caption: 'Newest first',
+  /** `searchFor` · `searchPlaceholder` · `searchHint` (X-2: no upper-casing; the hint says so). */
+  searchFor: 'Search by receipt number',
+  searchPlaceholder: 'Start of a receipt number',
+  searchHint: 'For example GR-0001. Receipt numbers are matched as typed, so use capitals.',
+  /** `searched(q)` · `noMatch(q)` · `clearSearch` (the house word). */
+  searched: (q: string) => `Receipt number starts with “${q}”.`,
+  noMatch: (q: string) => `No receipt number starts with “${q}”.`,
+  clearSearch: 'Clear search',
+  /**
+   * The settled announcement (the core's `shown`, never called with 0). NOT a UX key (the PO-1 D-5 precedent; UX TO
+   * CONFIRM): `liveRange`'s noun, then `searched(q)`.
+   */
+  shown: (n: number, q: string) => {
+    const head = n === 1 ? '1 receipt shown.' : `${n} receipts shown.`;
+    return q !== '' ? `${head} Receipt number starts with “${q}”.` : head;
+  },
+  /** `noneYet`, GR-1 form (R1a-1 row 8): slot 1 only, no link (Note A). GR-2 ships the full form and `noneYetLink`. */
+  noneYet: 'No deliveries recorded yet.',
+  /** `loadFailed`. */
+  loadFailed: "The list of goods receipts couldn't be loaded.",
+  /** `forOrder(number)` (the order page's Receipts section heading) · `forOrderEmpty`. */
+  forOrder: (number: string) => `Receipts for ${number}`,
+  forOrderEmpty: 'Nothing has been received on this order yet.',
+} as const;
+
+/** UX B-9 paging (CONFIRMS R1-3/R1-8 shapes): Newer · Older; `liveRange` with receipt numbers. */
+export const GOODS_RECEIPTS_PAGING = {
+  /** Newest first, so the previous page is newer and the next one older. */
+  pager: { previous: 'Newer', next: 'Older' },
+  /** `liveRange(n, first, last)`; the one-row form is the PO list's shape (NOT a UX key; UX TO CONFIRM). */
+  liveRange: (n: number, first: string, last: string) => (n === 1 ? `1 receipt shown, ${first}.` : `${n} receipts shown, ${first} to ${last}.`),
+  /** `noMore`: NOT a UX key for receipts — the PO list's R1-7 words with the receipt noun (PLACEHOLDER, UX TO CONFIRM). */
+  noMore: {
+    heading: 'There are no more goods receipts here.',
+    body: 'The list changed after the page you were on was loaded.',
+    action: 'Back to the first page',
+  },
+} as const;
+
+/** UX B-10 `GOODS_RECEIPT_PAGE` (GR-1; read-only, IA L-5a). */
+export const GOODS_RECEIPT_PAGE = {
+  /** `title(receipt)`: h1 and `<title>`. */
+  title: (receipt: string) => receipt,
+  /** Field labels: Purchase order · Received · Received by. */
+  purchaseOrder: 'Purchase order',
+  received: 'Received',
+  receivedBy: 'Received by',
+  /** `readOnlyNote` (deletion class none: a state, names no action). */
+  readOnlyNote: "A receipt can't be changed or deleted.",
+  /**
+   * Lines columns: Order line · Item · Quantity · Location (interim unit heading until BK-33, final RED L-11). The table's
+   * heading is `ORDER_LINES.heading` (*Lines*; B-10 writes none of its own).
+   */
+  orderLine: 'Order line',
+  item: 'Item',
+  quantity: "Quantity (item's unit)",
+  location: 'Location',
 } as const;

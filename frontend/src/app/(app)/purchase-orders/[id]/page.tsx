@@ -5,7 +5,7 @@ import { PURCHASE_ORDER_PAGE, PURCHASE_ORDERS_LIST } from '@/copy/purchasing';
 import { isRecordId } from '@/lib/bff/paths';
 import { serverRead } from '@/lib/bff/server/reads';
 import { viewerMay } from '@/lib/bff/surface';
-import { loadCatalogueChoices, loadLines, loadPurchaseOrder, loadWarehouseChoices, type CatalogueChoicesLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
+import { loadCatalogueChoices, loadLines, loadPurchaseOrder, loadReceipts, loadWarehouseChoices, type CatalogueChoicesLoad, type ReceiptsLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
 import { currentViewer, sessionEndedPath } from '../../currentViewer';
 import { PurchaseOrdersDenied } from '../PurchaseOrderStates';
 import { PurchaseOrderPage } from './PurchaseOrderPage';
@@ -26,7 +26,10 @@ import { PurchaseOrderPage } from './PurchaseOrderPage';
 // nothing to choose): the catalogue is read here, last; 401 → the session-ended notice; any other failure is the row's own
 // state. Delete line follows DeletePurchaseOrderLine's codes (the page offers it only on a live draft). From PO-6, Delete
 // purchase order follows DeletePurchaseOrder's codes (the page offers it only on a live draft). From PO-7, Cancel order
-// follows CancelPurchaseOrder's codes (the page offers it only on an ordered or partly received order).
+// follows CancelPurchaseOrder's codes (the page offers it only on an ordered or partly received order). From GR-1, the
+// Receipts section: page 1 of this order's receipts (ListGoodsReceipts with the order's id as its one fixed filter,
+// Revision 10 R10-4), read last and only for a live order and a ListGoodsReceipts holder (A-20: absent, not fetched,
+// otherwise); 401 → the session-ended notice; any other failure is the section's own state.
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -75,5 +78,10 @@ export default async function Page({ params }: Params) {
     if (catalogue.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
     add = { catalogue };
   }
-  return <PurchaseOrderPage order={first.order} lines={lines} edit={edit} add={add} canDeleteLine={viewerMay('DeletePurchaseOrderLine', codes)} canDelete={viewerMay('DeletePurchaseOrder', codes)} canCancel={viewerMay('CancelPurchaseOrder', codes)} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
+  let receipts: ReceiptsLoad | null = null;
+  if (first.order.archived_at === null && viewerMay('ListGoodsReceipts', codes)) {
+    receipts = await loadReceipts(serverRead(session), { q: '', cursor: null }, undefined, { name: 'purchase_order_id', value: id });
+    if (receipts.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
+  }
+  return <PurchaseOrderPage receipts={receipts} canOpenReceipt={viewerMay('GetGoodsReceipt', codes)} order={first.order} lines={lines} edit={edit} add={add} canDeleteLine={viewerMay('DeletePurchaseOrderLine', codes)} canDelete={viewerMay('DeletePurchaseOrder', codes)} canCancel={viewerMay('CancelPurchaseOrder', codes)} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
 }

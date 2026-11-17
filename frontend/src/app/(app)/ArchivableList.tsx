@@ -36,7 +36,7 @@ const causeOf = (kind: string): Cause => (kind === 'unreachable' ? 'unreachable'
 const headingOf = (c: Cause) => (c === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG);
 /** R1-1's heading for a failed read, by cause (the one copy of the rule; the Locations section's own re-read banner uses it). */
 export const refetchHeading = (kind: ReadFailure) => headingOf(causeOf(kind));
-const newestDeletedFirst = (a: { archived_at: string | null }, b: { archived_at: string | null }) => Date.parse(b.archived_at ?? '') - Date.parse(a.archived_at ?? '');
+const newestDeletedFirst = (a: { archived_at?: string | null }, b: { archived_at?: string | null }) => Date.parse(b.archived_at ?? '') - Date.parse(a.archived_at ?? '');
 const connected = <E extends HTMLElement>(el: E | null) => (el !== null && el.isConnected ? el : null);
 
 /** A load's answer. `tenantHasRows` (A-17 item 5) says whether the workspace has any row in either view; a list that does not serve it leaves it out. */
@@ -230,8 +230,14 @@ export type PagedListProps<T> = Omit<BaseProps<T>, 'paging' | 'initial' | 'load'
   load: (read: Read, archived: boolean, page: PageRequest, signal: AbortSignal, segment?: string) => Promise<PagedLoad<T>>;
   /** Named live segments (Revision 10 R10-1). Absent: one live view, and no read sends `status`. */
   segments?: Segments;
-  archivedView: { order: 'as-served'; caption: string; rows: 'plain' | 'struck' };
-  search?: SearchCopy;
+  /**
+   * The Archived view's one order and caption. Absent (Revision 10 R10-3): the list has NO Archived view — a register of a
+   * class-`none` record (goods receipts; later fulfilments and invoices). Then no view control renders (no default toggle),
+   * `initialArchived` is ignored, `switchTo(true)` does nothing, and no read sends `archived`.
+   */
+  archivedView?: { order: 'as-served'; caption: string; rows: 'plain' | 'struck' };
+  /** The search box; `false`: none (a section inside a page whose rows need no search, e.g. one order's receipts). */
+  search?: SearchCopy | false;
   matches?: undefined;
 };
 
@@ -372,8 +378,11 @@ interface Loaded<T> {
  * Retry is in flight (the explicit blank at fetch start, and `inFlight` holding a settle back), so a repeat failure with the same cause is still a text change (defect B, M-4). A reread
  * does neither: its count is never announced (M-2), and a failed reread raises no banner.
  */
-export function ArchivableList<T extends { id: string; archived_at: string | null }>(props: ArchivableListProps<T> | PagedListProps<T>) {
-  const { initial, initialArchived = false, onViewLoaded, columns, copy, header, headingId, empty, archivedView, notice, footer, controller, denied } = props;
+export function ArchivableList<T extends { id: string; archived_at?: string | null }>(props: ArchivableListProps<T> | PagedListProps<T>) {
+  const { initial, onViewLoaded, columns, copy, header, headingId, empty, archivedView, notice, footer, controller, denied } = props;
+  /** Revision 10 R10-3: a paged list without `archivedView` has no Archived view at all — it always opens, and stays, live. */
+  const hasArchivedView = archivedView !== undefined;
+  const initialArchived = hasArchivedView ? (props.initialArchived ?? false) : false;
   const paging = props.paging ?? null;
   /** Named live segments (Revision 10 R10-1), on a paged list only. */
   const segments = props.paging !== undefined ? (props.segments ?? null) : null;
@@ -643,14 +652,18 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   const archived = shown?.archived ?? initialArchived;
   const rows = useMemo(() => {
     const f = shown ? (matches ? shown.items.filter((i) => matches(i, q.toLowerCase())) : shown.items) : [];
-    return archived && archivedView.order === 'newest-deleted-first' ? [...f].sort(newestDeletedFirst) : f;
-  }, [shown, q, archived, matches, archivedView.order]);
+    return archived && archivedView?.order === 'newest-deleted-first' ? [...f].sort(newestDeletedFirst) : f;
+  }, [shown, q, archived, matches, archivedView?.order]);
 
   if (isDenied) return <>{denied}</>;
 
   // A paged switch reads the search in the box and no cursor; a whole-view one reads the whole view. A switch to the live
   // view opens the segment last shown live (R10-1); a switch to Archived reads none.
-  const switchTo = (to: boolean) => void fetchView(to, 'switch', paging !== null ? { q: qRef.current, cursor: null } : FIRST_PAGE, segmentOf(to, liveSegmentRef.current));
+  const switchTo = (to: boolean) => {
+    // R10-3: a list with no Archived view never reads it, whichever slot asks.
+    if (to && !hasArchivedView) return;
+    void fetchView(to, 'switch', paging !== null ? { q: qRef.current, cursor: null } : FIRST_PAGE, segmentOf(to, liveSegmentRef.current));
+  };
   /** R10-1: a switch to another live segment, a view switch for every R8-1 rule. The segment on screen is not read again. */
   const switchToSegment = (to: string) => {
     if (shown !== null && !shown.archived && shown.segment === to) return;
@@ -690,7 +703,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
   const cols = segments !== null ? columns(archived, segment) : columns(archived);
   const headingText = typeof copy.heading === 'function' ? (segments !== null ? copy.heading(archived, segment) : copy.heading(archived)) : copy.heading;
   const searchLabel = searchCopy ? (typeof searchCopy.label === 'function' ? searchCopy.label(archived) : searchCopy.label) : '';
-  const struck = archived && archivedView.rows === 'struck' ? styles.struck : undefined;
+  const struck = archived && archivedView?.rows === 'struck' ? styles.struck : undefined;
 
   return (
     <section className={styles.page} aria-labelledby={headingId}>
@@ -715,7 +728,11 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
               ))}
             </div>
           ) : null}
-          {header ? <Slot render={header} v={{ archived, busy, loaded: shown !== null, switchTo, viewControlRef, ...segmentControls }} /> : <ArchivedToggle ref={viewControlRef} archived={archived} busy={busy} onClick={() => switchTo(!archived)} label={copy.archived} />}
+          {header ? (
+            <Slot render={header} v={{ archived, busy, loaded: shown !== null, switchTo, viewControlRef, ...segmentControls }} />
+          ) : hasArchivedView ? (
+            <ArchivedToggle ref={viewControlRef} archived={archived} busy={busy} onClick={() => switchTo(!archived)} label={copy.archived} />
+          ) : null}
           {shown && searchCopy ? (
             // The hint sits outside the <label>, so it describes the box and is not part of its name.
             <SearchGroup hint={searchCopy.hint} hintId={searchHintId}>
@@ -755,7 +772,7 @@ export function ArchivableList<T extends { id: string; archived_at: string | nul
               <EmptyBlock empty={empty} segmented={segments !== null} v={{ archived: shown.archived, q: paging !== null ? shown.page.q : q, tenantHasRows: shown.tenantHasRows, busy, switchTo, clearSearch, ...segmentControls }} />
             ) : (
               <table className={styles.table}>
-                {archived && archivedView.caption !== undefined ? <caption>{archivedView.caption}</caption> : null}
+                {archived && archivedView?.caption !== undefined ? <caption>{archivedView.caption}</caption> : null}
                 <thead>
                   <tr>
                     {cols.map((c) => (

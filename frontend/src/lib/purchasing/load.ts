@@ -1,11 +1,12 @@
-import { isPurchaseOrderSegment, PURCHASE_ORDER_SEGMENTS, type ActorReference, type NamedReference, type PurchaseOrder, type PurchaseOrderLine, type PurchaseOrderSegment } from '../api/purchasing';
+import { isPurchaseOrderSegment, PURCHASE_ORDER_SEGMENTS, type ActorReference, type GoodsReceipt, type GoodsReceiptLine, type NamedReference, type PurchaseOrder, type PurchaseOrderLine, type PurchaseOrderSegment } from '../api/purchasing';
 import type { Supplier, SupplierProduct } from '../api/suppliers';
 import type { Warehouse } from '../api/warehouses';
 import { pageQuery, type PageRequest, type Read, type ReadFailure } from '../bff/reads';
 
 // The purchasing family's loaders (the lib/suppliers/load.ts shape; b4-architecture.md Revision 10 R10-2: one family
 // for `/purchase-orders` and, from GR-1, `/goods-receipts`): pure, run over the server transport on first render and the
-// browser one for every re-read. `ListPurchaseOrders` is PAGED (Revision 8 R8-1) with named live segments (Revision 10
+// browser one for every re-read. GR-1 adds `loadReceipts` (paged, no Archived view, one optional fixed filter — Revision
+// 10 R10-3, R10-4) and `loadReceipt`. `ListPurchaseOrders` is PAGED (Revision 8 R8-1) with named live segments (Revision 10
 // R10-1): its query is built only by `pageQuery(archived, page, segment)` — `status=<segment>` on a live read,
 // `archived=true` and no `status` on an Archived one, never `limit`, at most one cursor, `q` as typed only when not
 // empty — and it never sends `sort` (each segment's served default is the order; purchase-orders-plan.md §0) or
@@ -92,6 +93,68 @@ export async function loadLines(read: Read, orderId: string, signal?: AbortSigna
   const items = body?.items;
   if (!Array.isArray(items) || !items.every(isPurchaseOrderLine) || !isCursor(body?.next_cursor)) return { kind: 'server-error' };
   return { kind: 'ok', lines: items, nextCursor: body.next_cursor };
+}
+
+/** GR-1: one page of goods receipts (`ListGoodsReceipts`), structurally a `PagedLoad<GoodsReceipt>` (lib imports nothing from app). */
+export type ReceiptsLoad =
+  | { readonly kind: 'ok'; readonly items: GoodsReceipt[]; readonly nextCursor: string | null; readonly previousCursor: string | null; readonly tenantHasRows: boolean }
+  | { readonly kind: ReadFailure };
+export type ReceiptLoad = { readonly kind: 'ok'; readonly receipt: GoodsReceipt } | { readonly kind: ReadFailure };
+/** Revision 10 R10-4: the one fixed filter a receipts list may carry (the order page's section: `purchase_order_id`). */
+export type ReceiptsFilter = { readonly name: 'purchase_order_id'; readonly value: string };
+
+const isReceiptLine = (x: unknown): x is GoodsReceiptLine =>
+  isObject(x) &&
+  typeof x.id === 'string' &&
+  isObject(x.purchase_order_line) &&
+  typeof x.purchase_order_line.id === 'string' &&
+  typeof x.purchase_order_line.line_number === 'number' &&
+  Number.isInteger(x.purchase_order_line.line_number) &&
+  isObject(x.inventory_item) &&
+  typeof x.inventory_item.id === 'string' &&
+  typeof x.inventory_item.sku === 'string' &&
+  typeof x.inventory_item.name === 'string' &&
+  // A decimal string, as served (QR-1).
+  typeof x.quantity === 'string' &&
+  isObject(x.storage_location) &&
+  typeof x.storage_location.id === 'string' &&
+  typeof x.storage_location.code === 'string';
+
+export const isGoodsReceipt = (x: unknown): x is GoodsReceipt =>
+  isObject(x) &&
+  typeof x.id === 'string' &&
+  typeof x.receipt_number === 'string' &&
+  typeof x.received_at === 'string' &&
+  isObject(x.purchase_order) &&
+  typeof x.purchase_order.id === 'string' &&
+  typeof x.purchase_order.order_number === 'string' &&
+  (x.received_by === null || isActor(x.received_by)) &&
+  Array.isArray(x.lines) &&
+  x.lines.every(isReceiptLine);
+
+/**
+ * `ListGoodsReceipts` (GR-1): one page for a search and a cursor, its query built only by `pageQuery(false, page,
+ * undefined, fixed)` (final RED L-7; Revision 10 R10-3: a receipt has no Archived view, so `archived` is never sent; R10-4:
+ * the order page's section passes `purchase_order_id` as its fixed filter, the register passes none). Never `limit`, never
+ * `sort`, at most one cursor, `q` as typed only when not empty. Served order: the register newest receipt number first, an
+ * order's receipts newest received first (`GoodsReceiptReader`). `tenant_has_rows` is required, as for the other lists.
+ */
+export async function loadReceipts(read: Read, page: PageRequest, signal?: AbortSignal, fixed?: ReceiptsFilter): Promise<ReceiptsLoad> {
+  const a = await read('ListGoodsReceipts', { query: pageQuery(false, page, undefined, fixed), signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown; next_cursor?: unknown; previous_cursor?: unknown; tenant_has_rows?: unknown } | null;
+  const items = body?.items;
+  if (!Array.isArray(items) || !items.every(isGoodsReceipt) || !isCursor(body?.next_cursor) || !isCursor(body?.previous_cursor) || typeof body?.tenant_has_rows !== 'boolean') {
+    return { kind: 'server-error' };
+  }
+  return { kind: 'ok', items, nextCursor: body.next_cursor, previousCursor: body.previous_cursor, tenantHasRows: body.tenant_has_rows };
+}
+
+/** `GetGoodsReceipt` (GR-1): the receipt page's one read. */
+export async function loadReceipt(read: Read, id: string, signal?: AbortSignal): Promise<ReceiptLoad> {
+  const a = await read('GetGoodsReceipt', { params: { id }, signal });
+  if (a.kind !== 'ok') return a;
+  return isGoodsReceipt(a.body) ? { kind: 'ok', receipt: a.body } : { kind: 'server-error' };
 }
 
 /**

@@ -213,6 +213,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['warehouse.delete'],
     },
   },
+  GetGoodsReceipt: {
+    method: 'GET',
+    template: '/api/v1/goods-receipts/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['goods_receipt.view'],
+    },
+  },
   GetItem: {
     method: 'GET',
     template: '/api/v1/items/{id}',
@@ -271,6 +281,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['warehouse.view'],
+    },
+  },
+  ListGoodsReceipts: {
+    method: 'GET',
+    template: '/api/v1/goods-receipts',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['goods_receipt.view'],
     },
   },
   ListItems: {
@@ -608,6 +628,12 @@ export const BULK_MAX_IDS: number = 50;
 export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   ActorReference: ['display_name', 'id'],
   Collection: ['items', 'next_cursor', 'previous_cursor', 'tenant_has_rows'],
+  GoodsReceipt: ['id', 'lines', 'purchase_order', 'receipt_number', 'received_at', 'received_by'],
+  'GoodsReceipt.lines[]': ['id', 'inventory_item', 'purchase_order_line', 'quantity', 'storage_location'],
+  'GoodsReceipt.lines[].inventory_item': ['id', 'name', 'sku'],
+  'GoodsReceipt.lines[].purchase_order_line': ['id', 'line_number'],
+  'GoodsReceipt.lines[].storage_location': ['code', 'id'],
+  'GoodsReceipt.purchase_order': ['id', 'order_number'],
   Item: ['archived_at', 'holds_stock', 'id', 'name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier', 'unit_of_measure_code'],
   'Item.CreateItemInput': ['name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier_id', 'unit_of_measure_code'],
   'Item.UpdateItemInput.jsonMergePatch': ['name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier_id', 'unit_of_measure_code'],

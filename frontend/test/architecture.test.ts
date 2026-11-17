@@ -456,7 +456,11 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // app/(app)/purchase-orders/{page,PurchaseOrdersList,PurchaseOrderStates}.tsx,
   // app/(app)/purchase-orders/[id]/{page,PurchaseOrderPage,LinesSection,not-found}.tsx.
   // Purchase orders PO-3 added: app/(app)/purchase-orders/new/{page,NewPurchaseOrderPage}.tsx.
-  'src/app': 78,
+  // Goods receipts GR-1 (Revision 10 R10-2: the purchasing family's second route folder) added:
+  // app/(app)/goods-receipts/{page,GoodsReceiptsList,GoodsReceiptStates}.tsx,
+  // app/(app)/goods-receipts/[id]/{page,GoodsReceiptPage,not-found}.tsx, and app/(app)/purchase-orders/[id]/ReceiptsSection.tsx
+  // (the order page's Receipts section, no route).
+  'src/app': 85,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -1894,7 +1898,8 @@ describe('architecture — R8-3: components/records is props-only and names no f
 // Purchase orders PO-1 (purchase-orders-plan.md §3 QUANTITY_SCAN_DIRS row): the purchasing dirs (order totals, line
 // quantities and unit costs are served decimals); the receipt route dir joins at GR-1. PO-3: components/purchasing joins
 // with its first file (plan §3 lists the three purchasing dirs; the folder exists from PO-3, so it is scanned from PO-3).
-const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/components/purchasing', 'src/app/(app)/purchase-orders'] as const;
+// Goods receipts GR-1: the receipt route dir joins (a receipt line's quantity is a served decimal).
+const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/components/purchasing', 'src/app/(app)/purchase-orders', 'src/app/(app)/goods-receipts'] as const;
 const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts', 'src/lib/format/money.ts'] as const;
 // Suppliers S-3 RED L-7: widened to the money names (`amount`, `unit_cost`, `unitCost`) now that `money.ts` is scanned.
 const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served|amount|unit_cost|unitCost/i;
@@ -1942,7 +1947,7 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
   it('the item dirs and the renderer hold no such token', () => {
     const files = scanned();
     // Positive control: the scan reads the item family and the renderer, not an empty set.
-    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/purchase-orders/PurchaseOrdersList.tsx', 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', 'src/app/(app)/purchase-orders/[id]/LinesSection.tsx', 'src/components/purchasing/NewOrderForm.tsx', 'src/app/(app)/purchase-orders/new/NewPurchaseOrderPage.tsx', 'src/components/purchasing/OrderHeaderForm.tsx', 'src/components/purchasing/AddLineRow.tsx']));
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/purchase-orders/PurchaseOrdersList.tsx', 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', 'src/app/(app)/purchase-orders/[id]/LinesSection.tsx', 'src/components/purchasing/NewOrderForm.tsx', 'src/app/(app)/purchase-orders/new/NewPurchaseOrderPage.tsx', 'src/components/purchasing/OrderHeaderForm.tsx', 'src/components/purchasing/AddLineRow.tsx', 'src/app/(app)/goods-receipts/GoodsReceiptsList.tsx', 'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx', 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx']));
     // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8. Suppliers S-3 added the supplier
     // dirs (src/app/(app)/suppliers: 9 files at S-3) and lib/format/money.ts (+1). Suppliers S-4: EntryForm.tsx (the Edit
     // dialog, which holds a cost and a minimum order) is in the positive control; it is counted by EXPECTED_COUNTS.
@@ -1951,8 +1956,9 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
     // wired.ts, counted by EXPECTED_COUNTS. PO-3: components/purchasing (counted by EXPECTED_COUNTS) and the order route
     // dir's new/{page,NewPurchaseOrderPage}.tsx → 9. PO-4a: components/purchasing/OrderHeaderForm.tsx (counted by
     // EXPECTED_COUNTS) is in the positive control. PO-5: components/purchasing/AddLineRow.tsx (the new line row, which holds a
-    // quantity and a cost) likewise.
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 9);
+    // quantity and a cost) likewise. Goods receipts GR-1: the order route dir gains [id]/ReceiptsSection.tsx → 10, and the
+    // receipt route dir joins with its 6 files.
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 10 + 6);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 
@@ -2004,6 +2010,102 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
       'src/lib/format/quantity.ts — Number(',
       'src/lib/format/money.ts — unary + on amount',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Goods receipts GR-1 — Revision 10 R10-2: the receipt pages import no other family's components or lib
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** The receipt route folder (Revision 10 R10-2: the purchasing family's second folder). */
+const RECEIPTS_ROUTE_DIR = 'src/app/(app)/goods-receipts';
+/**
+ * What a goods-receipts page may import under `src/components/` and `src/lib/`: its own family's (`purchasing`), and the
+ * shared, family-free folders and files the other families' pages share. Anything else under those two roots belongs to
+ * another family (items, suppliers, warehouses, people, roles, permissions, bulk, …) or to a family not built yet — a new
+ * shared folder is a deliberate edit here, never a silent pass.
+ */
+const RECEIPTS_MAY_IMPORT = {
+  components: ['purchasing', 'ui', 'states', 'records', 'shell'],
+  lib: ['purchasing', 'bff', 'format', 'forms', 'results', 'routes', 'navigation', 'session'],
+  libApi: ['purchasing'],
+} as const;
+
+/** R10-2's check: a goods-receipts file whose import reaches another family's `components/`, `lib/` or `lib/api/`. */
+function receiptsFamilyViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, RECEIPTS_ROUTE_DIR)) continue;
+    for (const spec of specifiersOf(sf)) {
+      const t = targetOf(sf.file, spec).replace(/\.(ts|tsx|css)$/, '');
+      const parts = t.split('/');
+      let ok = true;
+      if (parts[0] === 'src' && parts[1] === 'components') ok = (RECEIPTS_MAY_IMPORT.components as readonly string[]).includes(parts[2] ?? '');
+      else if (parts[0] === 'src' && parts[1] === 'lib' && parts[2] === 'api') ok = (RECEIPTS_MAY_IMPORT.libApi as readonly string[]).includes(parts[3] ?? '');
+      else if (parts[0] === 'src' && parts[1] === 'lib') ok = (RECEIPTS_MAY_IMPORT.lib as readonly string[]).includes(parts[2] ?? '');
+      if (!ok) out.push({ file: sf.file, detail: `a goods-receipts page imports another family's components or lib (R10-2): '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — goods receipts GR-1: R10-2, the receipt pages stay inside the purchasing family', () => {
+  it('the real receipt folder (6 files) imports only purchasing and shared components/lib', () => {
+    const files = walk(RECEIPTS_ROUTE_DIR);
+    expect(files.map((f) => f.file)).toEqual([
+      'src/app/(app)/goods-receipts/GoodsReceiptStates.tsx',
+      'src/app/(app)/goods-receipts/GoodsReceiptsList.tsx',
+      'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx',
+      'src/app/(app)/goods-receipts/[id]/not-found.tsx',
+      'src/app/(app)/goods-receipts/[id]/page.tsx',
+      'src/app/(app)/goods-receipts/page.tsx',
+    ]);
+    // Positive control: the check sees the folder's real family and shared imports and accepts them (not an empty domain).
+    const targets = files.flatMap((f) => specifiersOf(f).map((s) => targetOf(f.file, s)));
+    expect(targets).toEqual(expect.arrayContaining(['src/lib/purchasing/load', 'src/lib/api/purchasing', 'src/components/ui/DateTime', 'src/lib/bff/surface', 'src/lib/format/quantity']));
+    expect(receiptsFamilyViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: another family’s lib, components or api goes red in each spelling; its own and the shared ones do not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/goods-receipts/A.tsx', source: "import { loadItem } from '@/lib/items/load';" },
+      { file: 'src/app/(app)/goods-receipts/B.tsx', source: "import { EntryForm } from '@/components/suppliers/EntryForm';" },
+      { file: 'src/app/(app)/goods-receipts/C.tsx', source: "import type { Warehouse } from '@/lib/api/warehouses';" },
+      { file: 'src/app/(app)/goods-receipts/[id]/D.tsx', source: "import { loadSuppliers } from '../../../../lib/suppliers/load';" },
+      { file: 'src/app/(app)/goods-receipts/E.tsx', source: "export type P = import('@/lib/people/load').PersonLoad;" },
+      { file: 'src/app/(app)/goods-receipts/Ok.tsx', source: "import { loadReceipts } from '@/lib/purchasing/load';\nimport { Button } from '@/components/ui/Button';\nimport { renderQuantity } from '@/lib/format/quantity';\nimport type { GoodsReceipt } from '@/lib/api/purchasing';\nimport { ArchivableList } from '../ArchivableList';" },
+      // Outside the folder the rule does not apply (the order page's section is in the purchase-orders folder).
+      { file: 'src/app/(app)/items/Z.tsx', source: "import { loadItem } from '@/lib/items/load';" },
+    ];
+    expect(receiptsFamilyViolations(planted).map((v) => v.file)).toEqual([
+      'src/app/(app)/goods-receipts/A.tsx',
+      'src/app/(app)/goods-receipts/B.tsx',
+      'src/app/(app)/goods-receipts/C.tsx',
+      'src/app/(app)/goods-receipts/[id]/D.tsx',
+      'src/app/(app)/goods-receipts/E.tsx',
+    ]);
+  });
+});
+
+// Goods receipts GR-1 (purchase-orders-plan.md §4 GR-1: "no money rendered on any receipt surface"; UX D-6): a receipt
+// serves no cost, so no receipt surface imports the money renderer — the receipt folder and the order page's Receipts section.
+const RECEIPT_SURFACES = (files: readonly SourceFile[]) => files.filter((f) => under(f.file, RECEIPTS_ROUTE_DIR) || f.file === 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx');
+const moneyOnReceipts = (files: readonly SourceFile[]) => RECEIPT_SURFACES(files).filter((f) => specifiersOf(f).some((s) => targetOf(f.file, s) === 'src/lib/format/money')).map((f) => f.file);
+
+describe('architecture — goods receipts GR-1: no money on any receipt surface', () => {
+  it('neither the receipt folder nor the Receipts section imports lib/format/money (7 files scanned)', () => {
+    const files = walk('src/app');
+    expect(RECEIPT_SURFACES(files).length).toBe(7);
+    expect(moneyOnReceipts(files)).toEqual([]);
+  });
+
+  it('planted controls: a money import in either goes red; the order page itself (which shows money) is outside the scan', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx', source: "import { renderMoney } from '../../../../lib/format/money';" },
+      { file: 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+    ];
+    expect(moneyOnReceipts(planted)).toEqual(['src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx', 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx']);
   });
 });
 

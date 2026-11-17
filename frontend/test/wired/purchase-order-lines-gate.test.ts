@@ -58,6 +58,9 @@ vi.mock('@/lib/purchasing/load', async (actual) => {
     }),
     loadLines: async () => ({ kind: 'ok', lines: [], nextCursor: null }),
     loadWarehouseChoices: async () => ({ kind: 'ok', warehouses: [] }),
+    // Goods receipts GR-1: the order page reads its Receipts section for a ListGoodsReceipts holder (this file's
+    // "everything but ListPurchaseOrderLines" seat holds it); an empty page here, so the page renders as before.
+    loadReceipts: async () => ({ kind: 'ok', items: [], nextCursor: null, previousCursor: null, tenantHasRows: false }),
     loadCatalogueChoices: async (_read: unknown, supplierId: string) => {
       v.catalogueReads.push(supplierId);
       return v.catalogue === 'ok' ? { kind: 'ok', entries: [ENTRY] } : { kind: v.catalogue };
