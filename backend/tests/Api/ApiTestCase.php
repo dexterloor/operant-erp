@@ -216,6 +216,27 @@ abstract class ApiTestCase extends TenancyTestCase
      */
     protected function send(string $method, string $path, ?array $body = null, array $headers = [], string $accept = 'application/json'): void
     {
+        $this->sendRawBody(
+            $method,
+            $path,
+            // An empty PHP array means "no fields" here and is sent as `{}`: `json_encode([])` is the JSON list `[]`,
+            // which every body-reading write refuses as `not_an_object` (G-102). A test that means a list sends a raw
+            // body through `client()->request()`.
+            null === $body ? null : json_encode([] === $body ? new \stdClass() : $body, \JSON_THROW_ON_ERROR),
+            $headers,
+            $accept,
+            null === $body ? null : 'application/json',
+        );
+    }
+
+    /**
+     * The request `send()` makes, with the body given as raw bytes: a body that is not a JSON object (G-102), or a
+     * `Content-Type` other than JSON or none at all. `send()` delegates here, so the two put the same headers on the wire.
+     *
+     * @param array<string, string> $headers
+     */
+    protected function sendRawBody(string $method, string $path, ?string $content, array $headers = [], string $accept = 'application/json', ?string $contentType = 'application/json'): void
+    {
         $server = ['HTTP_ACCEPT' => $accept];
 
         // The rig's token, unless the test wrote its own header. Never both: a
@@ -229,8 +250,8 @@ abstract class ApiTestCase extends TenancyTestCase
             $server['HTTP_'.strtoupper(str_replace('-', '_', $name))] = $value;
         }
 
-        if (null !== $body) {
-            $server['CONTENT_TYPE'] = 'application/json';
+        if (null !== $contentType) {
+            $server['CONTENT_TYPE'] = $contentType;
         }
 
         $this->client()->request(
@@ -241,7 +262,7 @@ abstract class ApiTestCase extends TenancyTestCase
             [],
             [],
             $server,
-            null === $body ? null : json_encode($body, \JSON_THROW_ON_ERROR),
+            $content,
         );
     }
 
