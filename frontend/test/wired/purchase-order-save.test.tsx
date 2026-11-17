@@ -69,8 +69,9 @@ const LINES_URL = `${URL}/lines`;
 /** The order's live lines as a re-read answers them (plan §2.2: GetPurchaseOrder + lines). */
 const LINES_REPLY = () => json(200, page([line(1), line(2)]));
 const SAVED = 'PO-000001 was saved.';
-const DRAFT_NOTE = 'This is a draft. It can be changed.';
-const SUPPLIER_FIXED = "The supplier can't be changed.";
+// Moved at PO-6 (UX R1a-1 row 6; po-4a-progress.md M16/M17 planted these forms early): Delete purchase order ships there.
+const DRAFT_NOTE = 'This is a draft. It can be changed or deleted.';
+const SUPPLIER_FIXED = "The supplier can't be changed. To order from another supplier, this draft can be deleted and a new one created.";
 const REREAD_FAILED = "We couldn't load this purchase order again, so what's shown may be out of date.";
 /** P8 (`PurchaseOrderWriter::refuseIfArchived`) and P9 (`refuseUnlessDraft`), as the server sends them. */
 const P8 = "This purchase order is archived, so it can't be changed.";
@@ -91,10 +92,10 @@ describe('/purchase-orders/[id] — a draft’s header editor (PO-4a)', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.getByText('Acme Supplies')).toBeInTheDocument();
     expect(screen.getByText('GBP')).toBeInTheDocument();
-    // UX R1a-1 row 4: the PO-4a forms (Delete ships at PO-6, so neither names deleting).
+    // UX R1a-1 row 6 (moved at PO-6 from row 4's forms): both name deleting, which ships there; nothing names approving (PO-8).
     expect(screen.getByText(SUPPLIER_FIXED, { selector: 'p' })).toBeInTheDocument();
     expect(screen.getByText(DRAFT_NOTE, { selector: 'p' })).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/delet|approv/i);
+    expect(document.body.textContent).not.toMatch(/approv/i);
     expect(save()).toHaveAccessibleDescription('Nothing to save.');
     // No expected-date field (D-4 unruled).
     expect(screen.queryByLabelText(/Expected/)).toBeNull();

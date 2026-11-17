@@ -6,11 +6,11 @@ import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import type { Refused } from '../results';
 import { isPurchaseOrder, isPurchaseOrderLine, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
-import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, ORDER_FIELDS, type AddLineAction, type AddLineResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type OrderChange, type RestoreOrderAction, type SaveOrderAction } from './results';
+import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, ORDER_FIELDS, type AddLineAction, type AddLineResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type DeleteOrderAction, type DeleteOrderResult, type OrderChange, type RestoreOrderAction, type SaveOrderAction } from './results';
 
 // The purchasing family's actions over the BFF (Revision 8 R8-2; the lib/suppliers/wired.ts shape). PO-2 shipped
-// Restore purchase order; PO-3 Create purchase order; PO-4a Save (the draft's header); PO-5 adds Add line and Delete line
-// (at the end of this file).
+// Restore purchase order; PO-3 Create purchase order; PO-4a Save (the draft's header); PO-5 adds Add line and Delete line;
+// PO-6 Delete purchase order (both at the end of this file).
 // Restore takes no Idempotency-Key: it is guarded by `deleted_at` (a repeat is refused P12).
 // One deadline covers the request, its GetPurchaseOrder re-read and, for a ListPurchaseOrderLines holder, the order's live
 // lines. Restore compares no refusal code: a refusal is followed by a re-read, and what the re-read shows decides (live →
@@ -38,11 +38,18 @@ export interface OrderWiring {
   readonly readLines: boolean;
   /**
    * Sets the re-read order (and, for a live one read with its lines, those lines; `null` = no lines read) under the stamp
-   * of the re-read, and resolves after the commit that shows them.
+   * of the re-read, and resolves after the commit that shows them. `sentAsOf`, given only with a write's own answer body,
+   * is the stamp taken when that write was sent: the page drops the body when a 204 arrived after it (PO-6, the 204 floor).
    */
-  readonly setOrder: (order: PurchaseOrder, lines: LinesLoad | null, asOf: number) => Promise<void>;
-  /** A re-read after a write did not answer an order: the page shows its region error, or swaps (ST-4b / ST-5). */
-  readonly onRereadFailed: (failure: ReadFailure, asOf: number) => void;
+  readonly setOrder: (order: PurchaseOrder, lines: LinesLoad | null, asOf: number, sentAsOf?: number) => Promise<void>;
+  /**
+   * A re-read after a write did not answer an order: the page shows its region error, or swaps (ST-4b / ST-5). `sentAsOf`,
+   * given only by Save (both sites), is the stamp taken when its PATCH was sent: the page drops the region error — never the
+   * swap — when a 204 of the person's own Delete arrived after it (PO-6, po-6-red.md "Spar on the :384 residual").
+   */
+  readonly onRereadFailed: (failure: ReadFailure, asOf: number, sentAsOf?: number) => void;
+  /** PO-6: after a 204, before the delete's re-read is sent: the page raises what it shows to that re-read's stamp (the 204 floor). */
+  readonly onDeleted?: (asOf: number) => void;
 }
 
 /** A live order's lines, read under the action's deadline; `null` for a deleted order or a viewer without the read. */
@@ -144,6 +151,11 @@ export function orderSave(w: OrderWiring): SaveOrderAction {
     try {
       const body: OrderChange = {};
       for (const f of ORDER_FIELDS) if (changes[f] !== undefined) body[f] = changes[f];
+      // PO-6: the stamp of the moment the PATCH is sent. Its own answer body is committed only if no 204 arrived after it
+      // (a Save that answers after a delete was processed before it; the warehouse / items rule, i3-0a0b RED H-1). The same
+      // stamp goes back with `saved`, `refused-archived` and `no-longer-draft`, so the page can drop what such a Save would
+      // say (the items UX ruling M-3 / T-17; po-6-red.md M-1).
+      const sent = w.stamp();
       const r = await w.caller.call('UpdatePurchaseOrder', { id: w.id }, body, { signal: deadline.signal });
       if (r.kind !== 'ok') {
         switch (r.kind) {
@@ -160,11 +172,11 @@ export function orderSave(w: OrderWiring): SaveOrderAction {
               // A live order that is no longer a draft: UX D-2's sentence, built from what was read, whatever the refusal
               // (it is true of the page either way). A deleted one: the server's sentence (P8, true: Restore exists) —
               // except P1, which says "try again" and is never shown as the page's stale refusal (the suppliers rule).
-              if (again.order.archived_at === null) return { kind: 'no-longer-draft', order: again.order };
-              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message };
+              if (again.order.archived_at === null) return { kind: 'no-longer-draft', order: again.order, sentAsOf: sent };
+              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message, sentAsOf: sent };
             }
             if (again.kind !== 'ok') {
-              w.onRereadFailed(again.kind, s);
+              w.onRereadFailed(again.kind, s, sent);
               if (r.rule === PURCHASE_ORDER_REFUSAL.notDraft) return { kind: 'changed-since-loaded' };
             }
             return r;
@@ -184,11 +196,12 @@ export function orderSave(w: OrderWiring): SaveOrderAction {
       const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
       if (again.kind === 'ok') await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
       else {
-        // The 200 body is the server's new state: commit it, so the page shows what was saved (Restore's rule).
-        await w.setOrder(r.body, await linesFor(w, r.body, deadline.signal), s);
-        w.onRereadFailed(again.kind, s);
+        // The 200 body is the server's new state: commit it, so the page shows what was saved (Restore's rule), unless a
+        // 204 arrived after this Save was sent (the body is then the order before the delete; PO-6).
+        await w.setOrder(r.body, await linesFor(w, r.body, deadline.signal), s, sent);
+        w.onRereadFailed(again.kind, s, sent);
       }
-      return { kind: 'saved', order: r.body };
+      return { kind: 'saved', order: r.body, sentAsOf: sent };
     } finally {
       deadline.cancel();
     }
@@ -196,7 +209,8 @@ export function orderSave(w: OrderWiring): SaveOrderAction {
 }
 
 /**
- * A line write refused with a 409 that may prove the page stale (P8 / P9, plan §2.2 "Stale page"; L10): the order is read
+ * A line write (or, from PO-6, Delete purchase order on P9's rule) refused with a 409 that may prove the page stale (P8 / P9,
+ * plan §2.2 "Stale page"; L10): the order is read
  * again under the write's deadline, stamped when sent. A reading that is no longer an editable draft is committed (with its
  * live lines) and named; with `commitLive` a live draft's reading is committed too (Delete: there is no typed choice to
  * keep, and a line deleted elsewhere must go). A failed re-read is the page's region error, and P9's rule then says UX D-2's
@@ -299,6 +313,53 @@ export function lineDelete(w: OrderWiring): DeleteLineAction {
         case 'not-found':
           await rereadAfterLineWrite(w, deadline.signal);
           return r;
+        case 'forbidden':
+        case 'session-ended':
+        case 'unreachable':
+        case 'server-error':
+          return r;
+        default:
+          return { kind: 'server-error' };
+      }
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Delete purchase order (PO-6; the `warehouseDelete` shape over this family's stale rule). No body, no Idempotency-Key: a
+// repeat is refused P10 ("already archived"). One deadline covers the request and its re-read. After a 204 the page stays:
+// the draft is archived, not gone. Before the re-read is sent, `onDeleted` raises what the page shows to the re-read's stamp
+// (the 204 floor), so a reading requested before the delete (a Save's re-read still in flight) cannot undo it, even when this
+// re-read fails. The re-read is committed: archived (the banner with Restore), or live with its lines (restored in between,
+// S-2). A failed re-read still resolves `deleted` (the delete happened); the page is told through `onRereadFailed`.
+// Refusals: P1 is `contention`; P9's rule (`refuseUnlessDraft()`, which Delete answers for a draft approved or cancelled
+// elsewhere — plan Response L-1) is followed by a stamped re-read under the same deadline, as Save's: a reading that is no
+// longer an editable draft is committed and named (UX D-2's sentence, never the server's developer words); a failed re-read
+// is the page's region error and `changed-since-loaded`; an editable reading leaves the refusal as sent. Any other refusal
+// (P10) is returned as sent: the page re-reads once the dialog closes (FE-D1).
+export function orderDelete(w: OrderWiring): DeleteOrderAction {
+  return async (): Promise<DeleteOrderResult> => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.orderDelete);
+    try {
+      const r = await w.caller.call('DeletePurchaseOrder', { id: w.id }, undefined, { signal: deadline.signal });
+      if (r.kind === 'ok') {
+        const s = w.stamp();
+        w.onDeleted?.(s);
+        const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
+        if (again.kind === 'ok') await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
+        else w.onRereadFailed(again.kind, s);
+        return { kind: 'deleted' };
+      }
+      switch (r.kind) {
+        case 'refused': {
+          if (r.rule === PLATFORM_REFUSAL.contention) return { kind: 'contention', message: r.message };
+          if (r.rule !== PURCHASE_ORDER_REFUSAL.notDraft) return r;
+          const stale = await afterLineRefusal(w, r, deadline.signal, false);
+          // `refused-archived` cannot follow P9's rule unless the order was deleted in between: the server's sentence then.
+          return stale.kind === 'refused-archived' ? { kind: 'refused', rule: r.rule, message: stale.message } : stale;
+        }
+        case 'not-found':
         case 'forbidden':
         case 'session-ended':
         case 'unreachable':

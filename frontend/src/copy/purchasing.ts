@@ -9,6 +9,8 @@
 // PO-4a (row 4) adds Save on a draft's header: the editor's keys and `draftNote` / `supplierFixed` in their PO-4a forms.
 // PO-5 (row 5) adds Add line and Delete line: `ADD_LINE.*`, `DELETE_LINE.*` (`after` without the restore clause: Restore
 // line ships at PO-9), `ORDER_LINES.actions` / `emptyNote`; `ADD_LINE.archivedNote` is not here until BK-38.
+// PO-6 (row 6) adds Delete purchase order on a live draft: `DELETE_ORDER.*` (B-14), and the three keys that name deleting in
+// their PO-6 forms: `supplierFixed` final, `draftNote` = "…It can be changed or deleted.", `noneArchived` final.
 // The commit that ships each action replaces its key with the next form (R1a-1 rows 6–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
@@ -103,10 +105,10 @@ export const PURCHASE_ORDERS_LIST = {
   emptyReceived: 'No orders have been received in full yet.',
   emptyCancelled: 'No cancelled orders.',
   /**
-   * `noneArchived`, PO-2 form (R1a-1 row 2; final RED apply list PO-2): Restore ships here, deleting at PO-6, so the
-   * sentence names restoring and says nothing of how a draft gets here.
+   * `noneArchived`, final form from PO-6 (R1a-1 row 6; R1-B): Restore shipped at PO-2 and Delete purchase order ships at
+   * PO-6, so it says how a draft gets here and that it can be restored from here.
    */
-  noneArchived: 'No archived purchase orders. Archived drafts can be restored from here.',
+  noneArchived: 'No archived purchase orders. Drafts that are deleted appear here and can be restored from here.',
   /**
    * `noMatch(q, segment)` · `noArchivedMatch(q)` · `clearSearch` · `footer(n)`. The live form names its segment, as the
    * Archived one names its view (po-1-red.md M-2): the search is sent with the segment, so an empty answer means no order
@@ -160,10 +162,11 @@ export const PURCHASE_ORDER_PAGE = {
   raisedByYou: (name: string) => `${name} (you)`,
   raisedByUnknown: 'Not recorded',
   /**
-   * `draftNote`, PO-4a form (R1a-1 row 4; final RED apply list PO-4a): Save ships here, so it names changing (passive,
-   * R-3: true for every viewer of a draft). Later forms name deleting (PO-6) and approving (PO-8).
+   * `draftNote`, PO-6 form (R1a-1 row 6; final RED apply list PO-6): Save (PO-4a) and Delete purchase order (PO-6) have
+   * shipped, so it names changing and deleting (passive, R-3: true for every viewer of a draft). The final form names
+   * approving (PO-8).
    */
-  draftNote: 'This is a draft. It can be changed.',
+  draftNote: 'This is a draft. It can be changed or deleted.',
   /** `orderedNote`, PO-1 form (R1a-1 row 1); the final form names cancelling (PO-7). */
   orderedNote: "This order has been approved, so it can't be changed.",
   /** `closedNote` (received / cancelled). */
@@ -177,10 +180,10 @@ export const PURCHASE_ORDER_PAGE = {
   /** `rereadFailed` (UX B-3, CONFIRMS the shape): a re-read after a write did not answer. */
   rereadFailed: "We couldn't load this purchase order again, so what's shown may be out of date.",
   /**
-   * `supplierFixed` (the draft editor), PO-4a form (R1a-1 row 4; final RED apply list PO-4a): Delete ships at PO-6, so
-   * the sentence does not yet say a draft can be deleted and raised again (the final form). Passive (R-3).
+   * `supplierFixed` (the draft editor), final form from PO-6 (R1a-1 row 6; R1-B): Delete purchase order (PO-6) and Create
+   * purchase order (PO-3) have both shipped, so it says a draft can be deleted and a new one created. Passive (R-3).
    */
-  supplierFixed: "The supplier can't be changed.",
+  supplierFixed: "The supplier can't be changed. To order from another supplier, this draft can be deleted and a new one created.",
   /** `save` · `saveNothing` · `saved(number)` (UX B-3 / R1-B, CONFIRMS the shapes). */
   save: 'Save',
   saveNothing: 'Nothing to save.',
@@ -207,6 +210,24 @@ export const RESTORE_ORDER = {
   after: (number: string) => `${number} was restored as a draft. Lines that were deleted on their own before it was deleted stay deleted.`,
   alreadyRestored: (number: string) => `${number} was already restored.`,
   interrupted: (number: string) => `We can't tell whether ${number} was restored. Press Restore purchase order to try again.`,
+} as const;
+
+/**
+ * UX B-14 `DELETE_ORDER` (PO-6; R1-B "as Rev 0"; R1a-1 row 6): **Delete purchase order** on a live draft's page, through the
+ * shared Delete dialog (danger; initial focus on the dismiss). Heading `NOT_DELETED` on a refusal. The dismiss is this area's
+ * **Go back** (B-0); `close` is ST-9b's word for the one button left after a refusal (B-14 writes none; the house `Close`).
+ * `after` / `afterRestored` (S-2: the 204's re-read read the order live, restored in between) are spoken in the page's region.
+ */
+export const DELETE_ORDER = {
+  action: 'Delete purchase order',
+  confirm: 'Delete purchase order',
+  dismiss: 'Go back',
+  close: 'Close',
+  title: (number: string) => `Delete ${number}?`,
+  body: 'It moves to the archived purchase orders and can be restored from there, with its lines.',
+  after: (number: string) => `${number} was deleted. It's now in the archived purchase orders.`,
+  afterRestored: (number: string) => `${number} was deleted, and has since been restored.`,
+  interrupted: (number: string) => `We can't tell whether ${number} was deleted. Press Delete purchase order to try again.`,
 } as const;
 
 /** UX B-4 / R1-B `ORDER_LINES`: the lines on the order page, read-only at PO-1. */

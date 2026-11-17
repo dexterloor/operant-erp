@@ -74,6 +74,12 @@ export const ACTION_DEADLINES_MS = {
   lineCreate: 30_000,
   /** Delete a draft purchase order's line (PO-5): the request + the GetPurchaseOrder and lines re-read. */
   lineDelete: 30_000,
+  /**
+   * Delete a draft purchase order (PO-6): the request + the GetPurchaseOrder re-read (and, when it reads live — restored in
+   * between — its lines); also the re-read after P9's rule, to say what the order is now. The page's re-read after the
+   * dialog closes runs under `reread`.
+   */
+  orderDelete: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

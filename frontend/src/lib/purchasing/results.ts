@@ -61,13 +61,15 @@ export type OrderChange = Partial<Pick<UpdatePurchaseOrderInput, OrderField>>;
  * followed by a re-read: `refused-archived` (the re-read is deleted: P8 elsewhere; the page shows the server's sentence),
  * `no-longer-draft` (the re-read is live and not a draft: UX D-2's sentence built from it; both committed, so the
  * editor is gone), `changed-since-loaded` (P9's rule, and the re-read failed: UX D-2's other sentence), else `refused`
- * as sent (P1 says "try again"; the person's choice is kept).
+ * as sent (P1 says "try again"; the person's choice is kept). `saved`, `refused-archived` and `no-longer-draft` carry
+ * `sentAsOf`, the stamp taken when the PATCH was sent: the page drops the sentence or the refusal when a 204 of the person's
+ * own Delete arrived after it (PO-6; the items UX ruling M-3 / T-17).
  */
 export type SaveOrderResult =
-  | { kind: 'saved'; order: PurchaseOrder }
+  | { kind: 'saved'; order: PurchaseOrder; sentAsOf: number }
   | { kind: 'invalid'; fieldErrors: FieldErrors<OrderField>; formErrors: string[] }
-  | { kind: 'refused-archived'; message: string }
-  | { kind: 'no-longer-draft'; order: PurchaseOrder }
+  | { kind: 'refused-archived'; message: string; sentAsOf: number }
+  | { kind: 'no-longer-draft'; order: PurchaseOrder; sentAsOf: number }
   | { kind: 'changed-since-loaded' }
   | Refused
   | Forbidden
@@ -121,3 +123,14 @@ export type AddLineAction = (values: AddLineValues) => Promise<AddLineResult>;
 export type DeleteLineResult = { kind: 'deleted' } | StaleLineWrite | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
 
 export type DeleteLineAction = (line: PurchaseOrderLine) => Promise<DeleteLineResult>;
+
+/**
+ * `DELETE /purchase-orders/{id}` (PO-6; no body, no key: a repeat is refused P10). `deleted` resolves after the stamped
+ * re-read is committed, or after the page was told it failed (the page then keeps the 204 as a fact: read-only). The stale
+ * kinds are P9's rule (plan Response L-1: P11 is P9) followed by the re-read: `no-longer-draft` (committed; UX D-2's sentence
+ * built from it) or `changed-since-loaded` (the re-read failed); the page shows either in the dialog, Close only.
+ * `contention` is P1 (Delete kept); `refused` any other 409 as sent (P10: deleted elsewhere), Close only.
+ */
+export type DeleteOrderResult = { kind: 'deleted' } | { kind: 'no-longer-draft'; order: PurchaseOrder } | { kind: 'changed-since-loaded' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+export type DeleteOrderAction = () => Promise<DeleteOrderResult>;

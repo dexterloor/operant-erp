@@ -35,8 +35,11 @@ export interface OrderHeaderFormProps {
    * own state whenever the warehouses could not be read, so where the order goes is never hidden (po-4a-red.md M-1).
    */
   deliverTo: ReactNode;
-  /** Writes the page's status region (B-3 `saved`). */
-  announce: (text: string) => void;
+  /**
+   * Writes the page's status region (B-3 `saved`). `sentAsOf` is the stamp taken when that Save was sent: the page drops
+   * the sentence when the person's own Delete answered 204 after it (PO-6; the items UX ruling M-3).
+   */
+  announce: (text: string, sentAsOf: number) => void;
   /** The page's `<h1>`: focus goes there after a save. */
   fallbackFocusRef: RefObject<HTMLElement | null>;
   /** Called once per Save answered `saved`, after the message is written. */
@@ -49,9 +52,10 @@ export interface OrderHeaderFormProps {
   /**
    * A refused Save whose re-read found the order no longer an editable draft (deleted elsewhere: P8's sentence; approved or
    * cancelled elsewhere: UX D-2's `noLongerDraft`). The page is already read-only (this form is gone), so it shows the
-   * sentence under **Not saved**.
+   * sentence under **Not saved** — unless the person's own Delete answered 204 after this Save was sent (`sentAsOf`; PO-6,
+   * the items UX ruling T-17).
    */
-  onRefusedStale: (message: string) => void;
+  onRefusedStale: (message: string, sentAsOf: number) => void;
 }
 
 interface Notice {
@@ -162,7 +166,7 @@ export function OrderHeaderForm({ order, warehouses: firstWarehouses, reloadWare
       case 'saved':
         setFieldErrors({});
         setNotice(null);
-        announce(PURCHASE_ORDER_PAGE.saved(r.order.order_number));
+        announce(PURCHASE_ORDER_PAGE.saved(r.order.order_number), r.sentAsOf);
         focusTo('h1');
         onSaved?.();
         return;
@@ -186,10 +190,10 @@ export function OrderHeaderForm({ order, warehouses: firstWarehouses, reloadWare
         return;
       }
       case 'refused-archived':
-        onRefusedStale(r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE);
+        onRefusedStale(r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE, r.sentAsOf);
         return;
       case 'no-longer-draft':
-        onRefusedStale(PURCHASE_ORDER_PAGE.noLongerDraft(r.order.order_number, r.order.status));
+        onRefusedStale(PURCHASE_ORDER_PAGE.noLongerDraft(r.order.order_number, r.order.status), r.sentAsOf);
         return;
       case 'changed-since-loaded':
         show(NOT_SAVED, PURCHASE_ORDER_PAGE.changedSinceLoaded(number));

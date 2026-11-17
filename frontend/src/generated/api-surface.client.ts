@@ -143,6 +143,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['inventory_item.delete'],
     },
   },
+  DeletePurchaseOrder: {
+    method: 'DELETE',
+    template: '/api/v1/purchase-orders/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.delete'],
+    },
+  },
   DeletePurchaseOrderLine: {
     method: 'DELETE',
     template: '/api/v1/purchase-orders/{id}/lines/{lineId}',

@@ -24,7 +24,8 @@ import { PurchaseOrderPage } from './PurchaseOrderPage';
 // From PO-5, Add line on a live draft whose lines were read, for a viewer holding CreatePurchaseOrderLine's AND
 // ListSupplierProducts' codes (the new row chooses from the order's supplier's catalogue, so without that read there is
 // nothing to choose): the catalogue is read here, last; 401 → the session-ended notice; any other failure is the row's own
-// state. Delete line follows DeletePurchaseOrderLine's codes (the page offers it only on a live draft).
+// state. Delete line follows DeletePurchaseOrderLine's codes (the page offers it only on a live draft). From PO-6, Delete
+// purchase order follows DeletePurchaseOrder's codes (the page offers it only on a live draft).
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -73,5 +74,5 @@ export default async function Page({ params }: Params) {
     if (catalogue.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
     add = { catalogue };
   }
-  return <PurchaseOrderPage order={first.order} lines={lines} edit={edit} add={add} canDeleteLine={viewerMay('DeletePurchaseOrderLine', codes)} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
+  return <PurchaseOrderPage order={first.order} lines={lines} edit={edit} add={add} canDeleteLine={viewerMay('DeletePurchaseOrderLine', codes)} canDelete={viewerMay('DeletePurchaseOrder', codes)} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
 }

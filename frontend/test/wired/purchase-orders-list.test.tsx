@@ -343,10 +343,11 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the per-commit co
   });
 
   // Moved at PO-2 (R1a-1 row 2): Restore ships, so the sentence says the archived drafts can be restored from here.
-  it('test 5 — Archived, empty: "No archived purchase orders. Archived drafts can be restored from here." whatever tenant_has_rows', () => {
+  // Moved again at PO-6 (row 6): Delete purchase order ships, so the final form also says how a draft gets here.
+  it('test 5 — Archived, empty: "No archived purchase orders. Drafts that are deleted appear here and can be restored from here." (the PO-6 final form) whatever tenant_has_rows', () => {
     for (const tenantHasRows of [true, false]) {
       const { unmount } = renderWired(<PurchaseOrdersList initial={ok([], { tenantHasRows })} initialArchived />);
-      expect(screen.getByText('No archived purchase orders. Archived drafts can be restored from here.', { selector: 'p' })).toBeInTheDocument();
+      expect(screen.getByText('No archived purchase orders. Drafts that are deleted appear here and can be restored from here.', { selector: 'p' })).toBeInTheDocument();
       unmount();
     }
   });
@@ -395,10 +396,11 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the per-commit co
     await waitFor(() => expect(screen.getByText('No archived order\'s number starts with “PO-9”.', { selector: 'p' })).toBeInTheDocument());
   });
 
-  // Test 15 (R1-2 / UX R1a-1 rows 1–3): the per-commit forms render. Moved at PO-2: noneArchived names restoring. Moved at
-  // PO-3: noneYet takes its final form and emptyDraft its PO-3 form, both naming creating (shipped here); still no sentence
-  // names approving or deleting (PO-8, PO-6).
-  it('test 15 — the PO-3 forms: noneYet final and emptyDraft name creating only; noneArchived names only restoring', () => {
+  // Test 15 (R1-2 / UX R1a-1 rows 1–3, 6): the per-commit forms render. Moved at PO-2: noneArchived names restoring. Moved at
+  // PO-3: noneYet takes its final form and emptyDraft its PO-3 form, both naming creating (shipped here). Moved at PO-6
+  // (po-2-progress.md D-6, deliberately): noneArchived takes its final form, naming deleting (shipped there); still no
+  // sentence names approving (PO-8).
+  it('test 15 — the PO-6 forms: noneYet final and emptyDraft name creating only; noneArchived final names deleting and restoring', () => {
     const shown: string[] = [];
     for (const [initial, segment, archived] of [
       [ok([], { tenantHasRows: false }), 'open', false],
@@ -412,7 +414,7 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the per-commit co
     const all = shown.join(' ');
     expect(all).toContain(NONE_YET);
     expect(all).toContain('No drafts. A new purchase order starts as a draft.');
-    expect(all).toContain('No archived purchase orders. Archived drafts can be restored from here.');
-    for (const later of ["until it's approved", 'approved', 'deleted']) expect(all).not.toContain(later);
+    expect(all).toContain('No archived purchase orders. Drafts that are deleted appear here and can be restored from here.');
+    for (const later of ["until it's approved", 'approved']) expect(all).not.toContain(later);
   });
 });

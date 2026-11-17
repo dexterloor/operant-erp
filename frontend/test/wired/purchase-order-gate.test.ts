@@ -77,7 +77,7 @@ async function render(codes: string[]): Promise<ReactElement> {
   expect(isValidElement(el)).toBe(true);
   return el as ReactElement;
 }
-type Props = { viewerId: string; canRestore: boolean; canReadLines: boolean; canOpenSupplier: boolean; canOpenWarehouse: boolean; canOpenItem: boolean; lines: unknown };
+type Props = { viewerId: string; canRestore: boolean; canReadLines: boolean; canOpenSupplier: boolean; canOpenWarehouse: boolean; canOpenItem: boolean; canDelete: boolean; lines: unknown };
 const props = (el: ReactElement) => el.props as Props;
 
 describe('/purchase-orders — the list page', () => {
@@ -162,6 +162,24 @@ describe('/purchase-orders/[id] — the order page', () => {
       v.byOperation = (op) => op === 'GetPurchaseOrder' || op === operation;
       try {
         expect(props(await render([]))).toMatchObject(expected);
+      } finally {
+        v.byOperation = null;
+      }
+    }
+  });
+
+  // PO-6: Delete purchase order follows DeletePurchaseOrder alone (purchase_order.delete), on its own operation; the page
+  // offers it only on a live draft (purchase-order-delete.test.tsx).
+  it('PO-6 — canDelete follows DeletePurchaseOrder, on its own operation', async () => {
+    expect(props(await render(['purchase_order.view'])).canDelete).toBe(false);
+    expect(props(await render(['purchase_order.view', 'purchase_order.delete'])).canDelete).toBe(true);
+    for (const [operation, expected] of [
+      ['DeletePurchaseOrder', true],
+      ['RestorePurchaseOrder', false],
+    ] as const) {
+      v.byOperation = (op) => op === 'GetPurchaseOrder' || op === operation;
+      try {
+        expect(props(await render([])).canDelete).toBe(expected);
       } finally {
         v.byOperation = null;
       }
