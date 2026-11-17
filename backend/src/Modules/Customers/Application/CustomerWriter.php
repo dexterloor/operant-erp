@@ -462,12 +462,12 @@ final readonly class CustomerWriter
                     }
                     break;
                 case 'country_code':
-                    if (!\is_string($value) || 1 !== preg_match('/^[A-Z]{2}$/', $value)) {
+                    if (!\is_string($value) || 1 !== preg_match('/\A[A-Z]{2}\z/', $value)) {
                         $errors[] = self::error($field, 'not_a_country_code', self::COUNTRY_SHAPE);
                     }
                     break;
                 case 'currency_code':
-                    if (!\is_string($value) || 1 !== preg_match('/^[A-Z]{3}$/', $value)) {
+                    if (!\is_string($value) || 1 !== preg_match('/\A[A-Z]{3}\z/', $value)) {
                         $errors[] = self::error($field, 'not_a_currency_code', self::CURRENCY_SHAPE);
                     }
                     break;

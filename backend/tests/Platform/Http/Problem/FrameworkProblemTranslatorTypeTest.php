@@ -76,7 +76,11 @@ final class FrameworkProblemTranslatorTypeTest extends KernelTestCase
         self::assertNull($this->problemOf(new UnexpectedValueException(self::WRAPPER, 0, new \JsonException('x')), 'POST', ItemResource::class, 'CreateItem'));
     }
 
-    /** `lines[0]` is `/lines/0`; later segments are kept as they are. */
+    /**
+     * `lines[0]` is `/lines/0`. A later named segment is not converted (the serializer emits it as a PHP name, here
+     * `unitPrice`, and only the first level has a class to convert against), so the pointer stops at the deepest prefix it
+     * can name truthfully; a non-integer bracket (`[a.b]`) stops it at the top-level field (C2 deviations RED L-3).
+     */
     #[Test]
     public function aCollectionPathBecomesAPointer(): void
     {
@@ -85,8 +89,12 @@ final class FrameworkProblemTranslatorTypeTest extends KernelTestCase
             $this->errorsOf(self::field('lines[0]', ['int'], 'x'), 'POST', SalesOrderResource::class, 'CreateSalesOrder'),
         );
         self::assertSame(
-            [['pointer' => '/lines/0/unit_price', 'code' => 'not_a_string', 'message' => 'This field must be a string.']],
-            $this->errorsOf(self::field('lines[0].unit_price', ['string'], 5), 'POST', SalesOrderResource::class, 'CreateSalesOrder'),
+            [['pointer' => '/lines/0', 'code' => 'not_a_string', 'message' => 'This field must be a string.']],
+            $this->errorsOf(self::field('lines[0].unitPrice', ['string'], 5), 'POST', SalesOrderResource::class, 'CreateSalesOrder'),
+        );
+        self::assertSame(
+            [['pointer' => '/lines', 'code' => 'not_a_string', 'message' => 'This field must be a string.']],
+            $this->errorsOf(self::field('lines[a.b].unitPrice', ['string'], 5), 'POST', SalesOrderResource::class, 'CreateSalesOrder'),
         );
     }
 
@@ -164,6 +172,24 @@ final class FrameworkProblemTranslatorTypeTest extends KernelTestCase
         ], $this->errorsOf($e, 'POST', PasswordResource::class, 'ChangePassword'));
     }
 
+    /**
+     * The exception's class is nullable: without one the operation's input class names the fields, and without either the
+     * listener answers one `required` at `""` instead of throwing (C2 deviations RED L-4).
+     */
+    #[Test]
+    public function missingConstructorArgumentsWithoutAClassStillAnswer(): void
+    {
+        $e = new MissingConstructorArgumentsException('missing', 0, null, ['currentPassword'], null);
+
+        self::assertSame(
+            [['pointer' => '/current_password', 'code' => 'required', 'message' => 'This field is required.']],
+            $this->errorsOf($e, 'POST', PasswordResource::class, 'ChangePassword'),
+        );
+        $problem = $this->problemOf($e, 'POST', PasswordResource::class, null);
+        self::assertInstanceOf(ApiProblem::class, $problem);
+        self::assertSame([['pointer' => '', 'code' => 'required', 'message' => 'This field is required.']], $problem->getErrors());
+    }
+
     /** API Platform's client-supplied-id refusal still wins over the generic field arm. */
     #[Test]
     public function theIdArmStillWins(): void
@@ -193,20 +219,41 @@ final class FrameworkProblemTranslatorTypeTest extends KernelTestCase
             if (!\is_string($class) || !class_exists($class)) {
                 continue;
             }
-            foreach ((new \ReflectionClass($class))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
-                $type = $property->getType();
-                if (!$type instanceof \ReflectionNamedType || 'array' !== $type->getName()) {
+            $reflection = new \ReflectionClass($class);
+            // Public properties (promoted constructor parameters included) and every constructor parameter: the serializer
+            // types a non-promoted parameter by its parameter type (C2 deviations RED L-6). A union containing `array` counts.
+            $members = [];
+            foreach ($reflection->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+                $members[$property->getName()] = $property->getType();
+            }
+            foreach ($reflection->getConstructor()?->getParameters() ?? [] as $parameter) {
+                $members[$parameter->getName()] ??= $parameter->getType();
+            }
+            foreach ($members as $name => $type) {
+                if (!self::admitsANativeArray($type)) {
                     continue;
                 }
                 ++$seen;
-                if ('lines' !== $names->normalize($property->getName(), $class)) {
-                    $offenders[] = \sprintf('`%s::%s` is a native array; the wrong-type sentence for arrays says "lines" — give this field its own sentence in `fieldTypeRefusal()`.', $class, $property->getName());
+                if ('lines' !== $names->normalize($name, $class)) {
+                    $offenders[] = \sprintf('`%s::%s` is a native array; the wrong-type sentence for arrays says "lines" — give this field its own sentence in `fieldTypeRefusal()`.', $class, $name);
                 }
             }
         }
 
         self::assertGreaterThan(0, $seen, 'Anti-vacuity: no native array input member was found.');
         self::assertSame([], $offenders, implode("\n", $offenders));
+    }
+
+    private static function admitsANativeArray(?\ReflectionType $type): bool
+    {
+        $types = $type instanceof \ReflectionUnionType ? $type->getTypes() : [$type];
+        foreach ($types as $member) {
+            if ($member instanceof \ReflectionNamedType && 'array' === $member->getName()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

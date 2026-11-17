@@ -46,7 +46,7 @@ final readonly class PermissionRequirements
     public const RESOURCE_FIELD = 'resource';
 
     /** §3's `<resource>.<action>` shape (PC-1) -- a resolver's codes are checked against it, as a declaration's are. */
-    private const CODE_SHAPE = '/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/';
+    private const CODE_SHAPE = '/\A[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\z/';
 
     public function __construct(
         /**

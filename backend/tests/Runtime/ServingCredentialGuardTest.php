@@ -124,6 +124,18 @@ final class ServingCredentialGuardTest extends TestCase
     }
 
     /**
+     * G-103: the token and suffix rules keep the reach `$` had over a name ending in one line break (`\n?\z`, not `\z`):
+     * this is a deny-list, so narrowing it to make a scan simpler would let such a name through (design Q-SEC-4 (b)).
+     * Mutation M21: `PASSWORD_TOKEN` to a plain `\z` → red here.
+     */
+    #[Test]
+    public function aCredentialNameEndingInALineBreakIsStillRefused(): void
+    {
+        self::assertSame(["DB_PASSWORD\n"], ServingCredentialGuard::offendingNames(["DB_PASSWORD\n" => '1'], [], []));
+        self::assertSame(["STRIPE_API_KEY\n"], ServingCredentialGuard::offendingNames(["STRIPE_API_KEY\n" => '1'], [], []));
+    }
+
+    /**
      * U21 — mutation: remove the `PWD`/`OLDPWD` exclusion (red on `PWD`), or empty ALLOWED_NAMES. The second is vacuous
      * today: none of the six reviewed application secrets matches a credential rule, so ALLOWED_NAMES excludes nothing.
      */

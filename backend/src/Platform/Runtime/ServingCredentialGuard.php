@@ -117,12 +117,16 @@ final class ServingCredentialGuard
         'REMOTE_ADDR', 'REMOTE_HOST', 'REMOTE_PORT', 'REMOTE_USER', 'SERVER_NAME', 'SERVER_PORT', 'SERVER_PROTOCOL',
         'SERVER_SOFTWARE', 'SERVER_ADDR', 'GATEWAY_INTERFACE', 'DOCUMENT_ROOT', 'DOCUMENT_URI', 'AUTH_TYPE', 'argv', 'argc', 'PHP_SELF'];
 
-    /** Rule 2's token form. `PWD` and `OLDPWD` (every shell's working directory) are excluded by name. */
-    private const PASSWORD_TOKEN = '/(^|_)(PASS|PASSWD|PASSWORD|PWD|PASSPHRASE)$/';
+    /**
+     * Rule 2's token form. `PWD` and `OLDPWD` (every shell's working directory) are excluded by name.
+     * `\n?\z`, not `\z`: this is a deny-list, and `$` also matched a name ending in a line break; that reach is kept (G-103).
+     */
+    private const PASSWORD_TOKEN = '/(\A|_)(PASS|PASSWD|PASSWORD|PWD|PASSPHRASE)\n?\z/';
 
     private const SHELL_DIRECTORY_NAMES = ['PWD', 'OLDPWD'];
 
-    private const API_KEY_SUFFIX = '/_API_KEY$/';
+    /** `\n?\z`, not `\z`: this is a deny-list, and `$` also matched a name ending in a line break; that reach is kept (G-103). */
+    private const API_KEY_SUFFIX = '/_API_KEY\n?\z/';
 
     private const NEON_PREFIX = '/^NEON_/';
 

@@ -76,6 +76,17 @@ use Symfony\Component\Uid\Uuid;
  *     accepted, so it must be served not required. Pins, each two-way and executed (a stale entry is red):
  *     {@see self::REQUIRED_FOR_SOME_KINDS_ONLY}, {@see self::ABSENCE_REFUSED_UNDER_ANOTHER_CODE},
  *     {@see self::ABSENCE_CHANGES_THE_OUTCOME}.
+ *  7. A trailing line break (G-103): every carried field whose served base type is `string`, with no `format` and no `enum`,
+ *     gets the value the N-th request itself carries at that path, read when it is sent, with `"\n"` appended — a value
+ *     that is valid except for the line break (read at send time because each probe runs on a fresh rig: the counting
+ *     run's email or reset token would name the other rig's records). Four outcomes, each a pin map, two-way and executed (a pinned key that is not a probe-7 case is stale and
+ *     red; an answer its class does not allow is red):
+ *     {@see self::LINE_BREAK_REFUSED} (422, exactly the pinned code at the field), {@see self::LINE_BREAK_TRIMMED} (the
+ *     control's status, no error at the field), {@see self::LINE_BREAK_CHANGES_THE_OUTCOME} (status < 500, not 400), and
+ *     every other carried plain-string field (the control's status, no error at the field). The probe CANNOT tell trimmed
+ *     from stored-as-sent: the two assert the same thing, and the trim itself is shown by `TrailingLineBreakTest` E-15…E-17.
+ *     The unpinned class is **recorded, not ruled**: stored as sent; identifier codes and SKUs are `RESIDUAL_GAPS.md`
+ *     G-104; other free text is the G-103 design's Q-UX-1. `probe7ByOutcome` shows every class non-empty.
  * Any status ≥ 500 on any probe is its own failure: a shipped defect, not a description question. Any 400 is a failure
  * too: it is outside `API.md` §5.2 (G-101).
  *
@@ -173,7 +184,92 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
      */
     private const ABSENCE_CHANGES_THE_OUTCOME = [];
 
-    /** @var array{method: string, template: string, nth: int, path: list<string|int>, value: mixed, unset: bool}|null */
+    private const PROBE_7 = '7 (trailing line break)';
+
+    /**
+     * Probe 7: fields whose value followed by a line break is refused, with the code each one gives (G-103). Filled from
+     * the report-mode run of 2026-11-18 on the fixed tree (`docs/session13/g103-build-progress.md`).
+     *
+     * @var array<string, string> `<Op>.<field>` => code
+     */
+    private const LINE_BREAK_REFUSED = [
+        'CreateAdjustmentDecision.quantity' => 'not_a_positive_decimal',
+        'CreateBulkArchival.resource' => 'unknown_resource',
+        'CreateBulkRestoration.resource' => 'unknown_resource',
+        'CreateCustomer.country_code' => 'not_a_country_code',
+        'CreateCustomer.currency_code' => 'not_a_currency_code',
+        'CreateCustomerAddress.country_code' => 'not_a_country_code',
+        'CreateCustomerAddress.kind' => 'not_an_address_kind',
+        'CreateExport.resource' => 'unknown_resource',
+        'CreateFulfilment.lines/0/quantity' => 'not_a_positive_decimal',
+        'CreateGoodsReceipt.lines/0/quantity' => 'not_a_positive_decimal',
+        'CreatePurchaseOrder.currency_code' => 'not_a_currency_code',
+        'CreatePurchaseOrder.lines/0/quantity' => 'not_a_positive_decimal',
+        'CreatePurchaseOrder.lines/0/unit_cost' => 'not_a_decimal',
+        'CreatePurchaseOrderLine.quantity' => 'not_a_positive_decimal',
+        'CreatePurchaseOrderLine.unit_cost' => 'not_a_decimal',
+        'CreateSalesOrder.currency_code' => 'not_a_currency_code',
+        'CreateSalesOrder.lines/0/quantity' => 'not_a_positive_decimal',
+        'CreateSalesOrder.lines/0/unit_price' => 'not_a_decimal',
+        'CreateSalesOrderLine.quantity' => 'not_a_positive_decimal',
+        'CreateSalesOrderLine.unit_price' => 'not_a_decimal',
+        'CreateSalesReturn.lines/0/quantity' => 'not_a_positive_decimal',
+        'CreateStockAdjustment.counted_quantity' => 'not_a_decimal',
+        'CreateStockTransfer.quantity' => 'not_a_decimal',
+        'CreateSupplier.country_code' => 'not_a_country_code',
+        'CreateSupplier.currency_code' => 'not_a_currency_code',
+        'CreateSupplierProduct.minimum_order_quantity' => 'not_a_positive_decimal',
+        'CreateSupplierProduct.unit_cost' => 'not_a_decimal',
+        'CreateWarehouse.country_code' => 'not_a_country_code',
+        'IssueAdjustmentCreditNote.lines/0/quantity' => 'not_a_positive_decimal',
+        'IssueCreditNote.lines/0/quantity' => 'not_a_positive_decimal',
+        'UpdatePurchaseOrder.expected_at' => 'not_a_timestamp',
+        'UpdatePurchaseOrderLine.quantity' => 'not_a_positive_decimal',
+        'UpdateSalesOrderLine.quantity' => 'not_a_positive_decimal',
+        'UpdateSalesOrderLine.unit_price' => 'not_a_decimal',
+        'UpdateSupplierProduct.unit_cost' => 'not_a_decimal',
+    ];
+
+    /**
+     * Probe 7: fields the writer trims, so a trailing line break is accepted and dropped. Each reason names the line that
+     * trims. The probe asserts only "the control's status, no error at the field", the same as for a field stored as sent.
+     *
+     * @var array<string, string> `<Op>.<field>` => reason
+     */
+    private const LINE_BREAK_TRIMMED = [
+        'CreatePasswordReset.email' => 'trimmed (`PasswordResetRequest.php:59` → `EmailAddress::fromInput()`); unobservable: the answer is always 202',
+        'CreatePasswordReset.workspace' => 'trimmed (`PasswordResetRequest.php:54` → `WorkspaceSlug::fromInput()`); unobservable: the answer is always 202',
+        'CreateRole.name' => 'the role name is trimmed: `RoleDefinitionFields.php:96` (`EDGE_SPACE`); shown over HTTP by TrailingLineBreakTest E-15',
+        'CreateUser.display_name' => 'a display name is trimmed: `UserDisplayName.php:25` (`RoleDefinitionFields::trimmed()`)',
+        'CreateUser.email' => 'the address is trimmed and lower-cased: `UserCreation.php:190` → `EmailAddress::fromInput()` → `PreAuthKeys.php:37`',
+        'IssueToken.email' => 'the sign-in email is trimmed and lower-cased before the lookup: `SignIn.php:110` → `PreAuthKeys.php:37`; shown by E-17',
+        'IssueToken.workspace' => 'the sign-in workspace is trimmed and lower-cased before the lookup: `SignIn.php:109` → `PreAuthKeys.php:32`',
+        'UpdateRole.name' => 'the role name is trimmed: `RoleDefinitionFields.php:96` (`EDGE_SPACE`), the same predicate as CreateRole',
+        'UpdateSettings.display_name' => 'the workspace name is trimmed: `SettingsWriter.php:116` (`RoleDefinitionFields::trimmed()`)',
+        'UpdateUser.display_name' => 'a display name is trimmed: `UserDisplayName.php:25` (`RoleDefinitionFields::trimmed()`); shown by E-16',
+    ];
+
+    /**
+     * Probe 7: fields whose value followed by a line break is a different, valid-shaped value, so the outcome changes with
+     * no refusal at the field (a password, a token). Asserted: status < 500, not 400.
+     *
+     * @var array<string, string> `<Op>.<field>` => reason
+     */
+    private const LINE_BREAK_CHANGES_THE_OUTCOME = [
+        'ChangePassword.current_password' => 'a password is taken as sent: with a line break it is a different, wrong current password (422 `current_password_invalid`)',
+        'ChangePassword.new_password' => 'a password is taken as sent: a new password ending in a line break is stored as that different password',
+        'CreatePasswordResetRedemption.password' => 'a password is taken as sent: a new password ending in a line break is stored as that different password',
+        'CreatePasswordResetRedemption.token' => 'the reset token is checked by `$/D` and its length: with a line break it is not the token sent by mail',
+        'IssueToken.password' => 'a password is taken as sent: with a line break it is a different, wrong password (401)',
+    ];
+
+    /**
+     * `appendLineBreak` (probe 7): plant the value the request itself carries at the path, followed by `"\n"`, read at send
+     * time — not the counting run's value, which names that run's rig (its actor's email, its reset token) and would be
+     * refused for that reason alone.
+     *
+     * @var array{method: string, template: string, nth: int, path: list<string|int>, value: mixed, unset: bool, appendLineBreak: bool}|null
+     */
     private ?array $plant = null;
 
     private int $matches = 0;
@@ -240,6 +336,10 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         /** @var array<string, int> $probe3ByKind */
         $probe3ByKind = [];
         $probe3NativeArrays = 0;
+        /** @var array<string, int> $probe7ByOutcome */
+        $probe7ByOutcome = [];
+        /** @var array<string, string> $probe7Cases key => kind */
+        $probe7Cases = [];
         foreach ($groups as $group => $keys) {
             [$operation, $recipe] = explode(' ', $group);
             self::assertArrayHasKey($operation, $routes, $operation.' has an input field but no route in the served spec.');
@@ -286,9 +386,10 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
                 } else {
                     $absenceProbed[$key] = true;
                 }
-                foreach (self::probesFor($key, $case, $carried, $expected) as [$name, $value, $unset, $check]) {
+                $carriedValue = $carried ? (self::valuesAt($nthBody, $case['path'])[0] ?? null) : null;
+                foreach (self::probesFor($key, $case, $carried, $expected, $carriedValue) as [$name, $value, $unset, $check]) {
                     $this->freshRig();
-                    $this->plant = ['method' => $route['method'], 'template' => $route['template'], 'nth' => $nth, 'path' => $case['path'], 'value' => $value, 'unset' => $unset];
+                    $this->plant = ['method' => $route['method'], 'template' => $route['template'], 'nth' => $nth, 'path' => $case['path'], 'value' => $value, 'unset' => $unset, 'appendLineBreak' => self::PROBE_7 === $name];
                     $this->matches = 0;
                     $this->plants = 0;
                     $this->plantedBody = null;
@@ -320,6 +421,10 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
                         if ('nested line' !== $case['kind'] && !$case['mixed'] && \in_array('array', (array) ($case['schema']['type'] ?? []), true)) {
                             ++$probe3NativeArrays;
                         }
+                    }
+                    if (self::PROBE_7 === $name) {
+                        $probe7Cases[$key] = $case['kind'];
+                        $probe7ByOutcome[self::lineBreakOutcome($key)] = ($probe7ByOutcome[self::lineBreakOutcome($key)] ?? 0) + 1;
                     }
                     if (null !== ($why = $check($status, $codes, $errors, $this->detail()))) {
                         $failures[] = \sprintf('%s probe %s (%s planted): %s — answered %d, codes at %s: [%s]; %s',
@@ -354,6 +459,30 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         self::assertSame($all, $ran, 'Probe 3 (wrong type) did not run on exactly the five kinds of field.');
         self::assertGreaterThanOrEqual(1, $probe3NativeArrays, 'Anti-vacuity: probe 3 ran on no natively typed field of served base array.');
         self::assertGreaterThan(\count($groups), $runs, 'Fewer recipe runs than (operation, recipe) groups: the probes never ran.');
+
+        // G-103: probe 7's pins are two-way against the cases it ran on; it ran top-level and nested; every class is used.
+        foreach ([...array_keys(self::LINE_BREAK_REFUSED), ...array_keys(self::LINE_BREAK_TRIMMED), ...array_keys(self::LINE_BREAK_CHANGES_THE_OUTCOME)] as $pinnedKey) {
+            self::assertArrayHasKey($pinnedKey, $probe7Cases, $pinnedKey.' is pinned for probe 7, but probe 7 never ran on it (not a carried plain-string field): stale.');
+        }
+        self::assertContains('nested line', $probe7Cases, 'Anti-vacuity: probe 7 ran on no nested line field.');
+        self::assertNotSame([], array_filter($probe7Cases, static fn (string $kind): bool => 'nested line' !== $kind), 'Anti-vacuity: probe 7 ran on no top-level field.');
+        foreach (['not_a_positive_decimal', 'not_a_decimal', 'not_a_country_code', 'not_a_currency_code'] as $code) {
+            self::assertContains($code, self::LINE_BREAK_REFUSED, 'Anti-vacuity: no field is pinned refusing a trailing line break as '.$code.'.');
+        }
+        $outcomes = array_keys($probe7ByOutcome);
+        sort($outcomes);
+        self::assertSame(['changes the outcome', 'refused', 'stored as sent', 'trimmed'], $outcomes, 'Probe 7 did not see all four outcome classes.');
+    }
+
+    /** Probe 7's class for a key: the map it is pinned in, else stored as sent. */
+    private static function lineBreakOutcome(string $key): string
+    {
+        return match (true) {
+            isset(self::LINE_BREAK_REFUSED[$key]) => 'refused',
+            isset(self::LINE_BREAK_TRIMMED[$key]) => 'trimmed',
+            isset(self::LINE_BREAK_CHANGES_THE_OUTCOME[$key]) => 'changes the outcome',
+            default => 'stored as sent',
+        };
     }
 
     /**
@@ -429,7 +558,7 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
      *
      * @return list<array{0: string, 1: mixed, 2: bool, 3: callable(int, list<string>, list<array{0: string, 1: string}>, ?string): ?string}>
      */
-    private static function probesFor(string $key, array $case, bool $carried, int $control): array
+    private static function probesFor(string $key, array $case, bool $carried, int $control, mixed $carriedValue = null): array
     {
         $schema = $case['schema'];
         $types = (array) ($schema['type'] ?? []);
@@ -524,7 +653,39 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
             $probes[] = ['6 (absent)', null, true, self::absenceCheck($key, $case, $control)];
         }
 
+        if ($carried && 'string' === $base && !isset($schema['format']) && !isset($schema['enum']) && \is_string($carriedValue)) {
+            $probes[] = [self::PROBE_7, $carriedValue."\n", false, self::lineBreakCheck($key, $control)];
+        }
+
         return $probes;
+    }
+
+    /**
+     * Probe 7's judgement of a response to the recipe's own value followed by one line break (G-103).
+     *
+     * @return callable(int, list<string>, list<array{0: string, 1: string}>, ?string): ?string
+     */
+    private static function lineBreakCheck(string $key, int $control): callable
+    {
+        if (isset(self::LINE_BREAK_REFUSED[$key])) {
+            $code = self::LINE_BREAK_REFUSED[$key];
+
+            return static fn (int $status, array $codes): ?string => 422 === $status && [$code] === $codes
+                ? null
+                : 'it is pinned to refuse a trailing line break as '.$code.', but did not (LINE_BREAK_REFUSED)';
+        }
+        if (isset(self::LINE_BREAK_CHANGES_THE_OUTCOME[$key])) {
+            return static fn (): ?string => null;
+        }
+        $pinned = isset(self::LINE_BREAK_TRIMMED[$key]) ? 'pinned trimmed (LINE_BREAK_TRIMMED)' : 'recorded as stored as sent (not pinned)';
+
+        return static function (int $status, array $codes) use ($control, $pinned): ?string {
+            if ([] !== $codes) {
+                return 'it refuses a trailing line break but is '.$pinned.': pin it in LINE_BREAK_REFUSED';
+            }
+
+            return $status === $control ? null : 'a trailing line break changed the answer from '.$control.' with no refusal at the field, but it is '.$pinned.': pin it in LINE_BREAK_CHANGES_THE_OUTCOME';
+        };
     }
 
     /**
@@ -655,7 +816,11 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
             ++$this->matches;
             if (null !== $this->plant && $this->matches === $this->plant['nth']) {
                 $body ??= [];
-                $body = self::planted($body, $this->plant['path'], $this->plant['value'], $this->plant['unset']);
+                $value = $this->plant['value'];
+                if ($this->plant['appendLineBreak'] && \is_string($current = self::valuesAt($body, $this->plant['path'])[0] ?? null)) {
+                    $value = $current."\n";
+                }
+                $body = self::planted($body, $this->plant['path'], $value, $this->plant['unset']);
                 $this->plantedBody = $body;
                 ++$this->plants;
             }

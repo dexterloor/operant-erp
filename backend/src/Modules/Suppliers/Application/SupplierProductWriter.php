@@ -114,11 +114,17 @@ final readonly class SupplierProductWriter
 
     private const UNIQUE = 'supplier_product_unique';
 
-    /** `numeric(19,4)`, non-negative: `PurchaseOrderWriter::MONEY`'s rule, restated here because Suppliers may not import it. */
-    private const MONEY = '/^\d{1,15}(\.\d{1,4})?$/';
+    /**
+     * `numeric(19,4)`, non-negative: `PurchaseOrderWriter::MONEY`'s rule, restated here because Suppliers may not import it.
+     * `\A…\z`, never `^…$` (G-103): `$` also matches before a final line break.
+     */
+    private const MONEY = '/\A\d{1,15}(\.\d{1,4})?\z/';
 
-    /** `numeric(19,6)`, non-negative: `PurchaseOrderWriter::QUANTITY`'s rule; zero is refused separately. */
-    private const QUANTITY = '/^\d{1,13}(\.\d{1,6})?$/';
+    /**
+     * `numeric(19,6)`, non-negative: `PurchaseOrderWriter::QUANTITY`'s rule; zero is refused separately.
+     * `\A…\z`, never `^…$` (G-103): `$` also matches before a final line break.
+     */
+    private const QUANTITY = '/\A\d{1,13}(\.\d{1,6})?\z/';
 
     /** The `int` column's ceiling — the column's width, not a business rule (the `lead_time_sane` CHECK is `>= 0`). */
     private const LEAD_TIME_MAX = 2147483647;

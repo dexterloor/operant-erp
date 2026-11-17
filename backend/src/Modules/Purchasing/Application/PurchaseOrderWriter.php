@@ -82,11 +82,17 @@ use Symfony\Component\Uid\Uuid;
  */
 final readonly class PurchaseOrderWriter
 {
-    /** numeric(19,6) — quantities. Precision 19, scale 6, so at most 13 digits before the point. */
-    private const QUANTITY = '/^\d{1,13}(\.\d{1,6})?$/';
+    /**
+     * numeric(19,6) — quantities. Precision 19, scale 6, so at most 13 digits before the point.
+     * `\A…\z`, never `^…$` (G-103): `$` also matches before a final line break.
+     */
+    private const QUANTITY = '/\A\d{1,13}(\.\d{1,6})?\z/';
 
-    /** numeric(19,4) — money (S-12). Never a float, in either direction. */
-    private const MONEY = '/^\d{1,15}(\.\d{1,4})?$/';
+    /**
+     * numeric(19,4) — money (S-12). Never a float, in either direction.
+     * `\A…\z`, never `^…$` (G-103): `$` also matches before a final line break.
+     */
+    private const MONEY = '/\A\d{1,15}(\.\d{1,4})?\z/';
 
     /**
      * The exact scale of `quantity_ordered × unit_cost` — `numeric(19,6)` times `numeric(19,4)`, measured
@@ -1302,7 +1308,7 @@ final readonly class PurchaseOrderWriter
         // Checked for shape here so a malformed value is a named field defect
         // rather than a foreign-key lookup that answers "unknown".
         $currency = $values['currencyCode'] ?? null;
-        if (null !== $currency && 1 !== preg_match('/^[A-Z]{3}$/', $currency)) {
+        if (null !== $currency && 1 !== preg_match('/\A[A-Z]{3}\z/', $currency)) {
             $errors[] = self::error('currencyCode', 'not_a_currency_code', 'This field must be a three-letter ISO 4217 code.');
         }
 
