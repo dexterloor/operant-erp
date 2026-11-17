@@ -6,7 +6,7 @@ import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
-import type { ActorReference, CreatePurchaseOrderInput, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput } from '@/lib/api/purchasing';
+import type { ActorReference, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
@@ -94,6 +94,8 @@ const MIRRORED: Record<string, string[]> = {
   PurchaseOrder: keysOf<PurchaseOrder>()({ id: true, order_number: true, status: true, supplier: true, warehouse: true, currency_code: true, total_amount: true, ordered_at: true, expected_at: true, created_by: true, archived_at: true }),
   PurchaseOrderLine: keysOf<PurchaseOrderLine>()({ id: true, line_number: true, inventory_item: true, quantity: true, quantity_received: true, quantity_outstanding: true, unit_cost: true, archived_at: true }),
   'PurchaseOrderLine.inventory_item': keysOf<PurchaseOrderItemReference>()({ id: true, sku: true, name: true }),
+  // Purchase orders PO-5: Add line's body (the new line row sends the chosen item and the two fields as typed).
+  'PurchaseOrderLine.CreatePurchaseOrderLineInput': keysOf<CreatePurchaseOrderLineInput>()({ inventory_item_id: true, quantity: true, unit_cost: true }),
   NamedReference: keysOf<NamedReference>()({ id: true, name: true }),
   // Purchase orders PO-3: Create purchase order's body (the page sends supplier, warehouse and the supplier's currency only).
   'PurchaseOrder.CreatePurchaseOrderInput': keysOf<CreatePurchaseOrderInput>()({ supplier_id: true, warehouse_id: true, currency_code: true, expected_at: true, lines: true }),

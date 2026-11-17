@@ -3,6 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { AddLineRow } from '@/components/purchasing/AddLineRow';
 import { OrderHeaderForm } from '@/components/purchasing/OrderHeaderForm';
 import { RestoreActions } from '@/components/records/RestoreActions';
 import { RegionError } from '@/components/states/PageStates';
@@ -10,16 +11,16 @@ import { Banner } from '@/components/ui/Banner';
 import { Chip } from '@/components/ui/Chip';
 import { DateTime } from '@/components/ui/DateTime';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
-import { COULD_NOT_REACH, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
-import { PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RESTORE_ORDER, statusLabel } from '@/copy/purchasing';
-import type { PurchaseOrder } from '@/lib/api/purchasing';
+import { COULD_NOT_REACH, NOT_ADDED, NOT_DELETED, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
+import { ADD_LINE, ORDER_LINES, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RESTORE_ORDER, statusLabel } from '@/copy/purchasing';
+import type { PurchaseOrder, PurchaseOrderLine } from '@/lib/api/purchasing';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { renderMoney } from '@/lib/format/money';
-import { loadLines, loadPurchaseOrder, loadWarehouseChoices, type LinesLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
-import type { OrderChange } from '@/lib/purchasing/results';
-import { orderRestore, orderSave } from '@/lib/purchasing/wired';
+import { loadCatalogueChoices, loadLines, loadPurchaseOrder, loadWarehouseChoices, type CatalogueChoicesLoad, type LinesLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
+import type { AddLineValues, OrderChange } from '@/lib/purchasing/results';
+import { lineCreate, lineDelete, orderRestore, orderSave } from '@/lib/purchasing/wired';
 import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import listStyles from '../../Lists.module.css';
@@ -51,6 +52,15 @@ export interface PurchaseOrderPageProps {
    * (po-4a-red.md L-2.)
    */
   edit?: { warehouses: WarehouseChoicesLoad } | null;
+  /**
+   * PO-5: Add line, or null. Given by the server only for a live draft whose lines were read and a viewer holding
+   * CreatePurchaseOrderLine's AND ListSupplierProducts' codes, with the order's supplier's catalogue read for the new row's
+   * Item (a failed read is the row's own state). Like `edit`, a draft that LOADED deleted gets it from the refresh after
+   * the restore.
+   */
+  add?: { catalogue: CatalogueChoicesLoad } | null;
+  /** PO-5: holds DeletePurchaseOrderLine's codes — each live row of a live draft offers **Delete** (X-4: no dialog). */
+  canDeleteLine?: boolean;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -88,8 +98,15 @@ interface Shown {
  * the same mount: read-only, or the deleted banner with Restore) and the page shows the sentence under **Not saved**, its
  * heading focused — UX D-2's `noLongerDraft` for an order approved or cancelled elsewhere, the server's for one deleted
  * elsewhere — unless a newer editable reading was committed first (FE-R7). A restore clears it.
+ *
+ * From PO-5 a live draft's lines section offers **Add line** (`add`; the new line row, `components/purchasing/AddLineRow`)
+ * and **Delete** on each line (`canDeleteLine`). Each write's re-read (the order and its lines, stamped) is committed in one
+ * commit through the same `commit`; the section is not remounted by it. A line write refused because the order is no longer
+ * an editable draft shows its sentence on the same banner as Save's, under **Not added** / **Not deleted**. No page write
+ * counter: each line write speaks once, after its own re-read has answered, so no sentence is corrected later
+ * (po-4a-progress.md D-4's owed decision, taken at PO-5).
  */
-export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null }: PurchaseOrderPageProps) {
+export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false }: PurchaseOrderPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -102,9 +119,22 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   const [retrying, setRetrying] = useState(false);
   // PO-4a: a refused Save whose re-read found the order no longer an editable draft (the editor is gone): its sentence,
   // shown under **Not saved** while the page shows an order that is not an editable draft.
-  const [staleRefusal, setStaleRefusal] = useState<{ gen: number; message: string } | null>(null);
+  const [staleRefusal, setStaleRefusal] = useState<{ gen: number; heading: string; message: string } | null>(null);
   const staleHeading = useRef<HTMLHeadingElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
+  const linesHeading = useRef<HTMLHeadingElement>(null);
+  // PO-5 (po-5-red.md L-3): one line write at a time across the lines section — an Add and a Delete never run together (a
+  // header Save or a page Retry may; their stamped commits win, and a line write's sentence may then say 'may be out of date'
+  // over a current screen — D-11's limit).
+  const lineWriting = useRef(false);
+  const beginLineWrite = useCallback(() => {
+    if (lineWriting.current) return false;
+    lineWriting.current = true;
+    return true;
+  }, []);
+  const endLineWrite = useCallback(() => {
+    lineWriting.current = false;
+  }, []);
   const id = initial.id;
   // After a create (PO-3; A-19 item 7): the create page left the sentence for this address. A later writer replaces it.
   useArrivalMessage(`/purchase-orders/${id}`, announce);
@@ -167,16 +197,31 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
       d.cancel();
     }
   }, [caller]);
-  const onRefusedStale = useCallback((text: string) => {
+  const refusedStale = useCallback((heading: string, text: string) => {
     // FE-R7: the page shows an editable draft again (a newer reading was committed first): the refusal describes nothing
     // on screen and is not kept.
     if (committedEditable.current) return;
-    setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message: text }));
+    setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, heading, message: text }));
   }, []);
+  const onRefusedStale = useCallback((text: string) => refusedStale(NOT_SAVED, text), [refusedStale]);
+  const onAddRefusedStale = useCallback((text: string) => refusedStale(NOT_ADDED, text), [refusedStale]);
+  const onDeleteRefusedStale = useCallback((text: string) => refusedStale(NOT_DELETED, text), [refusedStale]);
+  // PO-5: the line writes (the same wiring, stamp and commit as Save's).
+  const addLine = useCallback((values: AddLineValues) => lineCreate({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed })(values), [caller, id, stamp, canReadLines, commit, failed]);
+  const deleteLine = useCallback((line: PurchaseOrderLine) => lineDelete({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed })(line), [caller, id, stamp, canReadLines, commit, failed]);
+  const reloadCatalogue = useCallback(async () => {
+    const d = startDeadline(ACTION_DEADLINES_MS.reread);
+    try {
+      return await loadCatalogueChoices(readOf(caller), initial.supplier.id, d.signal);
+    } finally {
+      d.cancel();
+    }
+  }, [caller, initial.supplier.id]);
 
   const order = shown.order;
   const archived = order.archived_at !== null;
-  const editorShown = edit !== null && !archived && order.status === 'draft';
+  const liveDraft = !archived && order.status === 'draft';
+  const editorShown = edit !== null && liveDraft;
 
   // After the commit that renders the stale banner (focus never runs ahead of what it lands on).
   const staleGen = staleRefusal?.gen ?? null;
@@ -230,7 +275,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
         <RegionError key={`reread-${rereadError.gen}`} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={PURCHASE_ORDER_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
       {staleRefusal && !editorShown ? (
-        <Banner key={`stale-${staleRefusal.gen}`} tone="danger" live="none" heading={NOT_SAVED} ref={staleHeading}>
+        <Banner key={`stale-${staleRefusal.gen}`} tone="danger" live="none" heading={staleRefusal.heading} ref={staleHeading}>
           <p>{staleRefusal.message}</p>
         </Banner>
       ) : null}
@@ -311,7 +356,46 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
           {s === 'cancelled' ? <p>{PURCHASE_ORDER_PAGE.closedCancelled}</p> : null}
         </div>
       ) : null}
-      {shown.lines !== null ? <LinesSection key={`lines-${shown.lines.gen}`} orderId={order.id} initial={shown.lines.value} status={s} currency={order.currency_code} canOpenItem={canOpenItem} announce={announce} /> : null}
+      {shown.lines !== null ? (
+        <LinesSection
+          orderId={order.id}
+          orderNumber={order.order_number}
+          lines={shown.lines}
+          status={s}
+          currency={order.currency_code}
+          canOpenItem={canOpenItem}
+          announce={announce}
+          headingRef={linesHeading}
+          add={
+            add !== null && liveDraft
+              ? {
+                  emptyNote: ORDER_LINES.emptyNote(order.supplier.name),
+                  row: (columns: number) => (
+                    <AddLineRow
+                      order={order}
+                      catalogue={add.catalogue}
+                      reloadCatalogue={reloadCatalogue}
+                      add={addLine}
+                      addCode={gateCode('CreatePurchaseOrderLine')}
+                      catalogueViewCode={gateCode('ListSupplierProducts')}
+                      supplierLink={canOpenSupplier ? <Link href={`/suppliers/${order.supplier.id}`}>{ADD_LINE.openSupplier(order.supplier.name)}</Link> : null}
+                      columns={columns}
+                      announce={announce}
+                      fallbackFocusRef={linesHeading}
+                      onRefusedStale={onAddRefusedStale}
+                      linesGen={shown.lines!.gen}
+                      lineWrites={{ begin: beginLineWrite, end: endLineWrite }}
+                    />
+                  ),
+                }
+              : null
+          }
+          remove={canDeleteLine && liveDraft ? deleteLine : null}
+          deleteCode={gateCode('DeletePurchaseOrderLine')}
+          onRefusedStale={onDeleteRefusedStale}
+          lineWrites={{ begin: beginLineWrite, end: endLineWrite }}
+        />
+      ) : null}
     </section>
   );
 }

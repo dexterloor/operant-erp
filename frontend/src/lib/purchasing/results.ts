@@ -1,8 +1,8 @@
 // Typed results of the purchase-order page's injected actions (Revision 7 A-19 item 5, Revision 8 R8-2), on the shared
 // kinds in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { CreatePurchaseOrderInput, PurchaseOrder, UpdatePurchaseOrderInput } from '../api/purchasing';
-import type { FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
+import type { CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, PurchaseOrder, PurchaseOrderLine, UpdatePurchaseOrderInput } from '../api/purchasing';
+import type { Contention, FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
  * `POST /purchase-orders/{id}/restoration` (PO-2; no body, no key). `restored` carries the 200 body. `refused` is a 409
@@ -77,3 +77,47 @@ export type SaveOrderResult =
   | ServerError;
 
 export type SaveOrderAction = (changes: OrderChange) => Promise<SaveOrderResult>;
+
+/**
+ * PO-5: the new line row's fields, in screen order (the first field with a sentence takes focus). A name the mirrored input
+ * lacks is a type error.
+ */
+export const ADD_LINE_FIELDS = ['inventory_item_id', 'quantity', 'unit_cost'] as const satisfies readonly (keyof CreatePurchaseOrderLineInput & string)[];
+export type AddLineField = (typeof ADD_LINE_FIELDS)[number];
+/** What the row hands over: the chosen entry's item id and the two fields as typed. */
+export type AddLineValues = CreatePurchaseOrderLineInput;
+
+/** The refusals a line write shares with Save (P8 / P9 found by the re-read, plan §2.2 "Stale page"; L10). */
+type StaleLineWrite = { kind: 'refused-archived'; message: string } | { kind: 'no-longer-draft'; order: PurchaseOrder } | { kind: 'changed-since-loaded' };
+
+/**
+ * `POST /purchase-orders/{id}/lines` (PO-5; a fresh Idempotency-Key per submit). `added` carries the 201 body and resolves
+ * after the stamped re-read (the order and its lines, one commit); `listStale` = that re-read did not answer both. `invalid`
+ * a 422 mapped onto the row; `itemUnavailable` = it held H-2's violation (shown with the client sentence, the catalogue read
+ * again). `not-listed` = L1 (the supplier no longer lists the item; the server's sentence, the catalogue read again). The
+ * stale kinds as Save's. `refused` any other 409 as sent (P1, L6), the row kept.
+ */
+export type AddLineResult =
+  | { kind: 'added'; line: PurchaseOrderLine; listStale: boolean }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<AddLineField>; formErrors: string[]; itemUnavailable: boolean }
+  | { kind: 'not-listed'; message: string }
+  | StaleLineWrite
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type AddLineAction = (values: AddLineValues) => Promise<AddLineResult>;
+
+/**
+ * `DELETE /purchase-orders/{id}/lines/{lineId}` (PO-5; no body, no key: a repeat is refused W23). `deleted` resolves after
+ * the stamped re-read is committed, or after the page was told it failed. The stale kinds as Save's (the page shows them
+ * under its stale banner, *Not deleted*). `contention` is P1 (its sentence says "try again"); `refused` any other 409 as
+ * sent (W23: deleted elsewhere), after the re-read was committed so the row the server no longer has goes. `not-found`
+ * likewise follows a committed re-read.
+ */
+export type DeleteLineResult = { kind: 'deleted' } | StaleLineWrite | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+export type DeleteLineAction = (line: PurchaseOrderLine) => Promise<DeleteLineResult>;

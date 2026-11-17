@@ -1,14 +1,16 @@
-import { PURCHASE_ORDER_REFUSAL, type CreatePurchaseOrderInput, type PurchaseOrder } from '../api/purchasing';
+import { ITEM_UNAVAILABLE, PURCHASE_ORDER_REFUSAL, type CreatePurchaseOrderInput, type CreatePurchaseOrderLineInput, type PurchaseOrder } from '../api/purchasing';
 import { PLATFORM_REFUSAL } from '../api/problems';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
-import { isPurchaseOrder, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
-import { CREATE_ORDER_FIELDS, ORDER_FIELDS, type CreateOrderAction, type OrderChange, type RestoreOrderAction, type SaveOrderAction } from './results';
+import type { Refused } from '../results';
+import { isPurchaseOrder, isPurchaseOrderLine, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
+import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, ORDER_FIELDS, type AddLineAction, type AddLineResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type OrderChange, type RestoreOrderAction, type SaveOrderAction } from './results';
 
 // The purchasing family's actions over the BFF (Revision 8 R8-2; the lib/suppliers/wired.ts shape). PO-2 shipped
-// Restore purchase order; PO-3 Create purchase order; PO-4a adds Save (the draft's header, at the end of this file).
+// Restore purchase order; PO-3 Create purchase order; PO-4a Save (the draft's header); PO-5 adds Add line and Delete line
+// (at the end of this file).
 // Restore takes no Idempotency-Key: it is guarded by `deleted_at` (a repeat is refused P12).
 // One deadline covers the request, its GetPurchaseOrder re-read and, for a ListPurchaseOrderLines holder, the order's live
 // lines. Restore compares no refusal code: a refusal is followed by a re-read, and what the re-read shows decides (live →
@@ -187,6 +189,124 @@ export function orderSave(w: OrderWiring): SaveOrderAction {
         w.onRereadFailed(again.kind, s);
       }
       return { kind: 'saved', order: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+/**
+ * A line write refused with a 409 that may prove the page stale (P8 / P9, plan §2.2 "Stale page"; L10): the order is read
+ * again under the write's deadline, stamped when sent. A reading that is no longer an editable draft is committed (with its
+ * live lines) and named; with `commitLive` a live draft's reading is committed too (Delete: there is no typed choice to
+ * keep, and a line deleted elsewhere must go). A failed re-read is the page's region error, and P9's rule then says UX D-2's
+ * changed-since sentence; otherwise the refusal as sent.
+ */
+async function afterLineRefusal(w: OrderWiring, r: Refused, signal: AbortSignal, commitLive: boolean): Promise<Refused | { kind: 'refused-archived'; message: string } | { kind: 'no-longer-draft'; order: PurchaseOrder } | { kind: 'changed-since-loaded' }> {
+  const s = w.stamp();
+  const again = await loadPurchaseOrder(readOf(w.caller), w.id, signal);
+  if (again.kind !== 'ok') {
+    w.onRereadFailed(again.kind, s);
+    return r.rule === PURCHASE_ORDER_REFUSAL.notDraft ? { kind: 'changed-since-loaded' } : r;
+  }
+  const editable = again.order.archived_at === null && again.order.status === 'draft';
+  if (!editable || commitLive) await w.setOrder(again.order, await linesFor(w, again.order, signal), s);
+  if (editable) return r;
+  return again.order.archived_at === null ? { kind: 'no-longer-draft', order: again.order } : { kind: 'refused-archived', message: r.message };
+}
+
+/**
+ * After a line write the server accepted: the order and its live lines are read again, stamped when sent, and committed in
+ * one commit (the server recomputes `total_amount` on every line write, so the Total and the rows always come from one
+ * reading — po-4a-red.md M-2's rule). Nothing is committed from the write's answer itself. Resolves `true` when the page now
+ * shows both as read; `false` when either read failed (an order read failure is the page's region error; a lines read
+ * failure is committed as the section's own state).
+ */
+async function rereadAfterLineWrite(w: OrderWiring, signal: AbortSignal): Promise<boolean> {
+  const s = w.stamp();
+  const again = await loadPurchaseOrder(readOf(w.caller), w.id, signal);
+  if (again.kind !== 'ok') {
+    w.onRereadFailed(again.kind, s);
+    return false;
+  }
+  const lines = await linesFor(w, again.order, signal);
+  await w.setOrder(again.order, lines, s);
+  return lines === null || lines.kind === 'ok';
+}
+
+// Add line (PO-5; the `orderCreate` shape for the key, the `orderSave` shape for the refusals). `CreatePurchaseOrderLine`
+// requires an Idempotency-Key but the row never replays one (a lost answer says "check this order's lines", never "press
+// again"), so a fresh key is minted for EVERY submit (`newKey`) and never stored. The body is the three members copied by
+// name (never a spread), the quantity and the cost as typed. One deadline covers the request and its re-read. A 422 is mapped
+// onto the row; H-2's violation (`ITEM_UNAVAILABLE`, both members) is flagged so the row says UX's client sentence for it.
+// L1 (`notListed`) is returned as such (the row reads the catalogue again). P1 is returned as sent ("try again"). Any other
+// 409 goes through the stale re-read, which commits only a reading that is no longer an editable draft (the row's typed text
+// stays for another press).
+export function lineCreate(w: OrderWiring, newKey: () => string = () => crypto.randomUUID()): AddLineAction {
+  return async (values): Promise<AddLineResult> => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.lineCreate);
+    try {
+      const body: CreatePurchaseOrderLineInput = { inventory_item_id: values.inventory_item_id, quantity: values.quantity, unit_cost: values.unit_cost };
+      const r = await w.caller.call('CreatePurchaseOrderLine', { id: w.id }, body, { signal: deadline.signal, idempotencyKey: newKey() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            if (r.violations !== undefined && r.violations.length > 0) {
+              const itemUnavailable = r.violations.some((v) => v.pointer === ITEM_UNAVAILABLE.pointer && v.code === ITEM_UNAVAILABLE.code);
+              return { kind: 'invalid', ...fieldErrorsFrom(r.violations, ADD_LINE_FIELDS), itemUnavailable };
+            }
+            if (r.rule === PURCHASE_ORDER_REFUSAL.notListed) return { kind: 'not-listed', message: r.message };
+            if (r.rule === PLATFORM_REFUSAL.contention) return r;
+            return afterLineRefusal(w, r, deadline.signal, false);
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      if (!isPurchaseOrderLine(r.body)) return { kind: 'server-error' };
+      const shown = await rereadAfterLineWrite(w, deadline.signal);
+      return { kind: 'added', line: r.body, listStale: !shown };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Delete line (PO-5; X-4: a direct row action, no dialog; the `entryDelete` shape for the request). No body, no
+// Idempotency-Key: a repeat is refused W23 ("already archived"). A 204 is followed by the stamped re-read (order + lines, one
+// commit). P1 is `contention`. Any other 409, and a 404, are followed by the re-read too, and ANY good reading is committed
+// (a Delete keeps no typed choice, and a line already deleted elsewhere must leave the table); a reading that is no longer an
+// editable draft is named as Save's.
+export function lineDelete(w: OrderWiring): DeleteLineAction {
+  return async (line): Promise<DeleteLineResult> => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.lineDelete);
+    try {
+      const r = await w.caller.call('DeletePurchaseOrderLine', { id: w.id, lineId: line.id }, undefined, { signal: deadline.signal });
+      if (r.kind === 'ok') {
+        await rereadAfterLineWrite(w, deadline.signal);
+        return { kind: 'deleted' };
+      }
+      switch (r.kind) {
+        case 'refused':
+          if (r.rule === PLATFORM_REFUSAL.contention) return { kind: 'contention', message: r.message };
+          return afterLineRefusal(w, r, deadline.signal, true);
+        case 'not-found':
+          await rereadAfterLineWrite(w, deadline.signal);
+          return r;
+        case 'forbidden':
+        case 'session-ended':
+        case 'unreachable':
+        case 'server-error':
+          return r;
+        default:
+          return { kind: 'server-error' };
+      }
     } finally {
       deadline.cancel();
     }

@@ -70,6 +70,10 @@ export const ACTION_DEADLINES_MS = {
    * whether the page was stale).
    */
   orderSave: 30_000,
+  /** Add a line to a draft purchase order (PO-5): the request + the GetPurchaseOrder and lines re-read. */
+  lineCreate: 30_000,
+  /** Delete a draft purchase order's line (PO-5): the request + the GetPurchaseOrder and lines re-read. */
+  lineDelete: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

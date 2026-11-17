@@ -73,6 +73,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['purchase_order.create'],
     },
   },
+  CreatePurchaseOrderLine: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders/{id}/lines',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
+    },
+  },
   CreateRoleGrantProposal: {
     method: 'POST',
     template: '/api/v1/users/{id}/role-grant-proposals',
@@ -131,6 +141,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['inventory_item.delete'],
+    },
+  },
+  DeletePurchaseOrderLine: {
+    method: 'DELETE',
+    template: '/api/v1/purchase-orders/{id}/lines/{lineId}',
+    pathParams: ['id', 'lineId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
     },
   },
   DeleteStorageLocation: {
@@ -578,6 +598,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'PurchaseOrder.CreatePurchaseOrderInput': ['currency_code', 'expected_at', 'lines', 'supplier_id', 'warehouse_id'],
   'PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch': ['expected_at', 'supplier_id', 'warehouse_id'],
   PurchaseOrderLine: ['archived_at', 'id', 'inventory_item', 'line_number', 'quantity', 'quantity_outstanding', 'quantity_received', 'unit_cost'],
+  'PurchaseOrderLine.CreatePurchaseOrderLineInput': ['inventory_item_id', 'quantity', 'unit_cost'],
   'PurchaseOrderLine.inventory_item': ['id', 'name', 'sku'],
   Role: ['archived_at', 'description', 'holder_count', 'id', 'is_system', 'margin_exposure', 'name', 'permission_codes'],
   RoleConflict: ['role', 'sod_row'],

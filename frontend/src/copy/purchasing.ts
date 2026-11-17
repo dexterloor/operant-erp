@@ -7,7 +7,9 @@
 // (`NEW_PURCHASE_ORDER.*`), `newOrder`, `createOrder`, `noneYet` in its final form and `emptyDraft` in its PO-3 form. The
 // keys whose final form names a later action (`emptyDraft`'s approving, `draftNote`, `orderedNote`) stay in earlier forms.
 // PO-4a (row 4) adds Save on a draft's header: the editor's keys and `draftNote` / `supplierFixed` in their PO-4a forms.
-// The commit that ships each action replaces its key with the next form (R1a-1 rows 5–12).
+// PO-5 (row 5) adds Add line and Delete line: `ADD_LINE.*`, `DELETE_LINE.*` (`after` without the restore clause: Restore
+// line ships at PO-9), `ORDER_LINES.actions` / `emptyNote`; `ADD_LINE.archivedNote` is not here until BK-38.
+// The commit that ships each action replaces its key with the next form (R1a-1 rows 6–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
 
@@ -234,6 +236,73 @@ export const ORDER_LINES = {
   partial: (n: number) => `Only the first ${n} lines of this order are shown.`,
   /** `totalNote` (draft, under the table; R1-B REPLACES: names no action). */
   totalNote: 'The total is worked out from the lines.',
+  /** The draft columns' last header (UX B-4): only when Add line or Delete line is offered (PO-5). */
+  actions: 'Actions',
+  /**
+   * `emptyNote(supplier)` (R1-B, from PO-5): under `empty`, rendered exactly when Add line renders (final RED L-5: never
+   * gated on `purchase_order.edit` alone — a seat without the catalogue read gets no Add, so no note).
+   */
+  emptyNote: (supplier: string) => `Add what you're ordering, one item per line. Only items in ${supplier}'s catalogue can be added.`,
+} as const;
+
+/**
+ * UX R1-B `ADD_LINE` (PO-5; R1a-1 row 5; IA §4.1: an inline empty row at the bottom of the lines table; heading `NOT_ADDED`).
+ * The row's names carry *new line* (M-9; UX marks them I, FE-LEAD's tests make them unique). `archivedNote` is not here: it
+ * ships only once BK-38 lets the list omit archived items (until then an archived item's entry is offered and refused after
+ * the press with `itemUnavailable`, notice N-15).
+ */
+export const ADD_LINE = {
+  /** `rowName` (the row's name) · `itemName` · `quantityName` · `unitCostName` (accessible names). */
+  rowName: 'New line',
+  itemName: 'Item, new line',
+  quantityName: 'Quantity, new line',
+  unitCostName: 'Unit cost, new line',
+  /** `item` (visible label) · `itemPlaceholderOption` (no preselection) · `itemOption(sku, name)` (CONFIRMS). */
+  item: 'Item',
+  itemPlaceholderOption: 'Choose an item',
+  itemOption: (sku: string, name: string) => `${sku} — ${name}`,
+  /** `emptyCatalogue(supplier)` (L-7, passive) and its link (*Open {supplier}*, only for a GetSupplier holder). */
+  emptyCatalogue: (supplier: string) => `${supplier}'s catalogue lists no items, so no lines can be added yet. Items can be added to it on the supplier's page.`,
+  openSupplier: (supplier: string) => `Open ${supplier}`,
+  /**
+   * The row's own catalogue read failed (first render or its Retry). NOT a UX key: R1-B writes none (FE-LEAD's placeholder,
+   * in UX's `emptyCatalogue` / `loadFailed` shapes; UX TO CONFIRM).
+   */
+  catalogueLoadFailed: (supplier: string) => `${supplier}'s catalogue couldn't be loaded, so no line can be added yet.`,
+  /** `quantity` (visible label) · `quantityHint` (the chosen entry's unit beside the field). */
+  quantity: 'Quantity',
+  quantityHint: "In the item's unit. Use a point for decimals and no commas, for example 2.5.",
+  /**
+   * `unitCost(currency)` (the order's currency) · `unitCostHint`: the second sentence only under D-7's prefill (the chosen
+   * entry's currency is the order's); otherwise the first alone.
+   */
+  unitCost: (currency: string) => `Unit cost (${currency})`,
+  unitCostHint: (prefilled: boolean) =>
+    prefilled ? "What one of the item's units costs on this order. It starts at the supplier's catalogue cost; changing it here changes only this order." : "What one of the item's units costs on this order.",
+  /** Client refusals (no request). */
+  itemRequired: 'Choose an item for this line.',
+  quantityRequired: 'Enter a quantity greater than 0.',
+  costRequired: 'Enter the unit cost, or 0.',
+  submit: 'Add line',
+  after: (n: number, sku: string) => `Line ${n} added: ${sku}.`,
+  afterListStale: (n: number, sku: string) => `Line ${n} added: ${sku}. We couldn't load the lines again, so they may be out of date.`,
+  interrupted: (sku: string) => `We can't tell whether ${sku} was added. Check this order's lines before you try again.`,
+  /**
+   * `itemUnavailable` (final RED H-2; UX R1a-2 BE-P6, verbatim): beside Item for a 422 `unknown_reference` at
+   * `/inventory_item_id`, never the server's developer words. Deleted in the commit that merges BK-34 (BE-P6) back.
+   */
+  itemUnavailable: "This item is archived or isn't in this workspace, so it can't go on a purchase order.",
+} as const;
+
+/**
+ * UX R1-B `DELETE_LINE` (PO-5; X-4: a direct row action, no dialog; X-17: *Delete*; heading `NOT_DELETED`). `after` is the
+ * PO-5 form, without *" It can be restored from Deleted lines."*: Restore line and the Deleted lines view ship at PO-9.
+ */
+export const DELETE_LINE = {
+  action: 'Delete',
+  deleteName: (n: number) => `Delete line ${n}`,
+  after: (n: number, sku: string) => `Line ${n} (${sku}) was deleted.`,
+  interrupted: (n: number) => `We can't tell whether line ${n} was deleted. Check this order's lines before you try again.`,
 } as const;
 
 /** UX B-12 `PURCHASING_FORBIDDEN` (CONFIRMS R1-5): the label is read from `permissionLabels.ts` by the operation's code. */

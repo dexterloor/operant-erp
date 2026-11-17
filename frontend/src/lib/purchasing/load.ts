@@ -1,5 +1,5 @@
 import { isPurchaseOrderSegment, PURCHASE_ORDER_SEGMENTS, type ActorReference, type NamedReference, type PurchaseOrder, type PurchaseOrderLine, type PurchaseOrderSegment } from '../api/purchasing';
-import type { Supplier } from '../api/suppliers';
+import type { Supplier, SupplierProduct } from '../api/suppliers';
 import type { Warehouse } from '../api/warehouses';
 import { pageQuery, type PageRequest, type Read, type ReadFailure } from '../bff/reads';
 
@@ -156,4 +156,44 @@ export async function loadWarehouseChoices(read: Read, signal?: AbortSignal): Pr
   const items = body?.items;
   if (!Array.isArray(items) || !items.every(isWarehouseChoice)) return { kind: 'server-error' };
   return { kind: 'ok', warehouses: items.map(({ id, code, name }) => ({ id, code, name })) };
+}
+
+/**
+ * PO-5: one option of the new line row's Item select (purchase-orders-plan.md §2.3, Revision 0 §4 PO-5): the mirrored
+ * `SupplierProduct` less the three members the row never reads — never a hand-written projection — so C-1's check of
+ * `SupplierProduct` holds it (an `Omit`, not a `Pick`: the G-3 scan reads the item reference's member name as a typed
+ * resource key; a member added to `SupplierProduct` then fails the loader's projection below, at the typecheck). The item
+ * reference is the option's value and label (`{sku} — {name}`); the unit is shown beside Quantity; the cost and its currency
+ * decide D-7's prefill (only when the entry's currency is the order's).
+ */
+export type CatalogueChoice = Omit<SupplierProduct, 'supplier_sku' | 'lead_time_days' | 'minimum_order_quantity'>;
+export type CatalogueChoicesLoad = { readonly kind: 'ok'; readonly entries: CatalogueChoice[] } | { readonly kind: ReadFailure };
+
+const isCatalogueChoice = (x: unknown): x is CatalogueChoice =>
+  isObject(x) &&
+  typeof x.id === 'string' &&
+  isObject(x.inventory_item) &&
+  typeof x.inventory_item.id === 'string' &&
+  typeof x.inventory_item.sku === 'string' &&
+  typeof x.inventory_item.name === 'string' &&
+  // A decimal string, as served (QR-1); prefilled untrimmed (PO D-7).
+  typeof x.unit_cost === 'string' &&
+  typeof x.currency_code === 'string' &&
+  typeof x.unit_of_measure_code === 'string';
+
+/**
+ * `ListSupplierProducts` for the new line row's Item (plan Revision 0 §4 PO-5: `loadCatalogue`'s validation, re-implemented
+ * here over the contract's `SupplierProduct`, not imported — R9-4 stays withdrawn): the order's supplier's whole catalogue
+ * in one answer (G-42), in served order (supplier SKU). It sends the supplier id and nothing else. Each entry must carry the
+ * five chosen members; the members beyond them are not read, so they are not checked here. A non-null `next_cursor` is never
+ * served today; the row offers the entries it was given. Run over the server transport on first render, the browser one for
+ * the row's Retry and its re-read after L1 / H-2.
+ */
+export async function loadCatalogueChoices(read: Read, supplierId: string, signal?: AbortSignal): Promise<CatalogueChoicesLoad> {
+  const a = await read('ListSupplierProducts', { params: { id: supplierId }, signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown } | null;
+  const items = body?.items;
+  if (!Array.isArray(items) || !items.every(isCatalogueChoice)) return { kind: 'server-error' };
+  return { kind: 'ok', entries: items.map(({ id, inventory_item, unit_cost, currency_code, unit_of_measure_code }) => ({ id, inventory_item: { id: inventory_item.id, sku: inventory_item.sku, name: inventory_item.name }, unit_cost, currency_code, unit_of_measure_code })) };
 }

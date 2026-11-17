@@ -93,10 +93,12 @@ export function OrderHeaderForm({ order, warehouses: firstWarehouses, reloadWare
   const warehouseErrorRef = useRef<HTMLParagraphElement>(null);
   const gen = useRef(0);
 
-  // A new served order (the re-read after a save) is what the field now edits.
+  // A new served order is what the field now edits — but the choice follows it only when the SERVED warehouse changed (the
+  // own Save's re-read lands on the chosen one). A re-read after a line Add or Delete (PO-5) commits a new order object with
+  // the same warehouse and must not reset an unsaved choice (po-5-red.md M-1).
   if (loadedKey !== order) {
+    if (order.warehouse.id !== loadedKey.warehouse.id) setWarehouseId(order.warehouse.id);
     setLoadedKey(order);
-    setWarehouseId(order.warehouse.id);
   }
 
   // After the commit that renders the sentence or banner (focus never runs ahead of what it lands on).

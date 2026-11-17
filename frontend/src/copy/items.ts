@@ -159,7 +159,9 @@ export const NEW_ITEM = {
  * Cross-family copy import (judge ruling 2, bk31-placement-confirm.md FINAL (b); suppliers-plan.md §R1-3, derived at
  * Suppliers S-5): `components/suppliers/EntryForm.tsx` imports `unitSuffixSpoken` and `unitPerSpoken` from here (its
  * `EntryFields`, shared by the catalogue's Edit and Add dialogs), and `app/(app)/suppliers/[id]/CatalogueSection.tsx`
- * imports `unitLabel` (the Add dialog's choice list, and the unit clause after an Add). Nothing moves `UNIT_LABELS`.
+ * imports `unitLabel` (the Add dialog's choice list, and the unit clause after an Add). Purchase orders PO-5:
+ * `components/purchasing/AddLineRow.tsx` imports `unitSuffixSpoken` (the new line row's Quantity suffix, the R1-C rule).
+ * Nothing moves `UNIT_LABELS`.
  */
 export const UNIT_LABELS: Readonly<Record<string, { label: string; spoken: string; perSpoken: string }>> = {
   EA: { label: 'Each (EA)', spoken: 'each', perSpoken: 'each' },

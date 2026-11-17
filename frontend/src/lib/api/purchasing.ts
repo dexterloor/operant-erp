@@ -105,8 +105,29 @@ export interface UpdatePurchaseOrderInput {
 }
 
 /**
+ * `CreatePurchaseOrderLine`'s body (served `PurchaseOrderLine.CreatePurchaseOrderLineInput`; PO-5). The new line row sends
+ * exactly these three members: the chosen catalogue entry's item id, and the quantity and unit cost as typed (QR-1: strings,
+ * never numbers). No line number (the server mints it) and no lead time (snapshotted from the catalogue by the server).
+ */
+export interface CreatePurchaseOrderLineInput {
+  inventory_item_id: string;
+  quantity: string;
+  unit_cost: string;
+}
+
+/**
  * The purchase-order refusal rules the family branches on (UX D-2: a status refusal is matched by rule code, the page
  * re-reads and says what it found). `notDraft` (`PurchaseOrderWriter::refuseUnlessDraft`, P9): an edit of an order that
- * is no longer a draft. Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent; po-4a-red.md L-4).
+ * is no longer a draft. `notListed` (PO-5, plan L1, `PurchaseOrderWriter::insertLineInside`): the order's supplier has no
+ * catalogue entry for the item any more, so the new line row reads the catalogue again. Compared in
+ * `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent; po-4a-red.md L-4).
  */
-export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft' } as const;
+export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item' } as const;
+
+/**
+ * PO-5 (purchase-orders-final-red.md H-2): the one 422 violation the new line row does not render as served — an item that
+ * is archived or not in this workspace (`insertLineInside`'s `unknown_reference` at `/inventory_item_id`, W17/L2, whose
+ * served words are developer words until BK-34's BE-P6). The row shows UX's client sentence beside Item instead and reads
+ * the catalogue again. Matched on both members in `lib/purchasing/wired.ts`; deleted in the commit that merges BE-P6 back.
+ */
+export const ITEM_UNAVAILABLE = { pointer: '/inventory_item_id', code: 'unknown_reference' } as const;

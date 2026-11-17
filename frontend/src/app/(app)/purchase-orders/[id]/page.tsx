@@ -5,7 +5,7 @@ import { PURCHASE_ORDER_PAGE, PURCHASE_ORDERS_LIST } from '@/copy/purchasing';
 import { isRecordId } from '@/lib/bff/paths';
 import { serverRead } from '@/lib/bff/server/reads';
 import { viewerMay } from '@/lib/bff/surface';
-import { loadLines, loadPurchaseOrder, loadWarehouseChoices, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
+import { loadCatalogueChoices, loadLines, loadPurchaseOrder, loadWarehouseChoices, type CatalogueChoicesLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
 import { currentViewer, sessionEndedPath } from '../../currentViewer';
 import { PurchaseOrdersDenied } from '../PurchaseOrderStates';
 import { PurchaseOrderPage } from './PurchaseOrderPage';
@@ -21,6 +21,10 @@ import { PurchaseOrderPage } from './PurchaseOrderPage';
 // from PO-4a, the header editor on a live draft for a viewer holding UpdatePurchaseOrder's AND ListWarehouses' codes (its
 // one editable field is Deliver to, so without the warehouse read there is nothing to change). Its live warehouses are
 // read here, after the lines: 401 → the session-ended notice; any other failure (403 included) is the field's own state.
+// From PO-5, Add line on a live draft whose lines were read, for a viewer holding CreatePurchaseOrderLine's AND
+// ListSupplierProducts' codes (the new row chooses from the order's supplier's catalogue, so without that read there is
+// nothing to choose): the catalogue is read here, last; 401 → the session-ended notice; any other failure is the row's own
+// state. Delete line follows DeletePurchaseOrderLine's codes (the page offers it only on a live draft).
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -63,5 +67,11 @@ export default async function Page({ params }: Params) {
     if (warehouses.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
     edit = { warehouses };
   }
-  return <PurchaseOrderPage order={first.order} lines={lines} edit={edit} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
+  let add: { catalogue: CatalogueChoicesLoad } | null = null;
+  if (lines !== null && first.order.archived_at === null && first.order.status === 'draft' && viewerMay('CreatePurchaseOrderLine', codes) && viewerMay('ListSupplierProducts', codes)) {
+    const catalogue = await loadCatalogueChoices(serverRead(session), first.order.supplier.id);
+    if (catalogue.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
+    add = { catalogue };
+  }
+  return <PurchaseOrderPage order={first.order} lines={lines} edit={edit} add={add} canDeleteLine={viewerMay('DeletePurchaseOrderLine', codes)} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
 }
