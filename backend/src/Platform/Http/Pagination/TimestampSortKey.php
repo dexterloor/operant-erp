@@ -24,8 +24,9 @@ namespace App\Platform\Http\Pagination;
  * **Deliberately narrower than Postgres, never wider:** `24:00:00`, a leap second `:60`, more than six fraction digits,
  * a year outside 0001–9999 and `BC` are all valid Postgres input but are refused here. Postgres never RENDERS the first
  * three, so no real cursor carries them; the last two would need a stored instant outside 0001–9999 AD, which no
- * column of this product can hold today (a real cursor from such a row would be refused as malformed — a 422, not a 500
- * — and the shipped check refused the same).
+ * request can write (`Rfc3339Timestamp` refuses a year outside 0001–9999 as written and in UTC); owner SQL can still
+ * store one (measured 2026-11-18), and a cursor from such a row is refused as malformed, a 422, not a 500 (the shipped
+ * check refused the same).
  */
 final class TimestampSortKey
 {

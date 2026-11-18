@@ -409,7 +409,7 @@ final readonly class PurchaseOrderWriter
                             $values['warehouseId'],
                             $createdBy,
                             $currencyCode,
-                            $values['expectedAt'],
+                            self::storedInstant($values['expectedAt']),
                             $keyHash,
                             $digest,
                         ],
@@ -473,6 +473,11 @@ final readonly class PurchaseOrderWriter
     {
         $submitted = $input->submitted();
         $this->refuseMalformedOrderFields($submitted);
+
+        // G-105: bind the instant PHP parsed, never the text sent (see `storedInstant()`).
+        if (\array_key_exists('expectedAt', $submitted)) {
+            $submitted['expectedAt'] = self::storedInstant($submitted['expectedAt']);
+        }
 
         return $this->translatingConstraintFailures(fn (): PurchaseOrderResource => $this->tenants->run(
             $this->tenant->tenantId(),
@@ -1968,6 +1973,20 @@ final readonly class PurchaseOrderWriter
     private static function parseTimestamp(string $value): ?\DateTimeImmutable
     {
         return Rfc3339Timestamp::parse($value);
+    }
+
+    /**
+     * **G-105: the instant this request means, as it is bound to `expected_at`** — the one the validator, the retry digest
+     * and `ApprovePurchaseOrder` read, written in a form Postgres reads the same way (as `FulfilmentWriter` and
+     * `GoodsReceiptWriter` bind theirs). Binding the raw text instead let Postgres read it itself: a military zone letter
+     * was a 500 and `GMT+2` was stored four hours off (measured 2026-11-18). Called only after validation.
+     */
+    private static function storedInstant(?string $value): ?string
+    {
+        return null === $value
+            ? null
+            : (self::parseTimestamp($value) ?? throw new \LogicException('expected_at is validated before it is bound'))
+                ->format(\DateTimeInterface::RFC3339_EXTENDED);
     }
 
     private function refuseIfArchived(PurchaseOrderResource $order): void

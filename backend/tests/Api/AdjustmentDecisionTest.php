@@ -245,19 +245,20 @@ final class AdjustmentDecisionTest extends PurchaseOrderTestCase
 
     /**
      * A `decided_since` Postgres cannot hold is refused, never a 500 (shipped-defect fix, 2026-10-21): year 0000, and a
-     * year-1 instant that is year 0000 in UTC, each answered 500 until `Rfc3339Timestamp` refused them (measured). The
-     * last two are the edges that still pass.
+     * year-1 instant that is year 0000 in UTC, each answered 500 until `Rfc3339Timestamp` refused them (measured). Since
+     * G-105 (2026-11-18) a year past 9999 in UTC and a zone name are refused on the same rule. The last two are the
+     * edges that still pass.
      */
     #[Test]
     public function aDecidedSincePostgresCannotHoldIsRefusedNotA500(): void
     {
         $this->actAsRole(DefaultRoles::FINANCE);
-        foreach (['0000-06-01T00:00:00Z', '0001-01-01T00:00:00+01:00', '2026-01-01T00:00:00+16:00'] as $value) {
+        foreach (['0000-06-01T00:00:00Z', '0001-01-01T00:00:00+01:00', '2026-01-01T00:00:00+16:00', '9999-12-31T23:59:59-15:59', '2026-10-01T00:00:00UTC'] as $value) {
             $this->send('GET', '/sales-returns?adjustment_decided=same&decided_since='.rawurlencode($value));
             self::assertSame(422, $this->httpStatus(), $value.' was not refused.');
             self::assertSame(['?decided_since', 'not_a_timestamp'], [$this->json()['errors'][0]['pointer'], $this->json()['errors'][0]['code']], $value);
         }
-        foreach (['0001-01-01T00:00:00Z', '9999-12-31T23:59:59-15:59'] as $value) {
+        foreach (['0001-01-01T00:00:00Z', '9999-12-31T23:59:59Z'] as $value) {
             $this->send('GET', '/sales-returns?adjustment_decided=same&decided_since='.rawurlencode($value));
             self::assertSame(200, $this->httpStatus(), $value.' was refused.');
         }
