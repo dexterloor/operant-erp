@@ -572,7 +572,8 @@ export function lineRestore(w: OrderWiring): RestoreLineAction {
           const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
           if (again.kind !== 'ok') {
             w.onRereadFailed(again.kind, s, sent);
-            return done(r.rule === PURCHASE_ORDER_REFUSAL.notDraft ? { kind: 'changed-since-loaded' } : r);
+            // po-9-red.md N-3: W24 says the line is live whatever the re-read returned (R1-17: its words are never shown).
+            return done(r.rule === PURCHASE_ORDER_REFUSAL.notDraft ? { kind: 'changed-since-loaded' } : r.rule === PURCHASE_ORDER_REFUSAL.lineNotArchived ? { kind: 'already-restored' } : r);
           }
           const lines = await linesFor(w, again.order, deadline.signal);
           await w.setOrder(again.order, lines, s, sent, await deletedFor(w, again.order, deadline.signal));

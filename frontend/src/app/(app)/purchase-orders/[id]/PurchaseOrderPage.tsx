@@ -307,15 +307,10 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
       if (committedEditable.current) setStaleRefusal(null);
       const next = order.archived_at !== null ? null : lines !== null ? { gen: ++linesReads.current, value: lines } : committedLines.current;
       committedLines.current = next;
-      // PO-9: the deleted lines read with this reading replace what is shown, in the same commit; unread, they are kept —
-      // less any line this reading shows live (po-9-red.md M-1 (a): a line is never shown both live and deleted).
-      const kept = committedDeleted.current;
-      const liveIds = lines?.kind === 'ok' ? new Set(lines.lines.map((l) => l.id)) : null;
-      const keptPruned =
-        kept !== null && kept.value.kind === 'ok' && liveIds !== null && kept.value.lines.some((l) => liveIds.has(l.id))
-          ? { gen: ++deletedReads.current, value: { ...kept.value, lines: kept.value.lines.filter((l) => !liveIds.has(l.id)) } }
-          : kept;
-      const nextDeleted = order.archived_at !== null ? null : deleted !== undefined ? { gen: ++deletedReads.current, value: deleted } : keptPruned;
+      // PO-9: the deleted lines read with this reading replace what is shown, in the same commit; unread, they are kept. A line
+      // is never drawn both live and deleted (po-9-red.md M-1 (a), N-1, N-2): `LinesSection` holds that rule, where the list is
+      // drawn, over every source (this commit, a kept reading, its own Retry).
+      const nextDeleted = order.archived_at !== null ? null : deleted !== undefined ? { gen: ++deletedReads.current, value: deleted } : committedDeleted.current;
       committedDeleted.current = nextDeleted;
       await setShown({ order, lines: next, deleted: nextDeleted });
     },

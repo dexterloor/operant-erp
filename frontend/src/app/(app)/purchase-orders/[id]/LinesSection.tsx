@@ -334,10 +334,10 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
         show(NOT_RESTORED, PAGE_STATES.notFoundInline);
         return;
       case 'unreachable':
-        show(COULD_NOT_REACH, RESTORE_LINE.interrupted(l.line_number));
+        show(COULD_NOT_REACH, RESTORE_LINE.interrupted(l.line_number, l.inventory_item.sku));
         return;
       case 'server-error':
-        show(WENT_WRONG, RESTORE_LINE.interrupted(l.line_number));
+        show(WENT_WRONG, RESTORE_LINE.interrupted(l.line_number, l.inventory_item.sku));
         return;
       case 'session-ended':
         return;
@@ -376,6 +376,11 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
   const deletedGen = deleted?.lines.gen ?? null;
   const ownDeletedRetry = deleted !== null && deletedRetried !== null && deletedRetried.from === deletedGen ? deletedRetried : null;
   const dv = deleted === null ? null : ownDeletedRetry !== null ? ownDeletedRetry.value : deleted.lines.value;
+  // po-9-red.md M-1 (a), N-1, N-2 — the one home of the rule: a line the live table shows is never drawn under Deleted lines,
+  // whichever reading the deleted list came from (a commit that read none, a reading whose two GETs another tab split, or this
+  // subsection's own Retry). A live list that failed to load hides nothing.
+  const liveIds = new Set(ok?.lines.map((l) => l.id) ?? []);
+  const deletedRows = dv !== null && dv.kind === 'ok' ? dv.lines.filter((l) => !liveIds.has(l.id)) : [];
   return (
     <section aria-labelledby={headingId}>
       <h2 id={headingId} ref={heading} tabIndex={-1}>
@@ -452,7 +457,7 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
           <p className={listStyles.muted}>{ORDER_LINES.deletedLinesNote}</p>
           {dv.kind !== 'ok' ? (
             <RegionError key={`deleted-${deletedGen}-${ownDeletedRetry?.gen ?? 0}`} heading={dv.kind === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={ORDER_LINES.deletedLinesLoadFailed} retrying={retryingDeleted} onRetry={() => void retryDeleted()} autoFocus={ownDeletedRetry !== null} />
-          ) : dv.lines.length === 0 ? (
+          ) : deletedRows.length === 0 ? (
             <p>{ORDER_LINES.deletedLinesEmpty}</p>
           ) : (
             <table className={listStyles.table} aria-labelledby={deletedHeadingId}>
@@ -466,7 +471,7 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
                 </tr>
               </thead>
               <tbody>
-                {dv.lines.map((l) => {
+                {deletedRows.map((l) => {
                   const item = ORDER_LINES.itemCell(l.inventory_item.sku, l.inventory_item.name);
                   return (
                     <tr key={l.id} className={listStyles.struck}>

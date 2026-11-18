@@ -210,7 +210,7 @@ describe('/purchase-orders/[id] — Restore line (PO-9; no dialog)', () => {
     expect(screen.queryByRole('button', { name: /^Restore line/ })).toBeNull();
   });
 
-  it('a 403 names "Edit draft purchase orders"; offline says "We can’t tell whether line 3 was restored. Press Restore to try again." and keeps the button', async () => {
+  it('a 403 names "Edit draft purchase orders"; offline says "We can’t tell whether line 3 (SKU-3) was restored. Press Restore to try again." and keeps the button', async () => {
     stubFetch([problem(403, 'permission-denied')]);
     const u = userEvent.setup();
     const a = show();
@@ -222,7 +222,7 @@ describe('/purchase-orders/[id] — Restore line (PO-9; no dialog)', () => {
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('offline'))));
     show();
     await u.click(restore(3));
-    await waitFor(() => expect(screen.getByText("We can't tell whether line 3 was restored. Press Restore to try again.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("We can't tell whether line 3 (SKU-3) was restored. Press Restore to try again.")).toBeInTheDocument());
     expect(restore(3)).toBeInTheDocument();
     expect(document.activeElement).not.toBe(document.body);
   });
@@ -267,6 +267,15 @@ describe('/purchase-orders/[id] — Restore line (PO-9; no dialog)', () => {
 
   it('po-9-red.md L-1: W24 whose lines re-read failed still says "already restored", never the server’s W24', async () => {
     stubFetch([refused('purchase_order_line.is_not_archived', W24), json(200, DRAFT), json(500, {}), json(200, page([gone(4)]))]);
+    const u = userEvent.setup();
+    show();
+    await u.click(restore(3));
+    await waitFor(() => expect(region()).toHaveTextContent('Line 3 (SKU-3) was already restored.'));
+    expect(document.body.textContent).not.toContain(W24);
+  });
+
+  it('po-9-red.md N-3 (PLANT-6): W24 whose ORDER re-read failed still says "already restored", never the server’s W24', async () => {
+    stubFetch([refused('purchase_order_line.is_not_archived', W24), json(500, {})]);
     const u = userEvent.setup();
     show();
     await u.click(restore(3));
@@ -410,6 +419,32 @@ describe('/purchase-orders/[id] — Deleted lines stays true across the page’s
     stubFetch([json(201, NEW), json(200, DRAFT), json(200, page([line(1), line(2), line(3), NEW]))]);
     const u = userEvent.setup();
     show();
+    await u.selectOptions(screen.getByRole('combobox', { name: 'Item, new line' }), E8.inventory_item.id);
+    await u.type(screen.getByRole('textbox', { name: 'Quantity, new line' }), '1');
+    await u.click(screen.getByRole('button', { name: 'Add line' }));
+    await waitFor(() => expect(region()).toHaveTextContent('Line 5 added: FLOUR-8.'));
+    expect(liveNumbers()).toEqual(['1', '2', '3', '5']);
+    expect(deletedNumbers()).toEqual(['4']);
+  });
+
+  it('po-9-red.md N-1 (PLANT-7): a reading whose two GETs disagree (another tab deleted line 3 between them) never shows line 3 in both lists', async () => {
+    stubFetch([json(200, { ...DRAFT, warehouse: { id: W2.id, name: W2.name } }), json(200, DRAFT), json(200, page([line(1), line(2), line(3)])), json(200, page([gone(3), gone(4)]))]);
+    const u = userEvent.setup();
+    show({ edit: EDIT });
+    await u.selectOptions(deliverTo(), W2.id);
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(region()).toHaveTextContent('PO-000001 was saved.'));
+    expect(liveNumbers()).toEqual(['1', '2', '3']);
+    expect(deletedNumbers()).toEqual(['4']);
+  });
+
+  it('po-9-red.md N-2: the subsection’s own Retry answer is held to the same rule — an Add showing line 3 live takes it out of Deleted lines', async () => {
+    const NEW = line(5, { inventory_item: E8.inventory_item });
+    stubFetch([json(200, page([gone(3), gone(4)])), json(201, NEW), json(200, DRAFT), json(200, page([line(1), line(2), line(3), NEW]))]);
+    const u = userEvent.setup();
+    show({ deletedLines: { kind: 'server-error' } });
+    await u.click(within(deletedHeading().parentElement!).getByRole('button', { name: /Try again|Retry/ }));
+    await waitFor(() => expect(deletedNumbers()).toEqual(['3', '4']));
     await u.selectOptions(screen.getByRole('combobox', { name: 'Item, new line' }), E8.inventory_item.id);
     await u.type(screen.getByRole('textbox', { name: 'Quantity, new line' }), '1');
     await u.click(screen.getByRole('button', { name: 'Add line' }));

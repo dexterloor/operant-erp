@@ -430,7 +430,8 @@ export const RESTORE_LINE = {
    */
   afterListStale: (n: number, sku: string) => `Line ${n} (${sku}) was restored. We couldn't load this order again, so its lines and total may be out of date.`,
   alreadyRestored: (n: number, sku: string) => `Line ${n} (${sku}) was already restored.`,
-  interrupted: (n: number) => `We can't tell whether line ${n} was restored. Press Restore to try again.`,
+  /** po-9-red.md N-4: with the SKU, as `after` (M-3). PLACEHOLDER form of UX's key: UX TO CONFIRM. */
+  interrupted: (n: number, sku: string) => `We can't tell whether line ${n} (${sku}) was restored. Press Restore to try again.`,
 } as const;
 
 /** UX B-12 `PURCHASING_FORBIDDEN` (CONFIRMS R1-5): the label is read from `permissionLabels.ts` by the operation's code. */
