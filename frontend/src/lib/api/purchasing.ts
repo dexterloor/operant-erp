@@ -39,7 +39,7 @@ export interface PurchaseOrder {
   archived_at: string | null;
 }
 
-/** `PurchaseOrderLine.inventory_item` (served inline, no component): the item's id, SKU and name. No unit (BK-33). */
+/** `PurchaseOrderLine.inventory_item` (served inline, no component): the item's id, SKU and name. No unit here: the line carries it (BK-33). */
 export interface PurchaseOrderItemReference {
   id: string;
   sku: string;
@@ -64,8 +64,8 @@ export interface PurchaseOrderLine {
   /**
    * The line's unit, which its three quantities are in and `unit_cost` is the price of one of (BK-33, `bc5a4a2`; one of the
    * served `UnitsOfMeasure` codes, never null; the item's current unit, which cannot change once a line names the item —
-   * BK-24). Mirrored at the merge of `bc5a4a2`; nothing reads it yet: the interim *item's unit* headings give way to it
-   * at PO-4b (final RED L-11). Take it from the 201 or the List, never from an earlier read. Never sent.
+   * BK-24). From PO-4b (final RED L-11; po-4b-ux-unit.md) the order page's Unit column and each edit box's suffix read it
+   * from the same served line as the row's numbers: the List, or a line Save's 200 body (never an earlier read). Never sent.
    */
   unit_of_measure_code: string;
 }
@@ -91,8 +91,8 @@ export interface GoodsReceiptLocationReference {
 /**
  * One line of a goods receipt (served inline in `GoodsReceipt.lines`). `quantity` is a decimal string (scale 6, rendered by
  * `lib/format/quantity.ts`), never a number. The item reference is the order line's `{id, sku, name}` shape (no unit on
- * it, owner Q-A); the line's own `unit_of_measure_code` is served since BK-33 (`bc5a4a2`), but until GR-2 a quantity heading
- * still carries the interim *item's unit* (QR-8). No cost is served on a receipt.
+ * it, owner Q-A); the line's own `unit_of_measure_code` is served since BK-33 (`bc5a4a2`), and from PO-4b the receipt page's
+ * Unit column reads it (final RED L-11; po-4b-ux-unit.md). No cost is served on a receipt.
  */
 export interface GoodsReceiptLine {
   id: string;
@@ -172,6 +172,16 @@ export interface CreatePurchaseOrderLineInput {
 }
 
 /**
+ * `UpdatePurchaseOrderLine`'s body (served `PurchaseOrderLine.UpdatePurchaseOrderLineInput.jsonMergePatch`; PO-4b). A line's
+ * row sends exactly its changed members, as typed (QR-1: strings, never numbers); an untouched one is never sent. The item
+ * and the unit are not in it: a different item is a new line (Delete line + Add line), and a line's unit is its item's.
+ */
+export interface UpdatePurchaseOrderLineInput {
+  quantity?: string;
+  unit_cost?: string;
+}
+
+/**
  * `CancelPurchaseOrder`'s body (served `PurchaseOrder.CancelPurchaseOrderInput`; PO-7; the body is required). The reason
  * dialog sends `{}` when the Reason box is empty and `{ reason }` exactly as typed otherwise (the server trims, and a blank
  * reason is none there: `PurchaseOrderCancellation::reason()`). `null` is never sent. No length is served (SEC's cap, plan
@@ -198,10 +208,12 @@ export interface ApprovePurchaseOrderInput {
  * C2): `PurchaseOrder::cancel()`'s status guard (`IllegalTransition::RULE` on the `purchase_order` table) — cancelled or
  * received in full elsewhere; from PO-8 also `place()`'s (plan A2: approved, or cancelled, elsewhere). `approverIsCreator`
  * (PO-8, plan A1, `PurchaseOrderDutySeparation`): DSoD-1 on Approve, checked by the server before the status guard, so the
- * page re-reads after it too (po-8-red.md L-1). Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent;
+ * page re-reads after it too (po-8-red.md L-1). `lineArchived` (PO-4b, po-4b-red.md L-4: `PurchaseOrderWriter::updateLine`'s
+ * refusal for a deleted line): a line Save refused with it whose re-read shows the line live again says UX D-2's changed-since
+ * sentence, never "archived" over a live row. Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent;
  * po-4a-red.md L-4).
  */
-export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item', illegalTransition: 'purchase_order.status_transition_is_legal', approverIsCreator: 'purchase_order.approver_is_not_the_creator', lineNotArchived: 'purchase_order_line.is_not_archived' } as const;
+export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item', illegalTransition: 'purchase_order.status_transition_is_legal', approverIsCreator: 'purchase_order.approver_is_not_the_creator', lineNotArchived: 'purchase_order_line.is_not_archived', lineArchived: 'purchase_order_line.is_archived' } as const;
 
 /**
  * PO-5 (purchase-orders-final-red.md H-2): the one 422 violation the new line row does not render as served — an item that

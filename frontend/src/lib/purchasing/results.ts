@@ -1,7 +1,7 @@
 // Typed results of the purchase-order page's injected actions (Revision 7 A-19 item 5, Revision 8 R8-2), on the shared
 // kinds in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, PurchaseOrder, PurchaseOrderLine, UpdatePurchaseOrderInput } from '../api/purchasing';
+import type { CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, PurchaseOrder, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '../api/purchasing';
 import type { Contention, FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -123,6 +123,40 @@ export type AddLineAction = (values: AddLineValues) => Promise<AddLineResult>;
 export type DeleteLineResult = { kind: 'deleted' } | StaleLineWrite | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
 
 export type DeleteLineAction = (line: PurchaseOrderLine) => Promise<DeleteLineResult>;
+
+/**
+ * PO-4b: a line row's two fields, in screen order (the first field with a sentence takes focus). A name the mirrored input
+ * lacks is a type error.
+ */
+export const EDIT_LINE_FIELDS = ['quantity', 'unit_cost'] as const satisfies readonly (keyof UpdatePurchaseOrderLineInput & string)[];
+export type EditLineField = (typeof EDIT_LINE_FIELDS)[number];
+/** What a line row hands to Save: only the changed members, as typed. */
+export type LineChange = Partial<Pick<UpdatePurchaseOrderLineInput, EditLineField>>;
+
+/**
+ * `PATCH /purchase-orders/{id}/lines/{lineId}` (PO-4b; no Idempotency-Key: a merge patch). `saved` carries the 200 body and
+ * resolves after the header-only re-read (M-9: the order, never the lines list while it is still an editable draft) is
+ * committed, or after the page was told it failed (`orderStale`); `asOf` is the stamp taken when the 200 arrived, so the row
+ * shows the body until a lines reading requested after it is on screen. `invalid` a 422 mapped onto the row. `gone`: the
+ * line is no longer live (deleted elsewhere: 409 `purchase_order_line.is_archived`, its sentence as sent; a 404: `message`
+ * empty), after a re-read of the order and its lines was committed, so the row has left. The stale kinds as Save's.
+ * `contention` P1; `refused` any other 409 as sent, the row kept. `sentAsOf`: the stamp taken when the PATCH was sent (the
+ * page's own-outcome floors).
+ */
+export type SaveLineResult =
+  | { kind: 'saved'; line: PurchaseOrderLine; asOf: number; orderStale: boolean }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<EditLineField>; formErrors: string[] }
+  | { kind: 'gone'; message: string }
+  | StaleLineWrite
+  | Contention
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type SaveLineAction = (line: PurchaseOrderLine, changes: LineChange) => Promise<{ result: SaveLineResult; sentAsOf: number }>;
 
 /**
  * `POST /purchase-orders/{id}/lines/{lineId}/restoration` (PO-9; no body, no key: a repeat is refused W24). `restored`

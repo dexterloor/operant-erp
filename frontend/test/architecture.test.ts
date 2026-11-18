@@ -278,7 +278,8 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
   // Purchase orders PO-7 (plan §2.2 "Stale page", C2 → re-read): the status guard's rule, compared in lib/purchasing/wired.ts.
   // Purchase orders PO-8 (po-8-red.md L-1, A1 → re-read): DSoD-1's Approve rule, compared in lib/purchasing/wired.ts.
   // Purchase orders PO-9 (po-9-red.md L-1, W24 → already restored): the line restore's not-archived rule, compared in lib/purchasing/wired.ts.
-  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived'],
+  // Purchase orders PO-4b (po-4b-red.md L-4): the line update's archived-line rule, compared in lib/purchasing/wired.ts.
+  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived', 'purchase_order_line.is_archived'],
 };
 
 /** The code-shaped literals a home's top-level declarations hold (the ones `literalViolations` exempts there). */
@@ -371,7 +372,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-5 added: components/purchasing/AddLineRow.tsx (the lines table's new line row, plan §3).
   // Purchase orders PO-7 added: components/purchasing/CancelOrderDialog.tsx (Cancel order's reason dialog, plan §3).
   // Purchase orders PO-8 added: components/purchasing/PlaceOrderDialog.tsx (Approve's confirm dialog, plan §3).
-  'src/components': 72,
+  // Purchase orders PO-4b added: components/purchasing/EditLineRow.tsx (a live line's edit row, R10-6).
+  'src/components': 73,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
   // Purchase orders PO-1 added: lib/api/purchasing.ts.
   'src/lib/api': 10,
@@ -400,7 +402,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-5 added: AddLineRow.tsx (the lines table's new line row).
   // Purchase orders PO-7 added: CancelOrderDialog.tsx (Cancel order's reason dialog).
   // Purchase orders PO-8 added: PlaceOrderDialog.tsx (Approve's confirm dialog).
-  'src/components/purchasing': 5,
+  // Purchase orders PO-4b added: EditLineRow.tsx (a live line's edit row, R10-6).
+  'src/components/purchasing': 6,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -1433,6 +1436,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       // Purchase orders PO-5 (G-F2 row; plan M-9's form-attribute mechanism): the new line row's form, in its last cell;
       // the row's fields join it with the `form` attribute, which this guard does not forbid.
       'src/components/purchasing/AddLineRow.tsx',
+      // Purchase orders PO-4b (G-F2 row; R10-6): each live line's edit row's form, in its last cell, as Add line's.
+      'src/components/purchasing/EditLineRow.tsx',
       // Purchase orders PO-3 (G-F2 row): the create page's form (its supplier dialog is a sibling after it, never in it).
       'src/components/purchasing/NewOrderForm.tsx',
       // Purchase orders PO-4a (G-F2 row): the draft header's editor.

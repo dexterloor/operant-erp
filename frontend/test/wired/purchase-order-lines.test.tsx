@@ -101,7 +101,10 @@ describe('/purchase-orders/[id] — the new line row (PO-5 Add line)', () => {
     expect(quantity()).toHaveAccessibleDescription('In the item\'s unit. Use a point for decimals and no commas, for example 2.5.');
     expect(addLine()).toBeInTheDocument();
     // The draft columns gain Actions (UX B-4: only with purchase_order.edit's actions).
-    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Line', 'Item', "Quantity (item's unit)", 'Unit cost (GBP)', 'Actions']);
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Line', 'Item', 'Quantity', 'Unit', 'Unit cost (GBP)', 'Actions']);
+    // PO-4b (po-4b-ux-unit.md §2): the new row's Unit cell is empty until an item is chosen; no cost suffix yet.
+    expect(newRow().querySelectorAll('td')[3]!.textContent).toBe('');
+    expect(unitCost()).not.toHaveAttribute('aria-describedby', expect.stringContaining('suffix'));
   });
 
   it('the row is a form-attribute form: its fields belong to the form that holds Add line, and Enter in Quantity sends that row', async () => {
@@ -125,11 +128,14 @@ describe('/purchase-orders/[id] — the new line row (PO-5 Add line)', () => {
     expect(quantity().parentElement!.querySelector('[aria-hidden="true"]')?.textContent).toBe('KG');
     expect(quantity()).toHaveAccessibleDescription(expect.stringMatching(/^kilograms\. In the item's unit\./));
     expect(unitCost()).toHaveValue('3.2500');
-    expect(unitCost()).toHaveAccessibleDescription("What one of the item's units costs on this order. It starts at the supplier's catalogue cost; changing it here changes only this order.");
+    // PO-4b: the Unit cell shows the chosen entry's code, and Unit cost carries `per {code}` (read "per kilogram.").
+    expect(newRow().querySelectorAll('td')[3]!.textContent).toBe('KG');
+    expect(unitCost().parentElement!.querySelector('[aria-hidden="true"]')?.textContent).toBe('per KG');
+    expect(unitCost()).toHaveAccessibleDescription("per kilogram. What one of the item's units costs on this order. It starts at the supplier's catalogue cost; changing it here changes only this order.");
     await u.selectOptions(item(), E9.inventory_item.id);
     expect(quantity().parentElement!.querySelector('[aria-hidden="true"]')?.textContent).toBe('BOX');
     expect(unitCost()).toHaveValue('');
-    expect(unitCost()).toHaveAccessibleDescription("What one of the item's units costs on this order.");
+    expect(unitCost()).toHaveAccessibleDescription("per box. What one of the item's units costs on this order.");
   });
 
   it('nothing is sent without an item (only the item’s sentence, focused), nor with an empty quantity or cost', async () => {

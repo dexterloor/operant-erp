@@ -6,9 +6,9 @@ import Link from 'next/link';
 import { RegionError } from '@/components/states/PageStates';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
-import { COULD_NOT_REACH, NOT_DELETED, NOT_RESTORED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, NOT_DELETED, NOT_RESTORED, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
-import { DELETE_LINE, ORDER_LINES, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RESTORE_LINE } from '@/copy/purchasing';
+import { DELETE_LINE, EDIT_LINE, ORDER_LINES, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RESTORE_LINE } from '@/copy/purchasing';
 import { PAGE_STATES } from '@/copy/shell';
 import type { PurchaseOrderLine } from '@/lib/api/purchasing';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
@@ -17,7 +17,8 @@ import { gateCode } from '@/lib/bff/surface';
 import { renderMoney } from '@/lib/format/money';
 import { renderQuantity } from '@/lib/format/quantity';
 import { loadDeletedLines, loadLines, type LinesLoad } from '@/lib/purchasing/load';
-import type { DeleteLineAction, DeleteLineResult, RestoreLineAction, RestoreLineResult } from '@/lib/purchasing/results';
+import type { DeleteLineAction, DeleteLineResult, LineChange, RestoreLineAction, RestoreLineResult, SaveLineAction } from '@/lib/purchasing/results';
+import { EditLineRow } from '@/components/purchasing/EditLineRow';
 import { focusWasLost } from '../../ArchivableList';
 import { useApiCaller } from '../../BffProvider';
 import listStyles from '../../Lists.module.css';
@@ -32,7 +33,7 @@ export interface LinesSectionProps {
    * generation replaces what is shown, and the section's own Retry answer is shown only while it belongs to the
    * generation it was pressed under.
    */
-  lines: { gen: number; value: LinesLoad };
+  lines: { gen: number; value: LinesLoad; asOf: number };
   /** The order's served status: it decides the columns and the empty sentence (IA L-5; UX B-4). */
   status: string;
   /** The order's currency: the Unit cost heading's and every cost cell's (`renderMoney`). */
@@ -59,8 +60,9 @@ export interface LinesSectionProps {
    */
   onRefusedStale?: (message: string) => void;
   /**
-   * One line write at a time across the section (po-5-red.md L-3): `begin()` is false while another Add or Delete is in
-   * flight, and the press then sends nothing; `end()` after its answer. The rule's one home (two Deletes included): the page.
+   * One line write at a time across the page (po-5-red.md L-3): `begin()` is false while another Add, Delete, Restore line
+   * or line Save is in flight, and the press then sends nothing; `end()` after its answer. The rule's ONE home: the page's
+   * synchronous ref (po-5-red-2.md D-18, closed at PO-4b — no per-control `busy` guard beside it).
    */
   lineWrites: { begin: () => boolean; end: () => void };
   /**
@@ -71,6 +73,25 @@ export interface LinesSectionProps {
    * answered after the Restore was sent — its answer then says, shows and focuses nothing. `onRefusedStale`: a refused
    * Restore whose re-read found the order no longer an editable draft (the page's banner, **Not restored**).
    */
+  /**
+   * PO-4b Edit line, or null: each live row becomes `components/purchasing/EditLineRow` (keyed by line id, so typed text
+   * survives every re-read, final RED M-6). Given only on a live draft to an UpdatePurchaseOrderLine holder (the page's rule,
+   * not re-checked here). `onRefusedStale`: a refused Save whose re-read found the order no longer an editable draft (the
+   * page's banner, **Not saved**); `ownOutcomeAfter` as `deleted`'s.
+   */
+  edit?: {
+    save: SaveLineAction;
+    editCode: string | null;
+    onRefusedStale: (message: string, sentAsOf: number) => void;
+    ownOutcomeAfter: (sentAsOf: number) => boolean;
+    /** po-4b-red.md H-1: a row's unsaved-change fact (the page's Approve reason). */
+    onDirtyChange: (lineId: string, dirty: boolean) => void;
+    /**
+     * po-4b-red.md S-2: typed text is held while the lines are a failed reading (no row is drawn, so no row reports it):
+     * the section's own fact, `false` on unmount. Conservative — nothing is served to compare it with until Retry.
+     */
+    onHiddenDirtyChange: (hidden: boolean) => void;
+  } | null;
   deleted?: {
     lines: { gen: number; value: LinesLoad };
     restore: RestoreLineAction;
@@ -89,14 +110,16 @@ interface Notice {
 }
 
 type Q = 'quantity' | 'ordered' | 'received' | 'rest';
+const NOTHING_TYPED: LineChange = {};
 
 /**
  * The order's lines (purchase-orders-plan.md §2.2 "Lines (read)", §4 PO-1; UX B-4 / R1-B `ORDER_LINES`; the S-3
  * catalogue's plain-section shape, suppliers ARCH (a)): one table over the served LIVE lines in served order (line
  * number), read-only at PO-1. Columns: a draft — Line · Item · Quantity · Unit cost ({currency}); an ordered, partly
  * received or received order — Line · Item · Ordered · Received · Still to come · Unit cost; a cancelled one — the same,
- * with *Never received* for the served remainder (D-3: relabelled, the same served number, never recomputed). Every
- * quantity heading carries the interim *"(item's unit)"* until BK-33 serves the line's unit (QR-8); quantities are QR-2
+ * with *Never received* for the served remainder (D-3: relabelled, the same served number, never recomputed). From PO-4b
+ * (final RED L-11; po-4b-ux-unit.md) every table here — Deleted lines included — has a **Unit** column after the last
+ * quantity, its cell the line's own served code, and the quantity headings are bare (QR-8); quantities are QR-2
  * trimmed by `renderQuantity`, costs rendered by `renderMoney` in the order's currency. The item cell is
  * `{sku} — {name}`, linked only for a GetItem holder.
  *
@@ -128,8 +151,15 @@ type Q = 'quantity' | 'ordered' | 'received' | 'rest';
  * restored** above the table, focused (L8's sentence as sent; the row and its Restore stay), the stale ones on the page's
  * banner. An answer to a Restore sent before the person's own Delete purchase order, Cancel order or Approve outcome says,
  * shows and focuses nothing (`ownOutcomeAfter`). A failed deleted-lines read is the subsection's own region error with Retry.
+ *
+ * PO-4b (plan R1-5 PO-4b; final RED M-6; UX R1a-1 row 10): for `edit`, each live row is `components/purchasing/EditLineRow`,
+ * keyed by line id — so every re-read of the lines (Add, Delete, Restore line, a Save of the header, a Retry, another tab's
+ * changes) keeps each surviving row's typed text, a row the re-read removed drops its text, and a new row starts at its served
+ * values. A line Save is one of the line writes (`lineWrites`). A Save whose line is no longer live says why here, under **Not
+ * saved**, focused (the row has left with the re-read). *"To order a different item, delete this line and add a new one."*
+ * shows under the table only while Edit, Delete and Add are all offered.
  */
-export function LinesSection({ orderId, orderNumber, lines, status, currency, canOpenItem, announce, headingRef, add = null, remove = null, deleteCode = null, onRefusedStale, lineWrites, deleted = null }: LinesSectionProps) {
+export function LinesSection({ orderId, orderNumber, lines, status, currency, canOpenItem, announce, headingRef, add = null, remove = null, deleteCode = null, onRefusedStale, lineWrites, edit = null, deleted = null }: LinesSectionProps) {
   const caller = useApiCaller();
   const headingId = useId();
   const ownHeading = useRef<HTMLHeadingElement>(null);
@@ -153,6 +183,12 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
     deletedShown.current = deleted !== null;
   }, [deleted]);
   const [notice, setNotice] = useState<Notice | null>(null);
+  // po-4b-red.md M-1: each live row's typed text, keyed by line id, held here (not in the row) so that a failed reading of the
+  // lines — which shows the region error and unmounts every row — drops none of it. An entry goes only when an OK reading (a
+  // page commit or this section's own Retry) no longer lists its line (final RED M-6: "a row the re-read removed drops its
+  // text"); `saved` clears the fields it sent, as before.
+  const [typedById, setTypedById] = useState<ReadonlyMap<string, LineChange>>(() => new Map());
+  const [prunedFor, setPrunedFor] = useState<LinesLoad | null>(null);
   const noticeRef = useRef<HTMLHeadingElement>(null);
   const noticeGen = useRef(0);
   // The lines generation on screen, read after an awaited write (the write's own re-read may have committed a newer one).
@@ -173,8 +209,9 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
   const quantityOf = (l: PurchaseOrderLine, k: Q) => renderQuantity(k === 'received' ? l.quantity_received : k === 'rest' ? l.quantity_outstanding : l.quantity);
   // The page decides where Add and Delete are offered (a live draft only); this section never re-checks it, so the one rule
   // has one home (a second copy here masked the page's: mutation M29 stayed green with both).
-  const actions = add !== null || remove !== null;
-  const columns = 2 + quantities.length + 1 + (actions ? 1 : 0);
+  const actions = add !== null || remove !== null || edit !== null;
+  // Line · Item · the quantities · Unit (po-4b-ux-unit.md §3) · Unit cost · Actions when any action is offered.
+  const columns = 2 + quantities.length + 1 + 1 + (actions ? 1 : 0);
 
   // After the commit that renders the refusal (focus never runs ahead of what it lands on).
   const liveNotice = notice !== null && notice.from === lines.gen ? notice : null;
@@ -187,6 +224,10 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
     setNotice({ gen: noticeGen.current, from: shownGen.current, heading: h, body });
   };
 
+  // PO-4b: a line Save whose line is no longer live (deleted elsewhere: the server's sentence as sent; gone: not found). Its
+  // re-read is on screen (the row has left), so the sentence shows here, above the table, focused.
+  const onLineGone = (message: string) => show(NOT_SAVED, message !== '' ? message : PAGE_STATES.notFoundInline);
+
   const retry = async () => {
     if (retrying) return;
     announce('');
@@ -194,11 +235,17 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
     const from = lines.gen;
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadLines(readOf(caller), orderId, d.signal);
+    // po-4b-red.md L-1 (po-9-red.md R3-L-1): while Deleted lines is shown, an ok live Retry reads them too, so the two lists
+    // come from one reading (an OK answer replaces the subsection's; a failed one keeps what is shown).
+    const own = deleted;
+    const fromDeleted = own?.lines.gen ?? null;
+    const rd = r.kind === 'ok' && own !== null ? await loadDeletedLines(readOf(caller), orderId, d.signal) : null;
     d.cancel();
     setRetrying(false);
     if (r.kind === 'session-ended') return;
     flushSync(() => {
       setRetried((cur) => ({ from, gen: (cur?.gen ?? 0) + 1, value: r }));
+      if (rd !== null && rd.kind === 'ok' && fromDeleted !== null) setDeletedRetried((cur) => ({ from: fromDeleted, gen: (cur?.gen ?? 0) + 1, value: rd }));
       // po-5-red-2.md L-4: an ok Retry is a newer reading of the lines, so a refusal raised before it describes nothing shown.
       if (r.kind === 'ok') setNotice(null);
     });
@@ -369,8 +416,36 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
 
   const v = ownRetry !== null ? ownRetry.value : lines.value;
   const viewCode = gateCode('ListPurchaseOrderLines');
+  // M-1: prune on an OK reading only — once per reading shown, during render (the "state from a new prop" pattern, as
+  // OrderHeaderForm's `loadedKey`), so no row ever draws a dropped line's text.
+  if (prunedFor !== v) {
+    setPrunedFor(v);
+    if (v.kind === 'ok') {
+      const ids = new Set(v.lines.map((l) => l.id));
+      if (![...typedById.keys()].every((k) => ids.has(k))) {
+        const next = new Map(typedById);
+        for (const k of typedById.keys()) if (!ids.has(k)) next.delete(k);
+        setTypedById(next);
+      }
+    }
+  }
+  const setTypedFor = (id: string) => (update: (cur: LineChange) => LineChange) =>
+    setTypedById((cur) => {
+      const next = new Map(cur);
+      const t = update(cur.get(id) ?? {});
+      if (Object.keys(t).length === 0) next.delete(id);
+      else next.set(id, t);
+      return next;
+    });
 
   const ok = v.kind === 'ok' ? v : null;
+  // S-2: typed text the failed reading hides is still a change not saved (Approve's reason), reported after the commit.
+  const hiddenTyped = edit !== null && ok === null && typedById.size > 0;
+  const onHidden = edit?.onHiddenDirtyChange ?? null;
+  useLayoutEffect(() => {
+    onHidden?.(hiddenTyped);
+  }, [hiddenTyped, onHidden]);
+  useLayoutEffect(() => () => onHidden?.(false), [onHidden]);
   // PO-9 (UX R1-B `ORDER_LINES.deletedLines*`, Rev 0 B-4 "h3, draft"): the served deleted lines in served order, each row
   // struck, with its own **Restore** (accessible name *Restore line {n}*). A failed read → its own region error with Retry.
   const deletedGen = deleted?.lines.gen ?? null;
@@ -415,6 +490,7 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
                       {q.header}
                     </th>
                   ))}
+                  <th scope="col">{ORDER_LINES.unit}</th>
                   <th scope="col">{ORDER_LINES.unitCost(currency)}</th>
                   {actions ? <th scope="col">{ORDER_LINES.actions}</th> : null}
                 </tr>
@@ -422,23 +498,52 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
               <tbody>
                 {ok.lines.map((l) => {
                   const item = ORDER_LINES.itemCell(l.inventory_item.sku, l.inventory_item.name);
+                  const itemNode = canOpenItem ? <Link href={`/items/${l.inventory_item.id}`}>{item}</Link> : item;
+                  const deleteButton =
+                    remove !== null ? (
+                      <Button size="sm" variant="destructive" aria-label={DELETE_LINE.deleteName(l.line_number)} loading={deleting === l.id} onClick={() => void onDelete(l)}>
+                        {DELETE_LINE.action}
+                      </Button>
+                    ) : null;
+                  if (edit !== null) {
+                    return (
+                      <EditLineRow
+                        key={l.id}
+                        line={l}
+                        // po-4b-red.md H-2: a section Retry is pressable only while the lines are a failure, when no row is
+                        // drawn; so every row drawn from its answer mounted after that Retry was asked for, and any Save answer
+                        // it holds is newer by construction (0, never MAX: MAX would hide a successful Save's values).
+                        linesAsOf={ownRetry !== null ? 0 : lines.asOf}
+                        linesGen={lines.gen}
+                        orderNumber={orderNumber}
+                        currency={currency}
+                        item={itemNode}
+                        save={edit.save}
+                        editCode={edit.editCode}
+                        deleteButton={deleteButton}
+                        columns={columns}
+                        announce={announce}
+                        fallbackFocusRef={heading}
+                        onRefusedStale={edit.onRefusedStale}
+                        onGone={onLineGone}
+                        ownOutcomeAfter={edit.ownOutcomeAfter}
+                        lineWrites={lineWrites}
+                        typed={typedById.get(l.id) ?? NOTHING_TYPED}
+                        setTyped={setTypedFor(l.id)}
+                        onDirtyChange={edit.onDirtyChange}
+                      />
+                    );
+                  }
                   return (
                     <tr key={l.id}>
                       <td>{l.line_number}</td>
-                      <td>{canOpenItem ? <Link href={`/items/${l.inventory_item.id}`}>{item}</Link> : item}</td>
+                      <td>{itemNode}</td>
                       {quantities.map((q) => (
                         <td key={q.key}>{quantityOf(l, q.key)}</td>
                       ))}
+                      <td>{l.unit_of_measure_code}</td>
                       <td>{renderMoney(l.unit_cost, currency)}</td>
-                      {actions ? (
-                        <td>
-                          {remove !== null ? (
-                            <Button size="sm" variant="destructive" aria-label={DELETE_LINE.deleteName(l.line_number)} loading={deleting === l.id} onClick={() => void onDelete(l)}>
-                              {DELETE_LINE.action}
-                            </Button>
-                          ) : null}
-                        </td>
-                      ) : null}
+                      {actions ? <td>{deleteButton}</td> : null}
                     </tr>
                   );
                 })}
@@ -447,6 +552,8 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
             </table>
           ) : null}
           {draft && ok.lines.length > 0 ? <p className={listStyles.muted}>{ORDER_LINES.totalNote}</p> : null}
+          {/* R1-2 / final RED L-5: names Delete line and Add line, so only where Edit, Delete and Add are all offered. */}
+          {edit !== null && remove !== null && add !== null && ok.lines.length > 0 ? <p className={listStyles.muted}>{EDIT_LINE.itemNote}</p> : null}
         </>
       )}
       {dv !== null ? (
@@ -466,6 +573,7 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
                   <th scope="col">{ORDER_LINES.line}</th>
                   <th scope="col">{ORDER_LINES.item}</th>
                   <th scope="col">{ORDER_LINES.quantity}</th>
+                  <th scope="col">{ORDER_LINES.unit}</th>
                   <th scope="col">{ORDER_LINES.unitCost(currency)}</th>
                   <th scope="col">{ORDER_LINES.actions}</th>
                 </tr>
@@ -478,6 +586,7 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
                       <td>{l.line_number}</td>
                       <td>{canOpenItem ? <Link href={`/items/${l.inventory_item.id}`}>{item}</Link> : item}</td>
                       <td>{renderQuantity(l.quantity)}</td>
+                      <td>{l.unit_of_measure_code}</td>
                       <td>{renderMoney(l.unit_cost, currency)}</td>
                       <td>
                         <Button size="sm" aria-label={RESTORE_LINE.name(l.line_number, l.inventory_item.sku)} loading={restoring === l.id} onClick={() => void onRestore(l)}>

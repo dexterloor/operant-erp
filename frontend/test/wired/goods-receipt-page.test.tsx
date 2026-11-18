@@ -9,7 +9,7 @@ import { renderWired, TZ } from './harness';
 // Goods receipts GR-1, the receipt page (purchase-orders-plan.md §2.7 "Detail", Revision 0 §4 GR-1; UX B-10
 // `GOODS_RECEIPT_PAGE`; IA L-5a: read-only). Header Receipt number · Purchase order (a link only with GetPurchaseOrder) ·
 // Received (DT-1 date-with-time) · Received by (or *Not recorded*); lines Order line · Item (a link only with GetItem) ·
-// Quantity (QR-2, the interim *item's unit* heading until BK-33, final RED L-11) · Location (its code, never a link: the
+// Quantity (QR-2; bare from PO-4b, final RED L-11) · Unit (the receipt line's own served code, po-4b-ux-unit.md) · Location (its code, never a link: the
 // receipt serves no warehouse id). No cost anywhere, no action.
 
 const ORDER = { id: 'd1b2c3d4-0000-4000-8000-000000000001', order_number: 'PO-000001' };
@@ -21,7 +21,7 @@ const R: GoodsReceipt = {
   received_by: { id: 'f1b2c3d4-0000-4000-8000-000000000001', display_name: 'Wanda Warehouse' },
   lines: [
     { id: 'a1b2c3d4-0000-4000-8000-000000000001', purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000001', line_number: 1 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000001', sku: 'SKU-1', name: 'Widget' }, quantity: '1234567890123.123456', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000001', code: 'A-01' }, unit_of_measure_code: 'EA' },
-    { id: 'a1b2c3d4-0000-4000-8000-000000000002', purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000003', line_number: 3 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000002', sku: 'SKU-2', name: 'Gadget' }, quantity: '10.000000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000002', code: 'B-07' }, unit_of_measure_code: 'EA' },
+    { id: 'a1b2c3d4-0000-4000-8000-000000000002', purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000003', line_number: 3 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000002', sku: 'SKU-2', name: 'Gadget' }, quantity: '10.000000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000002', code: 'B-07' }, unit_of_measure_code: 'KG' },
   ],
 };
 const show = (over: { receipt?: GoodsReceipt; canOpenOrder?: boolean; canOpenItem?: boolean } = {}) => renderWired(<GoodsReceiptPage receipt={over.receipt ?? R} canOpenOrder={over.canOpenOrder ?? false} canOpenItem={over.canOpenItem ?? false} />);
@@ -46,13 +46,13 @@ describe('/goods-receipts/[id] — the receipt page (UX B-10)', () => {
     expect(fact('Received by')).toBe('Not recorded');
   });
 
-  it('lines: Order line · Item · Quantity (item’s unit) · Location; QR-2 quantities; the location code, never a link', () => {
+  it('lines: Order line · Item · Quantity · Unit · Location (the row’s own served unit); QR-2 quantities; the location code, never a link', () => {
     show({ canOpenItem: true, canOpenOrder: true });
-    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Order line', 'Item', "Quantity (item's unit)", 'Location']);
-    expect(cellsOf(0)).toEqual(['1', 'SKU-1 — Widget', '1234567890123.123456', 'A-01']);
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Order line', 'Item', 'Quantity', 'Unit', 'Location']);
+    expect(cellsOf(0)).toEqual(['1', 'SKU-1 — Widget', '1234567890123.123456', 'EA', 'A-01']);
     // The table's heading is the receipt page's own key (UX D-9: GOODS_RECEIPT_PAGE.linesHeading), not the order page's.
     expect(screen.getByRole('heading', { level: 2, name: 'Lines' })).toBeInTheDocument();
-    expect(cellsOf(1)).toEqual(['3', 'SKU-2 — Gadget', '10', 'B-07']);
+    expect(cellsOf(1)).toEqual(['3', 'SKU-2 — Gadget', '10', 'KG', 'B-07']);
     const rows = document.querySelectorAll('tbody tr');
     expect(within(rows[0] as HTMLElement).queryByRole('link', { name: 'A-01' })).toBeNull();
   });

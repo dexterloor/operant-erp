@@ -150,34 +150,34 @@ describe('/purchase-orders/[id] — the header (UX B-3)', () => {
 });
 
 describe('/purchase-orders/[id] — the lines (UX B-4)', () => {
-  // Test 7 + the interim unit headings (QR-8, L-11) + the line money.
-  it('test 7 — an ordered order: Line · Item · Ordered · Received · Still to come (item’s unit) · Unit cost (GBP); 10.000000 → 10, 2.500000 → 2.5; 12.5000 → 12.50 GBP', () => {
+  // Test 7 + the served unit (PO-4b: bare headings and a Unit column, the row's own code — final RED L-11, po-4b-ux-unit.md) + the line money.
+  it('test 7 — an ordered order: Line · Item · Ordered · Received · Still to come · Unit · Unit cost (GBP); 10.000000 → 10, 2.500000 → 2.5; 12.5000 → 12.50 GBP', () => {
     show();
     expect(screen.getByRole('heading', { level: 2, name: 'Lines' })).toBeInTheDocument();
-    expect(headers()).toEqual(['Line', 'Item', "Ordered (item's unit)", "Received (item's unit)", "Still to come (item's unit)", 'Unit cost (GBP)']);
-    expect(cellsOf(0)).toEqual(['1', 'SKU-1 — Item 1', '10', '2.5', '7.5', '12.50 GBP']);
+    expect(headers()).toEqual(['Line', 'Item', 'Ordered', 'Received', 'Still to come', 'Unit', 'Unit cost (GBP)']);
+    expect(cellsOf(0)).toEqual(['1', 'SKU-1 — Item 1', '10', '2.5', '7.5', 'EA', '12.50 GBP']);
     expect(cellsOf(1)[0]).toBe('2');
   });
 
-  it('a draft: Line · Item · Quantity (item’s unit) · Unit cost; the total note under the table; no Actions column', () => {
-    show({ order: order('draft'), lines: lines([line(1, { quantity: '1234567890123.123456', unit_cost: '0.1250' })]) });
-    expect(headers()).toEqual(['Line', 'Item', "Quantity (item's unit)", 'Unit cost (GBP)']);
-    expect(cellsOf(0)).toEqual(['1', 'SKU-1 — Item 1', '1234567890123.123456', '0.1250 GBP']);
+  it('a draft: Line · Item · Quantity · Unit · Unit cost; the total note under the table; no Actions column', () => {
+    show({ order: order('draft'), lines: lines([line(1, { quantity: '1234567890123.123456', unit_cost: '0.1250', unit_of_measure_code: 'KG' })]) });
+    expect(headers()).toEqual(['Line', 'Item', 'Quantity', 'Unit', 'Unit cost (GBP)']);
+    expect(cellsOf(0)).toEqual(['1', 'SKU-1 — Item 1', '1234567890123.123456', 'KG', '0.1250 GBP']);
     expect(screen.getByText('The total is worked out from the lines.', { selector: 'p' })).toBeInTheDocument();
   });
 
   // Test 11 (D-3: relabel, never recompute).
   it('test 11 — a cancelled order heads the served remainder "Never received", with the same served number', () => {
     show({ order: order('cancelled'), lines: lines([line(1)]) });
-    expect(headers()).toEqual(['Line', 'Item', "Ordered (item's unit)", "Received (item's unit)", "Never received (item's unit)", 'Unit cost (GBP)']);
-    expect(headers()).not.toContain("Still to come (item's unit)");
+    expect(headers()).toEqual(['Line', 'Item', 'Ordered', 'Received', 'Never received', 'Unit', 'Unit cost (GBP)']);
+    expect(headers()).not.toContain('Still to come');
     expect(cellsOf(0)[4]).toBe('7.5');
   });
 
   it('the unit cost is in the order’s currency: JPY 250.0000 → 250 JPY', () => {
     show({ order: order('ordered', { currency_code: 'JPY', total_amount: '2500.0000' }), lines: lines([line(1, { unit_cost: '250.0000' })]) });
     expect(headers()).toContain('Unit cost (JPY)');
-    expect(cellsOf(0)[5]).toBe('250 JPY');
+    expect(cellsOf(0)[6]).toBe('250 JPY');
     expect(fact('Total')).toBe('2500 JPY');
   });
 

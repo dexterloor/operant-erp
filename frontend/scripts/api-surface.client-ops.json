@@ -52,6 +52,7 @@
   "RevokeRole",
   "UpdateItem",
   "UpdatePurchaseOrder",
+  "UpdatePurchaseOrderLine",
   "UpdateRole",
   "UpdateStorageLocation",
   "UpdateSupplier",

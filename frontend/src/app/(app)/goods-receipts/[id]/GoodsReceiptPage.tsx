@@ -25,7 +25,8 @@ export interface GoodsReceiptPageProps {
  * the facts are Purchase order (its number, a link to `/purchase-orders/[id]` only for a GetPurchaseOrder holder), Received
  * (date and time, the viewer's zone) and Received by (`received_by.display_name`, or *Not recorded*). The lines table, in
  * served order: Order line (`purchase_order_line.line_number`) · Item (`{sku} — {name}`, a link only for a GetItem holder) ·
- * Quantity (QR-2 by `renderQuantity`; its heading carries the interim *item's unit* until BK-33, final RED L-11) ·
+ * Quantity (QR-2 by `renderQuantity`; its heading bare from PO-4b, final RED L-11) · Unit (the receipt line's own served
+ * `unit_of_measure_code`, po-4b-ux-unit.md §3) ·
  * Location (`storage_location.code`, never a link: locations live on the warehouse page and the receipt serves no warehouse
  * id). No cost is served or shown (UX D-6).
  */
@@ -59,6 +60,7 @@ export function GoodsReceiptPage({ receipt, canOpenOrder, canOpenItem }: GoodsRe
               <th scope="col">{GOODS_RECEIPT_PAGE.orderLine}</th>
               <th scope="col">{GOODS_RECEIPT_PAGE.item}</th>
               <th scope="col">{GOODS_RECEIPT_PAGE.quantity}</th>
+              <th scope="col">{GOODS_RECEIPT_PAGE.unit}</th>
               <th scope="col">{GOODS_RECEIPT_PAGE.location}</th>
             </tr>
           </thead>
@@ -70,6 +72,7 @@ export function GoodsReceiptPage({ receipt, canOpenOrder, canOpenItem }: GoodsRe
                   <td>{l.purchase_order_line.line_number}</td>
                   <td>{canOpenItem ? <Link href={`/items/${l.inventory_item.id}`}>{item}</Link> : item}</td>
                   <td>{renderQuantity(l.quantity)}</td>
+                  <td>{l.unit_of_measure_code}</td>
                   <td>{l.storage_location.code}</td>
                 </tr>
               );

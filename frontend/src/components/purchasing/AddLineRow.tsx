@@ -8,9 +8,9 @@ import { Button } from '@/components/ui/Button';
 import { SelectField } from '@/components/ui/SelectField';
 import { TextField } from '@/components/ui/TextField';
 import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_ADDED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
-import { unitSuffixSpoken } from '@/copy/items';
+import { unitPerSpoken, unitSuffixSpoken } from '@/copy/items';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
-import { ADD_LINE, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN } from '@/copy/purchasing';
+import { ADD_LINE, EDIT_LINE, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN } from '@/copy/purchasing';
 import { PAGE_STATES } from '@/copy/shell';
 import type { PurchaseOrder } from '@/lib/api/purchasing';
 import { marksAnyField } from '@/lib/forms/fieldErrors';
@@ -48,8 +48,9 @@ export interface AddLineRowProps {
   /** The lines generation on screen: a refusal banner goes when a newer reading of the lines is shown (po-5-red.md L-1). */
   linesGen: number;
   /**
-   * One line write at a time across the section (po-5-red.md L-3): `begin()` is false while a Delete is in flight, and the
-   * press then sends nothing; `end()` after the answer.
+   * One line write at a time across the page (po-5-red.md L-3; po-5-red-2.md D-18 — the rule's ONE home): `begin()` is
+   * false while a Delete, a Restore line or a line Save is in flight, and the press then sends nothing; `end()` after the
+   * answer.
    */
   lineWrites: { begin: () => boolean; end: () => void };
 }
@@ -67,7 +68,8 @@ type Target = 'banner' | AddLineField;
  * final RED H-2; UX R1-B `ADD_LINE`, R1a-1 row 5; PO D-7), props-only. IA §4.1: an empty row at the bottom of the table,
  * named *New line*: **Item** — a select over the supplier's served catalogue entries in served order, `{sku} — {name}`,
  * no preselection; **Quantity** — the chosen entry's unit code beside it (spoken as the unit's plural, the shipped R1-C
- * suffix rule); **Unit cost ({the order's currency})** — prefilled with the entry's served cost, untrimmed, only when the
+ * suffix rule); **Unit** — the chosen entry's code, empty until one is chosen (PO-4b, po-4b-ux-unit.md); **Unit cost ({the
+ * order's currency})** — `per {code}` beside it once an entry is chosen (PO-4b, the edit rows' suffix) — prefilled with the entry's served cost, untrimmed, only when the
  * entry's currency is the order's (D-7), otherwise empty and required; **Add line**. The row is a `form`-attribute form
  * (plan M-9): its `<form method="post">` sits in the last cell around Add line, and the three fields join it with the `form`
  * attribute, so Enter in Quantity or Unit cost sends this row and no other (G-F2 holds: the form posts, to its own page).
@@ -262,7 +264,10 @@ export function AddLineRow({ order, catalogue: firstCatalogue, reloadCatalogue, 
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (busy) return;
+    // po-5-red-2.md D-18 (closed at PO-4b): no `busy` early return here — one line write at a time has ONE home, the page's
+    // synchronous `lineWrites.begin()` below, which every line write (Add, Delete, Restore, Save) passes. The Button's
+    // `loading` stays as the shared UI rule. A second press while this Add is in flight re-runs the client checks over the
+    // same text and is then refused by `begin()`.
     // Client refusals (UX R1-B; no request): with nothing chosen only the item's sentence (the S-5 rule); else the empty ones.
     if (chosen === null) {
       setNotice(null);
@@ -361,6 +366,8 @@ export function AddLineRow({ order, catalogue: firstCatalogue, reloadCatalogue, 
             suffix={unit !== null ? { shown: unit, spoken: unitSuffixSpoken(unit) } : undefined}
           />
         </td>
+        {/* po-4b-ux-unit.md §2: the chosen entry's unit code, empty until an item is chosen (the Line cell's precedent). */}
+        <td>{unit ?? ''}</td>
         <td>
           <TextField
             ref={costRef}
@@ -376,6 +383,8 @@ export function AddLineRow({ order, catalogue: firstCatalogue, reloadCatalogue, 
             inputMode="decimal"
             autoComplete="off"
             spellCheck={false}
+            // po-4b-ux-unit.md §2 (UX's recommendation, taken at PO-4b): the edit rows' `per {code}` suffix, from the chosen entry.
+            suffix={unit !== null ? { shown: EDIT_LINE.perUnit(unit), spoken: `${unitPerSpoken(unit)}.` } : undefined}
           />
         </td>
         <td>

@@ -24,8 +24,8 @@ import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { renderMoney } from '@/lib/format/money';
 import { loadCatalogueChoices, loadDeletedLines, loadLines, loadPurchaseOrder, loadWarehouseChoices, type CatalogueChoicesLoad, type LinesLoad, type ReceiptsLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
-import type { AddLineValues, ApproveDialogResult, CancelDialogResult, OrderChange } from '@/lib/purchasing/results';
-import { lineCreate, lineDelete, lineRestore, orderApprove, orderCancel, orderDelete, orderRestore, orderSave } from '@/lib/purchasing/wired';
+import type { AddLineValues, ApproveDialogResult, CancelDialogResult, LineChange, OrderChange } from '@/lib/purchasing/results';
+import { lineCreate, lineDelete, lineRestore, lineSave, orderApprove, orderCancel, orderDelete, orderRestore, orderSave } from '@/lib/purchasing/wired';
 import type { DeleteResult } from '@/lib/results';
 import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
@@ -96,6 +96,11 @@ export interface PurchaseOrderPageProps {
    * gets them from its restore's re-read.
    */
   deletedLines?: LinesLoad | null;
+  /**
+   * PO-4b: holds UpdatePurchaseOrderLine's codes (`purchase_order.edit`) — each live line of a live draft is edited in its row
+   * (Quantity, Unit cost, **Save line**).
+   */
+  canEditLine?: boolean;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -104,7 +109,7 @@ const cancellable = (o: PurchaseOrder) => o.archived_at === null && (o.status ==
 /** What the page shows: the order and, for a live one whose lines were read, those lines (a generation per read, so a new read remounts the section on its new answer). */
 interface Shown {
   order: PurchaseOrder;
-  lines: { gen: number; value: LinesLoad } | null;
+  lines: { gen: number; value: LinesLoad; asOf: number } | null;
   /** PO-9: the live draft's deleted lines, or null (not read, or a deleted order). */
   deleted: { gen: number; value: LinesLoad } | null;
 }
@@ -189,14 +194,22 @@ interface Shown {
  * restored line leaves Deleted lines and returns to the table in the same mount (Restore purchase order reads them too; Add
  * line deletes none, so it does not). Restore line's re-reads and answer carry the stamp of its send: the own-outcome floors
  * drop what an answer sent before the person's own Delete purchase order, Cancel order or Approve would commit, say or show.
+ *
+ * From PO-4b each live line of a live draft is edited in its row (`canEditLine`; `LinesSection` → `EditLineRow`): Quantity and
+ * Unit cost with the line's unit beside them, **Save line** per row (D-9). Save line is one of the page's line writes (one
+ * at a time; Approve and Delete purchase order open nothing while it is in flight, po-8-red.md H-1's shape). After its 200
+ * the page reads the order alone (M-9) and commits it with the lines kept as shown, so the Total is the server's and every
+ * other row keeps what was typed in it; each lines reading carries its stamp, so the row's own answer stands until a newer
+ * reading. Its answers and commits carry the stamp of its send (the own-outcome floors). Every commit of a live draft's live
+ * lines here also reads its deleted lines when they are shown (po-9-red.md R3-L-1), the dialogs' re-reads included.
  */
-export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false, canCancel = false, canApprove = false, receipts = null, canOpenReceipt = false, canRestoreLine = false, deletedLines = null }: PurchaseOrderPageProps) {
+export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false, canCancel = false, canApprove = false, receipts = null, canOpenReceipt = false, canRestoreLine = false, deletedLines = null, canEditLine = false }: PurchaseOrderPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
   const { message, announce, clear } = useLiveRegion();
   // A deleted order never carries lines, from the first render on (the server reads none for it; `commit` keeps the rule).
-  const firstLines: Shown['lines'] = initial.archived_at === null && initialLines !== null ? { gen: 0, value: initialLines } : null;
+  const firstLines: Shown['lines'] = initial.archived_at === null && initialLines !== null ? { gen: 0, value: initialLines, asOf: 0 } : null;
   const firstDeleted: Shown['deleted'] = firstLines !== null && deletedLines !== null ? { gen: 0, value: deletedLines } : null;
   const [shown, setShown] = useCommittedState<Shown>({ order: initial, lines: firstLines, deleted: firstDeleted });
   // PO-9: the deleted lines are read with a write's re-read only while the page can show them.
@@ -212,6 +225,20 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   const [approving, setApproving] = useState(false);
   // PO-8 M-1 (b): the header editor holds a change not yet saved (`OrderHeaderForm`'s `onDirtyChange`): Approve says why it is unavailable.
   const [headerDirty, setHeaderDirty] = useState(false);
+  // po-4b-red.md H-1 (PO-8 M-1 (b) extended to the line rows): the ids of the live rows holding a change not yet saved
+  // (`EditLineRow`'s `onDirtyChange`): Approve says why it is unavailable.
+  const [dirtyLines, setDirtyLines] = useState<ReadonlySet<string>>(() => new Set());
+  // po-4b-red.md S-2: typed line text hidden by a failed lines reading (`LinesSection`'s own fact).
+  const [linesHiddenDirty, setLinesHiddenDirty] = useState(false);
+  const onLineDirty = useCallback((lineId: string, dirty: boolean) => {
+    setDirtyLines((cur) => {
+      if (cur.has(lineId) === dirty) return cur;
+      const next = new Set(cur);
+      if (dirty) next.add(lineId);
+      else next.delete(lineId);
+      return next;
+    });
+  }, []);
   // PO-6 (the warehouse page's RED M-1): a 204 here is a fact that outranks a stale snapshot. If the re-read after it failed,
   // the order is still treated as deleted for the actions (no Delete purchase order, no editor, no line actions, no note)
   // until a commit that is not dropped says otherwise.
@@ -305,7 +332,9 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
       setRereadError(null);
       // An editable draft by any path (a restore): a stale Save's sentence describes nothing on screen.
       if (committedEditable.current) setStaleRefusal(null);
-      const next = order.archived_at !== null ? null : lines !== null ? { gen: ++linesReads.current, value: lines } : committedLines.current;
+      // PO-4b: a lines reading carries the stamp it was asked for under, so a line row's own Save answer (stamped when its 200
+      // arrived) stands over an older reading and gives way to a newer one.
+      const next = order.archived_at !== null ? null : lines !== null ? { gen: ++linesReads.current, value: lines, asOf } : committedLines.current;
       committedLines.current = next;
       // PO-9: the deleted lines read with this reading replace what is shown, in the same commit; unread, they are kept. A line
       // is never drawn both live and deleted (po-9-red.md M-1 (a), N-1, N-2): `LinesSection` holds that rule, where the list is
@@ -382,6 +411,9 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   // PO-9: Restore line (the same wiring, stamp and commit; its re-reads carry the stamp of its send, so the own-outcome floors
   // drop them).
   const restoreLine = useCallback((line: PurchaseOrderLine) => lineRestore({ caller, id, stamp, readLines: canReadLines, readDeleted, setOrder: commit, onRereadFailed: failed })(line), [caller, id, stamp, canReadLines, readDeleted, commit, failed]);
+  // PO-4b: Save line (the same wiring, stamp and commit; header-only re-read after a 200, M-9; its answer and commits carry
+  // the stamp of its send, so the own-outcome floors drop them).
+  const saveLine = useCallback((line: PurchaseOrderLine, changes: LineChange) => lineSave({ caller, id, stamp, readLines: canReadLines, readDeleted, setOrder: commit, onRereadFailed: failed })(line, changes), [caller, id, stamp, canReadLines, readDeleted, commit, failed]);
   // PO-6: the 204 floor, raised before the delete's re-read is sent, so a reading requested earlier is dropped even when that
   // re-read fails.
   const onDeleted = useCallback((s: number) => {
@@ -396,11 +428,11 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   // PO-6: Delete purchase order. P9's two stale kinds become the dialog's own refusal (Close only) in UX D-2's words, built
   // from the re-read (`noLongerDraft`) or, when it failed, `changedSinceLoaded`; the order number never changes.
   const remove = useCallback(async (): Promise<DeleteResult> => {
-    const r = await orderDelete({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed, onDeleted })();
+    const r = await orderDelete({ caller, id, stamp, readLines: canReadLines, readDeleted, setOrder: commit, onRereadFailed: failed, onDeleted })();
     if (r.kind === 'no-longer-draft') return { kind: 'refused', rule: '', message: PURCHASE_ORDER_PAGE.noLongerDraft(r.order.order_number, r.order.status) };
     if (r.kind === 'changed-since-loaded') return { kind: 'refused', rule: '', message: PURCHASE_ORDER_PAGE.changedSinceLoaded(initial.order_number) };
     return r;
-  }, [caller, id, stamp, canReadLines, commit, failed, onDeleted, initial.order_number]);
+  }, [caller, id, stamp, canReadLines, readDeleted, commit, failed, onDeleted, initial.order_number]);
   // PO-6 (po-6-progress.md D-3): Delete purchase order joins the one line write at a time — while an Add or a line Delete is
   // in flight the press opens nothing and sends nothing (PO-5 L-3's refused press). While the dialog is open the lines are
   // under it, so no line write starts.
@@ -452,13 +484,13 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   // (`alreadyApproved`; `noLongerDraft` for a draft cancelled elsewhere) or, when it failed, `changedSinceLoaded`; the order
   // number never changes.
   const approveRun = useCallback(async (): Promise<ApproveDialogResult> => {
-    const r = await orderApprove({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed, onApproved })();
+    const r = await orderApprove({ caller, id, stamp, readLines: canReadLines, readDeleted, setOrder: commit, onRereadFailed: failed, onApproved })();
     if (r.kind === 'already-approved') return { kind: 'refused', rule: '', message: APPROVE_ORDER.alreadyApproved(r.order.order_number) };
     if (r.kind === 'no-longer-draft') return { kind: 'refused', rule: '', message: PURCHASE_ORDER_PAGE.noLongerDraft(r.order.order_number, r.order.status) };
     if (r.kind === 'changed-since-loaded') return { kind: 'refused', rule: '', message: PURCHASE_ORDER_PAGE.changedSinceLoaded(initial.order_number) };
     if (r.kind === 'approved') return { kind: 'approved', order: r.order };
     return r;
-  }, [caller, id, stamp, canReadLines, commit, failed, onApproved, initial.order_number]);
+  }, [caller, id, stamp, canReadLines, readDeleted, commit, failed, onApproved, initial.order_number]);
   // PO-8 (po-8-progress.md D-7/D-8; po-8-red.md H-1): one write at a time — while an Add, a line Delete or a header Save is
   // in flight the press opens nothing and sends nothing. So no Save of the person's own can still be answering when an
   // approval answers: whether a change went into the approved order is always settled, and said, before the dialog opens.
@@ -481,6 +513,8 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   // A live draft that may be acted on: not after a 204 seen here whose re-read failed (`deletedHere`).
   const actionable = liveDraft && !deletedHere;
   const editorShown = edit !== null && actionable;
+  // PO-4b: the line rows are editable (the lines' own rule; a viewer may hold it without the header editor's ListWarehouses).
+  const lineEditShown = canEditLine && actionable;
 
   // After the commit that renders the stale banner (focus never runs ahead of what it lands on).
   const staleGen = staleRefusal?.gen ?? null;
@@ -537,13 +571,15 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadPurchaseOrder(readOf(caller), id, d.signal);
     const lines = r.kind === 'ok' && r.order.archived_at === null && canReadLines ? await loadLines(readOf(caller), id, d.signal) : null;
+    // po-9-red.md R3-L-1 (closed at PO-4b): a live draft's reading takes its deleted lines when they are shown.
+    const deletedRead = r.kind === 'ok' && readDeleted && lines !== null && r.order.status === 'draft' ? await loadDeletedLines(readOf(caller), id, d.signal) : undefined;
     d.cancel();
     if (committedAsOf.current > mine) return;
     if (r.kind !== 'ok') {
       failed(r.kind, mine);
       return;
     }
-    await commit(r.order, lines, mine);
+    await commit(r.order, lines, mine, undefined, deletedRead);
     // The warehouse page's RED H-1, widened to every reading that is not a live draft (deleted, or approved / cancelled
     // elsewhere): it unmounts the Delete purchase order button the dialog returns focus to, so the h1 takes it. A live
     // draft keeps the button, and the dialog's own return puts focus back on it (a check of `document.activeElement` here
@@ -571,13 +607,15 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadPurchaseOrder(readOf(caller), id, d.signal);
     const lines = r.kind === 'ok' && r.order.archived_at === null && canReadLines ? await loadLines(readOf(caller), id, d.signal) : null;
+    // po-9-red.md R3-L-1 (closed at PO-4b): a live draft's reading takes its deleted lines when they are shown.
+    const deletedRead = r.kind === 'ok' && readDeleted && lines !== null && r.order.status === 'draft' ? await loadDeletedLines(readOf(caller), id, d.signal) : undefined;
     d.cancel();
     if (committedAsOf.current > mine) return;
     if (r.kind !== 'ok') {
       failed(r.kind, mine);
       return;
     }
-    await commit(r.order, lines, mine);
+    await commit(r.order, lines, mine, undefined, deletedRead);
     if (!cancellable(r.order)) {
       h1.current?.focus();
       router.refresh();
@@ -608,13 +646,15 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadPurchaseOrder(readOf(caller), id, d.signal);
     const lines = r.kind === 'ok' && r.order.archived_at === null && canReadLines ? await loadLines(readOf(caller), id, d.signal) : null;
+    // po-9-red.md R3-L-1 (closed at PO-4b): a live draft's reading takes its deleted lines when they are shown.
+    const deletedRead = r.kind === 'ok' && readDeleted && lines !== null && r.order.status === 'draft' ? await loadDeletedLines(readOf(caller), id, d.signal) : undefined;
     d.cancel();
     if (committedAsOf.current > mine) return;
     if (r.kind !== 'ok') {
       failed(r.kind, mine);
       return;
     }
-    await commit(r.order, lines, mine);
+    await commit(r.order, lines, mine, undefined, deletedRead);
     if (r.order.archived_at !== null || r.order.status !== 'draft') {
       h1.current?.focus();
       router.refresh();
@@ -641,7 +681,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
           </Button>
         ) : null}
         {canApprove && actionable ? (
-          <Button variant="primary" unavailableReason={headerDirty && editorShown ? APPROVE_ORDER.unsavedHeader : undefined} onClick={openApprove}>
+          <Button variant="primary" unavailableReason={headerDirty && editorShown ? APPROVE_ORDER.unsavedHeader : (dirtyLines.size > 0 || linesHiddenDirty) && lineEditShown ? APPROVE_ORDER.unsavedLines : undefined} onClick={openApprove}>
             {APPROVE_ORDER.action}
           </Button>
         ) : null}
@@ -777,6 +817,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
           deleteCode={gateCode('DeletePurchaseOrderLine')}
           onRefusedStale={onDeleteRefusedStale}
           lineWrites={{ begin: beginLineWrite, end: endLineWrite }}
+          edit={lineEditShown ? { save: saveLine, editCode: gateCode('UpdatePurchaseOrderLine'), onRefusedStale, ownOutcomeAfter: beforeOwnOutcome, onDirtyChange: onLineDirty, onHiddenDirtyChange: setLinesHiddenDirty } : null}
           deleted={
             canRestoreLine && actionable && shown.deleted !== null
               ? { lines: shown.deleted, restore: restoreLine, restoreCode: gateCode('RestorePurchaseOrderLine'), ownOutcomeAfter: beforeOwnOutcome, onRefusedStale: onRestoreLineRefusedStale }

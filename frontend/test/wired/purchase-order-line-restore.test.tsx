@@ -90,7 +90,7 @@ describe('/purchase-orders/[id] — Deleted lines (PO-9)', () => {
     expect(within(h3.parentElement!).getByText(NOTE)).toBeInTheDocument();
     expect(deletedNumbers()).toEqual(['3', '4']);
     for (const r of deletedTable()!.querySelectorAll('tbody tr')) expect(r.className).toMatch(/struck/);
-    expect(within(deletedTable()!).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Line', 'Item', "Quantity (item's unit)", 'Unit cost (GBP)', 'Actions']);
+    expect(within(deletedTable()!).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Line', 'Item', 'Quantity', 'Unit', 'Unit cost (GBP)', 'Actions']);
     expect(restore(3)).toHaveTextContent('Restore');
     expect(restore(4)).toHaveTextContent('Restore');
     expect(screen.getAllByRole('button', { name: /^Restore line \d \(SKU-\d\)$/ })).toHaveLength(2);
@@ -354,16 +354,18 @@ describe('/purchase-orders/[id] — Delete line once Deleted lines exists (PO-9 
     texts.stop();
   });
 
-  it('an Add re-reads no deleted lines (it deletes none)', async () => {
+  // PO-4b (po-9-red.md R3-L-1, closed): this pin moved deliberately — an Add now reads the deleted lines too (one GET), so a
+  // line hidden from Deleted lines because it was live never comes back there with an older reading's numbers.
+  it('an Add re-reads the deleted lines too (R3-L-1), and shows what that reading serves', async () => {
     const NEW = line(5, { inventory_item: E8.inventory_item });
-    const calls = stubFetch([json(201, NEW), json(200, DRAFT), json(200, page([line(1), line(2), NEW]))]);
+    const calls = stubFetch([json(201, NEW), json(200, DRAFT), json(200, page([line(1), line(2), NEW])), json(200, page([gone(3), gone(4)]))]);
     const u = userEvent.setup();
     show();
     await u.selectOptions(screen.getByRole('combobox', { name: 'Item, new line' }), E8.inventory_item.id);
     await u.type(screen.getByRole('textbox', { name: 'Quantity, new line' }), '1');
     await u.click(screen.getByRole('button', { name: 'Add line' }));
     await waitFor(() => expect(region()).toHaveTextContent('Line 5 added: FLOUR-8.'));
-    expect(calls.map((c) => [c.method, c.url])).toEqual([['POST', LINES_URL], ['GET', URL], ['GET', LINES_URL]]);
+    expect(calls.map((c) => [c.method, c.url])).toEqual([['POST', LINES_URL], ['GET', URL], ['GET', LINES_URL], ['GET', DELETED_URL]]);
     expect(deletedNumbers()).toEqual(['3', '4']);
   });
 });
@@ -415,9 +417,9 @@ describe('/purchase-orders/[id] — Deleted lines stays true across the page’s
     expect(deletedNumbers()).toEqual(['2', '3', '4']);
   });
 
-  it('an Add whose reading shows a deleted line live again (restored elsewhere): it leaves Deleted lines', async () => {
+  it('an Add whose reading shows a deleted line live again (restored elsewhere between its two GETs): it leaves Deleted lines', async () => {
     const NEW = line(5, { inventory_item: E8.inventory_item });
-    stubFetch([json(201, NEW), json(200, DRAFT), json(200, page([line(1), line(2), line(3), NEW]))]);
+    stubFetch([json(201, NEW), json(200, DRAFT), json(200, page([line(1), line(2), line(3), NEW])), json(200, page([gone(3), gone(4)]))]);
     const u = userEvent.setup();
     show();
     await u.selectOptions(screen.getByRole('combobox', { name: 'Item, new line' }), E8.inventory_item.id);
@@ -439,9 +441,12 @@ describe('/purchase-orders/[id] — Deleted lines stays true across the page’s
     expect(deletedNumbers()).toEqual(['4']);
   });
 
-  it('po-9-red.md N-2: the subsection’s own Retry answer is held to the same rule — an Add showing line 3 live takes it out of Deleted lines', async () => {
+  // po-4b-red.md M-2: since PO-4b an Add reads its own deleted lines, so this test checks the filter on that reading; the
+  // own-Retry arm of N-2 is held by the next test.
+  it('an Add’s own deleted reading is filtered too: a split one showing line 3 live leaves it out of Deleted lines', async () => {
     const NEW = line(5, { inventory_item: E8.inventory_item });
-    stubFetch([json(200, page([gone(3), gone(4)])), json(201, NEW), json(200, DRAFT), json(200, page([line(1), line(2), line(3), NEW]))]);
+    // From PO-4b the Add's reading takes the deleted lines too (R3-L-1); a split one still shows line 3 there, and the rule hides it.
+    stubFetch([json(200, page([gone(3), gone(4)])), json(201, NEW), json(200, DRAFT), json(200, page([line(1), line(2), line(3), NEW])), json(200, page([gone(3), gone(4)]))]);
     const u = userEvent.setup();
     show({ deletedLines: { kind: 'server-error' } });
     await u.click(within(deletedHeading().parentElement!).getByRole('button', { name: /Try again|Retry/ }));
@@ -452,5 +457,22 @@ describe('/purchase-orders/[id] — Deleted lines stays true across the page’s
     await waitFor(() => expect(region()).toHaveTextContent('Line 5 added: FLOUR-8.'));
     expect(liveNumbers()).toEqual(['1', '2', '3', '5']);
     expect(deletedNumbers()).toEqual(['4']);
+  });
+
+  it('po-9-red.md N-2 (po-4b-red.md M-2): the subsection’s own Retry answer is held to the same rule — an Add whose lines and deleted reads both fail, Deleted lines’ Retry, then the live Retry (which reads both, L-1) showing line 3 live: Deleted lines shows only 4', async () => {
+    const NEW = line(5, { inventory_item: E8.inventory_item });
+    const calls = stubFetch([json(201, NEW), json(200, DRAFT), json(500, {}), json(500, {}), json(200, page([gone(3), gone(4)])), json(200, page([line(1), line(2), line(3), NEW])), json(200, page([gone(3), gone(4)]))]);
+    const u = userEvent.setup();
+    show();
+    await u.selectOptions(screen.getByRole('combobox', { name: 'Item, new line' }), E8.inventory_item.id);
+    await u.type(screen.getByRole('textbox', { name: 'Quantity, new line' }), '1');
+    await u.click(screen.getByRole('button', { name: 'Add line' }));
+    await waitFor(() => expect(within(deletedHeading().parentElement!).getByRole('button', { name: /Try again|Retry/ })).toBeInTheDocument());
+    await u.click(within(deletedHeading().parentElement!).getByRole('button', { name: /Try again|Retry/ }));
+    await waitFor(() => expect(deletedNumbers()).toEqual(['3', '4']));
+    await u.click(within(linesHeading().parentElement!).getAllByRole('button', { name: /Try again|Retry/ })[0]!);
+    await waitFor(() => expect(liveNumbers()).toEqual(['1', '2', '3', '5']));
+    expect(deletedNumbers()).toEqual(['4']);
+    expect(calls.map((c) => c.url).slice(-2)).toEqual([LINES_URL, DELETED_URL]);
   });
 });

@@ -553,6 +553,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['purchase_order.edit'],
     },
   },
+  UpdatePurchaseOrderLine: {
+    method: 'PATCH',
+    template: '/api/v1/purchase-orders/{id}/lines/{lineId}',
+    pathParams: ['id', 'lineId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
+    },
+  },
   UpdateRole: {
     method: 'PATCH',
     template: '/api/v1/roles/{id}',
@@ -677,6 +687,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch': ['expected_at', 'supplier_id', 'warehouse_id'],
   PurchaseOrderLine: ['archived_at', 'id', 'inventory_item', 'line_number', 'quantity', 'quantity_outstanding', 'quantity_received', 'unit_cost', 'unit_of_measure_code'],
   'PurchaseOrderLine.CreatePurchaseOrderLineInput': ['inventory_item_id', 'quantity', 'unit_cost'],
+  'PurchaseOrderLine.UpdatePurchaseOrderLineInput.jsonMergePatch': ['quantity', 'unit_cost'],
   'PurchaseOrderLine.inventory_item': ['id', 'name', 'sku'],
   Role: ['archived_at', 'description', 'holder_count', 'id', 'is_system', 'margin_exposure', 'name', 'permission_codes'],
   RoleConflict: ['role', 'sod_row'],

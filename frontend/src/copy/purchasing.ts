@@ -293,6 +293,12 @@ export const APPROVE_ORDER = {
   summaryTotal: (total: string) => `Total: ${total}`,
   summaryWarehouse: (name: string) => `Deliver to: ${name}`,
   unsavedHeader: 'Save or undo your change to Deliver to before approving.',
+  /**
+   * po-4b-red.md H-1 (PO-4b): Approve's visible reason while a line row holds a change not yet saved (`unsavedHeader`'s rule
+   * extended to the lines). NOT a UX key: PLACEHOLDER, UX TO CONFIRM — including its second case (po-4b-red.md S-2): typed
+   * line text hidden by a failed lines reading, which cannot be seen to undo it; the lines' Retry is beside it.
+   */
+  unsavedLines: 'Save or undo your changes to the lines before approving.',
   body: (supplier: string) => `Once it's approved it can't be changed or deleted, only cancelled. You're recorded as the person who approved it. The app doesn't send it to ${supplier}: send it to them yourself.`,
   after: (number: string) => `${number} is approved and now ordered.`,
   afterSupplier: (supplier: string) => `Remember to send the order to ${supplier}: the app doesn't.`,
@@ -308,15 +314,18 @@ export const ORDER_LINES = {
   line: 'Line',
   item: 'Item',
   /**
-   * Quantity headings. Interim unit rule (QR-8, R1-B; PO-4b replaces it with the served unit, final RED L-11): every
-   * quantity heading reads *"… (item's unit)"* until BK-33 serves the line's unit.
+   * Quantity headings (Rev 0 B-4's words, CONFIRMED by po-4b-ux-unit.md §3). From PO-4b (final RED L-11) the interim
+   * *"(item's unit)"* is gone: the unit is the row's own served code in the **Unit** column, after the last quantity and
+   * before Unit cost (QR-8; the catalogue's and the item list's Unit column). Also the Deleted lines table's Quantity.
    */
-  quantity: "Quantity (item's unit)",
-  ordered: "Ordered (item's unit)",
-  received: "Received (item's unit)",
-  stillToCome: "Still to come (item's unit)",
+  quantity: 'Quantity',
+  ordered: 'Ordered',
+  received: 'Received',
+  stillToCome: 'Still to come',
   /** D-3: on a cancelled order the same served number, headed for what it is (never recomputed). */
-  neverReceived: "Never received (item's unit)",
+  neverReceived: 'Never received',
+  /** `unit` (po-4b-ux-unit.md §3, NEW; the `CATALOGUE.unit` word): the column whose cell is the line's served code, shown bare. */
+  unit: 'Unit',
   unitCost: (currency: string) => `Unit cost (${currency})`,
   /** CONFIRMS `CATALOGUE.itemCell`. */
   itemCell: (sku: string, name: string) => `${sku} — ${name}`,
@@ -397,6 +406,31 @@ export const ADD_LINE = {
    * `/inventory_item_id`, never the server's developer words. Deleted in the commit that merges BK-34 (BE-P6) back.
    */
   itemUnavailable: "This item is archived or isn't in this workspace, so it can't go on a purchase order.",
+} as const;
+
+/**
+ * UX R1a `EDIT_LINE` (PO-4b; R1a-1 row 10; heading `NOT_SAVED`): each live line of a live draft is edited in its own row —
+ * Quantity and Unit cost "as Add" (Add's visible labels and hints; the unit cost's hint in its no-prefill form), each box
+ * named per line (M-9; UX marks the names I, FE-LEAD's tests make them unique), and **Save line** per row (D-9; its visible
+ * text `save`, its name `saveName(n)`). The unit is each box's suffix (po-4b-ux-unit.md §2): Quantity shows the code and reads
+ * `unitSuffixSpoken`; Unit cost shows `perUnit(code)` and reads `unitPerSpoken` + "." (R1-D).
+ */
+export const EDIT_LINE = {
+  quantityName: (n: number) => `Quantity, line ${n}`,
+  unitCostName: (n: number) => `Unit cost, line ${n}`,
+  save: 'Save line',
+  saveName: (n: number) => `Save line ${n}`,
+  /** `perUnit(code)` (po-4b-ux-unit.md §3: the text of `EDIT_CATALOGUE_ITEM.perUnit`, own key in this family). */
+  perUnit: (code: string) => `per ${code}`,
+  /**
+   * `itemNote` (final form: Delete line and Add line shipped at PO-5). Under the table, once, and only while Edit, Delete and
+   * Add are all offered to the viewer (a key renders only where every action it names does, R1-2 / final RED L-5).
+   */
+  itemNote: 'To order a different item, delete this line and add a new one.',
+  saved: (n: number) => `Line ${n} was saved.`,
+  /** `savedListStale(n)`: a line Save re-reads the header only (M-9), so "the total" is what can be stale. */
+  savedListStale: (n: number) => `Line ${n} was saved. We couldn't load this order again, so the total may be out of date.`,
+  interrupted: (n: number) => `We can't tell whether your changes to line ${n} were saved. Check this order's lines before you try again.`,
 } as const;
 
 /**
@@ -619,12 +653,14 @@ export const GOODS_RECEIPT_PAGE = {
   readOnlyNote: "A receipt can't be changed or deleted.",
   /**
    * `linesHeading` (D-9: the word confirmed, its own key so a later change to the order page's heading cannot silently
-   * change this page). Lines columns: Order line · Item · Quantity · Location (interim unit heading until BK-33, final RED
-   * L-11).
+   * change this page). Lines columns: Order line · Item · Quantity · Unit · Location — from PO-4b the Quantity heading is
+   * bare and the Unit cell is the receipt line's own served code (final RED L-11; po-4b-ux-unit.md §3).
    */
   linesHeading: 'Lines',
   orderLine: 'Order line',
   item: 'Item',
-  quantity: "Quantity (item's unit)",
+  quantity: 'Quantity',
+  /** `unit` (po-4b-ux-unit.md §3, NEW; its own key, the D-9 reason). */
+  unit: 'Unit',
   location: 'Location',
 } as const;
