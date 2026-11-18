@@ -47,6 +47,12 @@ export interface Refused {
    * is never carried). `rule` and `message` above stay the first served entry's, as before. A 409 carries none.
    */
   violations?: readonly Violation[];
+  /**
+   * GR-2 H-1 (gr-2-h1-red.md H-1 item 4): set only on a 409 `idempotency-key-conflict` — the Idempotency-Key was already
+   * used by a recorded request with a different body. It tells that answer apart from a 409 `stale-record`, which carries
+   * the same empty `rule` and `message`; never infer it from those.
+   */
+  problem?: 'idempotency-key-conflict';
 }
 
 /** One entry of a 422 problem's `errors[]`, projected (A-19 item 3). `message` is the server's sentence, verbatim. */

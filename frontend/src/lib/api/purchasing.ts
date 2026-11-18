@@ -200,6 +200,22 @@ export interface ApprovePurchaseOrderInput {
   expected_at?: string | null;
 }
 
+/** One line of `CreateGoodsReceipt`'s body (served `GoodsReceipt.CreateGoodsReceiptInput.lines[]`; GR-2): one per order line received. */
+export interface CreateGoodsReceiptLineInput {
+  purchase_order_line_id: string;
+  quantity: string;
+  storage_location_id: string;
+}
+
+/**
+ * `CreateGoodsReceipt`'s body (served `GoodsReceipt.CreateGoodsReceiptInput`; GR-2). The receive page never sends
+ * `received_at` (no received-date field, UX E-1 S-9): the server records the time it is received.
+ */
+export interface CreateGoodsReceiptInput {
+  lines: CreateGoodsReceiptLineInput[];
+  received_at?: string | null;
+}
+
 /**
  * The purchase-order refusal rules the family branches on (UX D-2: a status refusal is matched by rule code, the page
  * re-reads and says what it found). `notDraft` (`PurchaseOrderWriter::refuseUnlessDraft`, P9): an edit of an order that
@@ -210,10 +226,12 @@ export interface ApprovePurchaseOrderInput {
  * (PO-8, plan A1, `PurchaseOrderDutySeparation`): DSoD-1 on Approve, checked by the server before the status guard, so the
  * page re-reads after it too (po-8-red.md L-1). `lineArchived` (PO-4b, po-4b-red.md L-4: `PurchaseOrderWriter::updateLine`'s
  * refusal for a deleted line): a line Save refused with it whose re-read shows the line live again says UX D-2's changed-since
- * sentence, never "archived" over a live row. Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent;
+ * sentence, never "archived" over a live row. GR-2: `overReceived` (R1, `GoodsReceiptWriter` step 5: another receipt
+ * took what was still to come) re-reads the lines and keeps typed values (X-15); `onHandFits` (R3) is shown in the client's
+ * words (final RED M-1), never the served detail. Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent;
  * po-4a-red.md L-4).
  */
-export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item', illegalTransition: 'purchase_order.status_transition_is_legal', approverIsCreator: 'purchase_order.approver_is_not_the_creator', lineNotArchived: 'purchase_order_line.is_not_archived', lineArchived: 'purchase_order_line.is_archived' } as const;
+export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item', illegalTransition: 'purchase_order.status_transition_is_legal', approverIsCreator: 'purchase_order.approver_is_not_the_creator', lineNotArchived: 'purchase_order_line.is_not_archived', lineArchived: 'purchase_order_line.is_archived', overReceived: 'purchase_order_line.is_not_over_received', onHandFits: 'stock_level.on_hand_fits' } as const;
 
 /**
  * PO-5 (purchase-orders-final-red.md H-2): the one 422 violation the new line row does not render as served — an item that

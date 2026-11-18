@@ -181,12 +181,15 @@ describe('/goods-receipts — the register (UX B-9)', () => {
     said.stop();
   });
 
-  // UX R1a-1 row 8 / final RED L-3 Note A: GR-1's noneYet is slot 1 only, with no link — even for a ListPurchaseOrders holder.
-  it('R1a-1 row 8 — an empty workspace reads exactly "No deliveries recorded yet.", with no link; the GR-2 form is not rendered', () => {
-    renderWired(<GoodsReceiptsList initial={ok([], { tenantHasRows: false })} canOpenReceipt canOpenOrder />);
-    expect(screen.getByText('No deliveries recorded yet.')).toBeInTheDocument();
-    expect(screen.queryByText(/appears here when a delivery is received/)).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Go to purchase orders' })).toBeNull();
+  // GR-2 moved this test (R1a-1 row 11): `noneYet` in its final form (its reason names Receive, which ships at GR-2) and
+  // `noneYetLink` only for a ListPurchaseOrders holder. Mutations: ship GR-1's form → red; always link → red.
+  it('R1a-1 row 11 — an empty workspace reads the full noneYet; Go to purchase orders only for a ListPurchaseOrders holder', () => {
+    const { unmount } = renderWired(<GoodsReceiptsList initial={ok([], { tenantHasRows: false })} canOpenReceipt canOpenOrder canListOrders />);
+    expect(screen.getByText('No deliveries recorded yet. A goods receipt appears here when a delivery is received against a purchase order.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to purchase orders' })).toHaveAttribute('href', '/purchase-orders');
+    unmount();
+    renderWired(<GoodsReceiptsList initial={ok([], { tenantHasRows: false })} canOpenReceipt canOpenOrder={false} />);
+    expect(screen.getByText('No deliveries recorded yet. A goods receipt appears here when a delivery is received against a purchase order.')).toBeInTheDocument();
     expect(screen.queryAllByRole('link')).toEqual([]);
   });
 

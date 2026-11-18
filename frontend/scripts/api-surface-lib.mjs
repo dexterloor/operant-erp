@@ -73,6 +73,8 @@ const MIRRORED = {
   NamedReference: ['NamedReference'],
   ActorReference: ['ActorReference'],
   GoodsReceipt: ['GoodsReceipt'],
+  'GoodsReceipt.CreateGoodsReceiptInput': ['GoodsReceipt.CreateGoodsReceiptInput'],
+  'GoodsReceipt.CreateGoodsReceiptInput.lines[]': ['GoodsReceipt.CreateGoodsReceiptInput', 'properties', 'lines', 'items'],
   'GoodsReceipt.purchase_order': ['GoodsReceipt', 'properties', 'purchase_order'],
   'GoodsReceipt.lines[]': ['GoodsReceipt', 'properties', 'lines', 'items'],
   'GoodsReceipt.lines[].purchase_order_line': ['GoodsReceipt', 'properties', 'lines', 'items', 'properties', 'purchase_order_line'],

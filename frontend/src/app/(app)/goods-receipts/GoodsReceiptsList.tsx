@@ -49,11 +49,13 @@ export const RECEIPTS_PAGING: Paging<GoodsReceipt> = {
 
 /**
  * The register's empty states (UX B-9; R1a-1 row 8). A search with no match: `noMatch(q)` with Clear search. An empty
- * workspace (`tenant_has_rows` false): `noneYet` in its GR-1 form — slot 1 only, **no link** (final RED L-3 Note A: the
- * *Go to purchase orders* link arrives with its reason at GR-2). The register is the whole live set, so an empty first page
- * of a workspace that has receipts cannot occur: null.
+ * workspace (`tenant_has_rows` false): `noneYet` in its final form from GR-2 (R1a-1 row 11, B-9 slots 1–2) and, for a
+ * ListPurchaseOrders holder only, `noneYetLink` to `/purchase-orders` (slot 3, the upstream flow; plan §2.7). The register is
+ * the whole live set, so an empty first page of a workspace that has receipts cannot occur: null.
  */
-export const registerEmpty: EmptyState = ({ q, tenantHasRows, clearSearch }) => {
+export const registerEmpty =
+  (canListOrders: boolean): EmptyState =>
+  ({ q, tenantHasRows, clearSearch }) => {
   if (q !== '') {
     return {
       heading: GOODS_RECEIPTS_LIST.noMatch(q),
@@ -64,7 +66,8 @@ export const registerEmpty: EmptyState = ({ q, tenantHasRows, clearSearch }) => 
       ),
     };
   }
-  return tenantHasRows === false ? { heading: GOODS_RECEIPTS_LIST.noneYet } : null;
+  if (tenantHasRows !== false) return null;
+  return canListOrders ? { heading: GOODS_RECEIPTS_LIST.noneYet, actions: <Link href="/purchase-orders">{GOODS_RECEIPTS_LIST.noneYetLink}</Link> } : { heading: GOODS_RECEIPTS_LIST.noneYet };
 };
 
 /**
@@ -73,7 +76,7 @@ export const registerEmpty: EmptyState = ({ q, tenantHasRows, clearSearch }) => 
  * never deleted (class `none`, TB-3 "absent — not disabled") — so no view control renders and no read sends `archived`;
  * no fixed filter (R10-4). Nothing is written to the address: a reload opens page 1.
  */
-export function GoodsReceiptsList({ initial, canOpenReceipt, canOpenOrder }: { initial: ReceiptsLoad; canOpenReceipt: boolean; canOpenOrder: boolean }) {
+export function GoodsReceiptsList({ initial, canOpenReceipt, canOpenOrder, canListOrders = false }: { initial: ReceiptsLoad; canOpenReceipt: boolean; canOpenOrder: boolean; canListOrders?: boolean }) {
   const timeZone = useViewerTimeZone();
   const columns = () => receiptColumns({ timeZone, canOpenReceipt, canOpenOrder, withOrder: true });
   return (
@@ -84,7 +87,7 @@ export function GoodsReceiptsList({ initial, canOpenReceipt, canOpenOrder }: { i
       search={SEARCH}
       columns={columns}
       copy={{ heading: GOODS_RECEIPTS_LIST.heading, archived: '', loadFailed: GOODS_RECEIPTS_LIST.loadFailed, shown: (n, q) => GOODS_RECEIPTS_LIST.shown(n, q) }}
-      empty={registerEmpty}
+      empty={registerEmpty(canListOrders)}
       // R10-1: a caption naming the served order goes through `notice`.
       notice={() => <p className={listStyles.muted}>{GOODS_RECEIPTS_LIST.caption}</p>}
       denied={<GoodsReceiptsDenied />}

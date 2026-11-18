@@ -6,7 +6,7 @@ import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
-import type { ActorReference, ApprovePurchaseOrderInput, CancelPurchaseOrderInput, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, GoodsReceipt, GoodsReceiptLine, GoodsReceiptLocationReference, GoodsReceiptOrderLineReference, GoodsReceiptOrderReference, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '@/lib/api/purchasing';
+import type { ActorReference, ApprovePurchaseOrderInput, CancelPurchaseOrderInput, CreateGoodsReceiptInput, CreateGoodsReceiptLineInput, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, GoodsReceipt, GoodsReceiptLine, GoodsReceiptLocationReference, GoodsReceiptOrderLineReference, GoodsReceiptOrderReference, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
@@ -109,6 +109,8 @@ const MIRRORED: Record<string, string[]> = {
   // Purchase orders PO-8: Approve's body (the dialog always sends `{}`: no expected date while D-4 is unruled).
   'PurchaseOrder.ApprovePurchaseOrderInput': keysOf<ApprovePurchaseOrderInput>()({ expected_at: true }),
   // Goods receipts GR-1: the receipt (register, receipt page, the order page's section) and its inline references.
+  'GoodsReceipt.CreateGoodsReceiptInput': keysOf<CreateGoodsReceiptInput>()({ lines: true, received_at: true }),
+  'GoodsReceipt.CreateGoodsReceiptInput.lines[]': keysOf<CreateGoodsReceiptLineInput>()({ purchase_order_line_id: true, quantity: true, storage_location_id: true }),
   GoodsReceipt: keysOf<GoodsReceipt>()({ id: true, receipt_number: true, received_at: true, purchase_order: true, received_by: true, lines: true }),
   'GoodsReceipt.purchase_order': keysOf<GoodsReceiptOrderReference>()({ id: true, order_number: true }),
   'GoodsReceipt.lines[]': keysOf<GoodsReceiptLine>()({ id: true, purchase_order_line: true, inventory_item: true, quantity: true, storage_location: true, unit_of_measure_code: true }),

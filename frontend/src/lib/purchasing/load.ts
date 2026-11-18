@@ -1,6 +1,6 @@
 import { isPurchaseOrderSegment, PURCHASE_ORDER_SEGMENTS, type ActorReference, type GoodsReceipt, type GoodsReceiptLine, type NamedReference, type PurchaseOrder, type PurchaseOrderLine, type PurchaseOrderSegment } from '../api/purchasing';
 import type { Supplier, SupplierProduct } from '../api/suppliers';
-import type { Warehouse } from '../api/warehouses';
+import type { StorageLocation, Warehouse } from '../api/warehouses';
 import { pageQuery, type PageRequest, type Read, type ReadFailure } from '../bff/reads';
 
 // The purchasing family's loaders (the lib/suppliers/load.ts shape; b4-architecture.md Revision 10 R10-2: one family
@@ -273,4 +273,25 @@ export async function loadCatalogueChoices(read: Read, supplierId: string, signa
   const items = body?.items;
   if (!Array.isArray(items) || !items.every(isCatalogueChoice)) return { kind: 'server-error' };
   return { kind: 'ok', entries: items.map(({ id, inventory_item, unit_cost, currency_code, unit_of_measure_code }) => ({ id, inventory_item: { id: inventory_item.id, sku: inventory_item.sku, name: inventory_item.name }, unit_cost, currency_code, unit_of_measure_code })) };
+}
+
+/** GR-2: one option of a receive row's Location select — a live location of the order's warehouse (code + kind). */
+export type LocationChoice = Pick<StorageLocation, 'id' | 'code' | 'kind'>;
+export type LocationChoicesLoad = { readonly kind: 'ok'; readonly locations: LocationChoice[] } | { readonly kind: ReadFailure };
+
+const isLocationChoice = (x: unknown): x is LocationChoice => isObject(x) && typeof x.id === 'string' && typeof x.code === 'string' && typeof x.kind === 'string';
+
+/**
+ * `ListStorageLocations` for the receive page's Location selects (plan §2.6): the order's warehouse's LIVE view, the whole
+ * set in one answer, in served order (code). It sends no query at all — never `archived` — so an archived location is
+ * never offered. Run over the server transport on first render, the browser one after a location refusal (R2).
+ */
+export async function loadLocationChoices(read: Read, warehouseId: string, signal?: AbortSignal): Promise<LocationChoicesLoad> {
+  const a = await read('ListStorageLocations', { params: { id: warehouseId }, query: new URLSearchParams(), signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown; next_cursor?: unknown } | null;
+  const items = body?.items;
+  // gr-2-red.md L-2: the read is whole (not paged); an answer that says there is more is not the whole set.
+  if (!Array.isArray(items) || !items.every(isLocationChoice) || (body?.next_cursor !== undefined && body.next_cursor !== null)) return { kind: 'server-error' };
+  return { kind: 'ok', locations: items.map(({ id, code, kind }) => ({ id, code, kind })) };
 }

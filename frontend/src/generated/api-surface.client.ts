@@ -73,6 +73,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  CreateGoodsReceipt: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders/{id}/goods-receipts',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['goods_receipt.create'],
+    },
+  },
   CreateItem: {
     method: 'POST',
     template: '/api/v1/items',
@@ -669,6 +679,8 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   ActorReference: ['display_name', 'id'],
   Collection: ['items', 'next_cursor', 'previous_cursor', 'tenant_has_rows'],
   GoodsReceipt: ['id', 'lines', 'purchase_order', 'receipt_number', 'received_at', 'received_by'],
+  'GoodsReceipt.CreateGoodsReceiptInput': ['lines', 'received_at'],
+  'GoodsReceipt.CreateGoodsReceiptInput.lines[]': ['purchase_order_line_id', 'quantity', 'storage_location_id'],
   'GoodsReceipt.lines[]': ['id', 'inventory_item', 'purchase_order_line', 'quantity', 'storage_location', 'unit_of_measure_code'],
   'GoodsReceipt.lines[].inventory_item': ['id', 'name', 'sku'],
   'GoodsReceipt.lines[].purchase_order_line': ['id', 'line_number'],

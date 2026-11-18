@@ -16,6 +16,8 @@ export const NOT_REMOVED = 'Not removed';
 export const NOT_CANCELLED = 'Not cancelled';
 /** purchase-orders-ux-copy.md B-6 (the heading rule, `ux-copy-frontend.md` §3: the button says Approve → Not approved): Approve's refusal heading (PO-8). */
 export const NOT_APPROVED = 'Not approved';
+/** GR-2: Record receipt refused (UX B-0 heading rule: Record/Receive → Not recorded; purchase-orders-ux-copy.md :168). */
+export const NOT_RECORDED = 'Not recorded';
 
 /**
  * b4-owed-copy.md Rev 2 R1-1; the B-3a fallback phrasing, F16, confirmed by ux-confirm-b4.md: where the client cannot know whether the

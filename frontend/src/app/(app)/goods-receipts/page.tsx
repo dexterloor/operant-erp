@@ -25,5 +25,5 @@ export default async function Page() {
   const first = await loadReceipts(serverRead(session), { q: '', cursor: null });
   if (first.kind === 'session-ended') redirect(sessionEndedPath('/goods-receipts'));
   if (first.kind === 'forbidden') return <GoodsReceiptsDenied />;
-  return <GoodsReceiptsList initial={first} canOpenReceipt={viewerMay('GetGoodsReceipt', viewer.permissionCodes)} canOpenOrder={viewerMay('GetPurchaseOrder', viewer.permissionCodes)} />;
+  return <GoodsReceiptsList initial={first} canOpenReceipt={viewerMay('GetGoodsReceipt', viewer.permissionCodes)} canOpenOrder={viewerMay('GetPurchaseOrder', viewer.permissionCodes)} canListOrders={viewerMay('ListPurchaseOrders', viewer.permissionCodes)} />;
 }

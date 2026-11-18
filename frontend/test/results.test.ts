@@ -14,7 +14,8 @@ describe('lib/results (RED M-2, Revision 2 C-3)', () => {
 
   it('Refused carries the served problem fields rule + message (ApiProblem.php getRule / message)', () => {
     // Revision 7 A-19 item 3: `violations` is optional and set only by a 422 (projected to exactly three strings).
-    expectTypeOf<Shared.Refused>().toEqualTypeOf<{ kind: 'refused'; rule: string; message: string; violations?: readonly Shared.Violation[] }>();
+    // GR-2 H-1 (gr-2-h1-red.md H-1 item 4): `problem` is optional and set only by a 409 idempotency-key-conflict (pin moved deliberately).
+    expectTypeOf<Shared.Refused>().toEqualTypeOf<{ kind: 'refused'; rule: string; message: string; violations?: readonly Shared.Violation[]; problem?: 'idempotency-key-conflict' }>();
     expectTypeOf<Shared.Violation>().toEqualTypeOf<{ readonly pointer: string; readonly code: string; readonly message: string }>();
     expectTypeOf<Shared.SessionEnded['kind']>().toEqualTypeOf<'session-ended'>();
     expectTypeOf<Shared.Forbidden['kind']>().toEqualTypeOf<'forbidden'>();

@@ -4,6 +4,7 @@
   "CancelPurchaseOrder",
   "CancelRoleGrantProposal",
   "ConfirmRoleGrantProposal",
+  "CreateGoodsReceipt",
   "CreateItem",
   "CreatePurchaseOrder",
   "CreatePurchaseOrderLine",

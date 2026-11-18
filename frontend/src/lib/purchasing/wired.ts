@@ -1,12 +1,13 @@
-import { ITEM_UNAVAILABLE, PURCHASE_ORDER_REFUSAL, type ApprovePurchaseOrderInput, type CancelPurchaseOrderInput, type CreatePurchaseOrderInput, type CreatePurchaseOrderLineInput, type PurchaseOrder } from '../api/purchasing';
+import { ITEM_UNAVAILABLE, PURCHASE_ORDER_REFUSAL, type ApprovePurchaseOrderInput, type CancelPurchaseOrderInput, type CreatePurchaseOrderInput, type CreateGoodsReceiptInput, type CreatePurchaseOrderLineInput, type PurchaseOrder } from '../api/purchasing';
 import { PLATFORM_REFUSAL } from '../api/problems';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
+import { heldKey } from '../bff/heldKey';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import type { Refused } from '../results';
-import { isPurchaseOrder, isPurchaseOrderLine, loadDeletedLines, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
-import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, EDIT_LINE_FIELDS, ORDER_FIELDS, type AddLineAction, type ApproveOrderAction, type ApproveOrderResult, type AddLineResult, type CancelOrderAction, type CancelOrderResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type DeleteOrderAction, type DeleteOrderResult, type LineChange, type OrderChange, type RestoreLineAction, type RestoreLineResult, type RestoreOrderAction, type SaveLineAction, type SaveLineResult, type SaveOrderAction } from './results';
+import { isGoodsReceipt, isPurchaseOrder, isPurchaseOrderLine, loadDeletedLines, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
+import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, EDIT_LINE_FIELDS, isReceivable, ORDER_FIELDS, type ReceiveAction, type ReceiveResult, type ReceiveRowField, type AddLineAction, type ApproveOrderAction, type ApproveOrderResult, type AddLineResult, type CancelOrderAction, type CancelOrderResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type DeleteOrderAction, type DeleteOrderResult, type LineChange, type OrderChange, type RestoreLineAction, type RestoreLineResult, type RestoreOrderAction, type SaveLineAction, type SaveLineResult, type SaveOrderAction } from './results';
 
 // The purchasing family's actions over the BFF (Revision 8 R8-2; the lib/suppliers/wired.ts shape). PO-2 shipped
 // Restore purchase order; PO-3 Create purchase order; PO-4a Save (the draft's header); PO-5 adds Add line and Delete line;
@@ -675,6 +676,97 @@ export function lineSave(w: OrderWiring): SaveLineAction {
         default:
           return done({ kind: 'server-error' });
       }
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+/** GR-2: a 422 pointer naming one row's field, `/lines/{request index}/{field}`. */
+const RECEIVE_POINTER = /^\/lines\/(\d+)\/(quantity|storage_location_id)$/;
+/** GR-2 (final RED M-1): the order line a served `stock_level.on_hand_fits` sentence names (a 409 carries no pointer). */
+const ORDER_LINE_NAMED = /^Order line (\d+)\b/;
+
+// Record receipt (GR-2; plan §2.6, Revision 1 R1-5 GR-2). GR-2 H-1 (gr-2-h1-spar.md converged text): ONE Idempotency-Key per
+// action (= per receive page, which creates the action once), held in a `heldKey(newKey)` holder and taken BEFORE the send
+// (write-ahead: a throwing caller leaves it held). It is rotated (`consumed()`) only once known used up: after a 201 whose
+// body passes `isGoodsReceipt` (never on the raw ok), and after a 409 `idempotency-key-conflict` (the explicit `problem`
+// discriminator). Every other answer keeps it — an unknown outcome may have committed, and a refusal commits nothing — so a
+// retry from this page replays, conflicts, or runs once, never records the delivery twice. The body is never compared; a
+// changed body goes out under the held key and the server decides. A conflict is checked FIRST in the refused arm, then the
+// order (and, when receivable, its lines) is re-read → `earlier-recorded` in three variants; the server's detail is never
+// carried. The form never sends two at once. The body is one
+// `{purchase_order_line_id, quantity, storage_location_id}` per row the form hands over, copied by name in its order, the
+// quantity as typed; never `received_at`. One deadline covers the request and every re-read after it. After a 201 the order
+// is re-read for the arrival sentence's status (a failed re-read gives `order: null`). A 422 is keyed by REQUEST index
+// (the form maps it back, M-6). R3 (`onHandFits`) is named by its order line and shown in the client's words (final RED
+// M-1). P1 is returned as sent ("try again"). Any other 409 is followed by a re-read of the order and its lines, and what
+// that re-read shows decides (a refusal's re-read is checked before anything is said): an order nothing can be received on
+// → `order-changed`; R1 (`overReceived`) over a receivable order → `over-received` with the new lines (X-15); otherwise the
+// refusal as sent.
+export function receiptCreate(caller: ApiCaller, orderId: string, newKey: () => string = () => crypto.randomUUID()): ReceiveAction {
+  const held = heldKey(newKey);
+  return async (lines): Promise<ReceiveResult> => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.receiptCreate);
+    try {
+      const body: CreateGoodsReceiptInput = { lines: lines.map((l) => ({ purchase_order_line_id: l.purchase_order_line_id, quantity: l.quantity, storage_location_id: l.storage_location_id })) };
+      const r = await caller.call('CreateGoodsReceipt', { id: orderId }, body, { signal: deadline.signal, idempotencyKey: held.key() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            if (r.problem === 'idempotency-key-conflict') {
+              held.consumed();
+              // gr-2-round2-red.md L-1: the key is already consumed, so a re-read that throws is a failed re-read, never a rejection.
+              const again = await loadPurchaseOrder(readOf(caller), orderId, deadline.signal).catch(() => ({ kind: 'server-error' as const }));
+              if (again.kind !== 'ok') return { kind: 'earlier-recorded', order: null, lines: null };
+              if (!isReceivable(again.order)) return { kind: 'earlier-recorded', order: again.order, lines: null };
+              const fresh = await loadLines(readOf(caller), orderId, deadline.signal).catch(() => ({ kind: 'server-error' as const }));
+              // L-5: only the whole set counts (round-1 L-2's rule for the first read).
+              return fresh.kind === 'ok' && fresh.nextCursor === null ? { kind: 'earlier-recorded', order: again.order, lines: fresh.lines } : { kind: 'earlier-recorded', order: null, lines: null };
+            }
+            if (r.violations !== undefined && r.violations.length > 0) {
+              const rows = new Map<string, Partial<Record<ReceiveRowField, string>>>();
+              const formErrors: string[] = [];
+              for (const v of r.violations) {
+                const m = RECEIVE_POINTER.exec(v.pointer);
+                if (m === null) {
+                  formErrors.push(v.message);
+                  continue;
+                }
+                const index = m[1]!;
+                const field = m[2] as ReceiveRowField;
+                const row = rows.get(index) ?? {};
+                if (row[field] === undefined || row[field] === '') row[field] = v.message;
+                rows.set(index, row);
+              }
+              return { kind: 'invalid', rows, formErrors };
+            }
+            if (r.rule === PLATFORM_REFUSAL.contention) return r;
+            if (r.rule === PURCHASE_ORDER_REFUSAL.onHandFits) {
+              const m = ORDER_LINE_NAMED.exec(r.message);
+              return { kind: 'on-hand-too-large', lineNumber: m === null ? null : m[1]! };
+            }
+            const order = await loadPurchaseOrder(readOf(caller), orderId, deadline.signal);
+            if (order.kind !== 'ok') return r;
+            if (!isReceivable(order.order)) return { kind: 'order-changed', order: order.order };
+            if (r.rule !== PURCHASE_ORDER_REFUSAL.overReceived) return r;
+            const fresh = await loadLines(readOf(caller), orderId, deadline.signal);
+            return fresh.kind === 'ok' && fresh.nextCursor === null ? { kind: 'over-received', message: r.message, order: order.order, lines: fresh.lines } : r;
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      if (!isGoodsReceipt(r.body)) return { kind: 'server-error' };
+      held.consumed();
+      const order = await loadPurchaseOrder(readOf(caller), orderId, deadline.signal).catch(() => ({ kind: 'server-error' as const }));
+      return { kind: 'recorded', receipt: r.body, order: order.kind === 'ok' ? order.order : null };
     } finally {
       deadline.cancel();
     }

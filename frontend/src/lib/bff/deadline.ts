@@ -102,6 +102,8 @@ export const ACTION_DEADLINES_MS = {
    * Save a line of a draft purchase order (PO-4b): the PATCH + the header-only GetPurchaseOrder re-read (M-9); after a
    * refusal or a 404, the order and its lines read again to see whether the line or the page was stale.
    */
+  /** GR-2: Record receipt — the request + the GetPurchaseOrder re-read (the arrival sentence's status) or, after a refusal, the order + lines + locations re-read. */
+  receiptCreate: 30_000,
   lineSave: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,

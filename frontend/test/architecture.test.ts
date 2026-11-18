@@ -279,7 +279,9 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
   // Purchase orders PO-8 (po-8-red.md L-1, A1 → re-read): DSoD-1's Approve rule, compared in lib/purchasing/wired.ts.
   // Purchase orders PO-9 (po-9-red.md L-1, W24 → already restored): the line restore's not-archived rule, compared in lib/purchasing/wired.ts.
   // Purchase orders PO-4b (po-4b-red.md L-4): the line update's archived-line rule, compared in lib/purchasing/wired.ts.
-  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived', 'purchase_order_line.is_archived'],
+  // Purchase orders GR-2 (plan §2.6 R1 → lines re-read, X-15; final RED M-1, R3 → the client's sentence): the over-receipt
+  // and the on-hand-fits rules, compared in lib/purchasing/wired.ts.
+  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived', 'purchase_order_line.is_archived', 'purchase_order_line.is_not_over_received', 'stock_level.on_hand_fits'],
 };
 
 /** The code-shaped literals a home's top-level declarations hold (the ones `literalViolations` exempts there). */
@@ -348,7 +350,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-1 added: lib/api/purchasing.ts, lib/purchasing/load.ts (R8-2; no results or wired before PO-2's
   // first action). PO-2 added: lib/purchasing/results.ts, lib/purchasing/wired.ts (Restore purchase order). PO-3 added
   // nothing here (Create purchase order joins the three files).
-  'src/lib': 75,
+  // Purchase orders GR-2 H-1 added: lib/bff/heldKey.ts (the held Idempotency-Key of a stock- or money-moving create).
+  'src/lib': 76,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -373,7 +376,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-7 added: components/purchasing/CancelOrderDialog.tsx (Cancel order's reason dialog, plan §3).
   // Purchase orders PO-8 added: components/purchasing/PlaceOrderDialog.tsx (Approve's confirm dialog, plan §3).
   // Purchase orders PO-4b added: components/purchasing/EditLineRow.tsx (a live line's edit row, R10-6).
-  'src/components': 73,
+  // Purchase orders GR-2 added: components/purchasing/ReceiveForm.tsx (the receive page's form, plan R1-4: the M-6 map lives here).
+  'src/components': 74,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
   // Purchase orders PO-1 added: lib/api/purchasing.ts.
   'src/lib/api': 10,
@@ -403,7 +407,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-7 added: CancelOrderDialog.tsx (Cancel order's reason dialog).
   // Purchase orders PO-8 added: PlaceOrderDialog.tsx (Approve's confirm dialog).
   // Purchase orders PO-4b added: EditLineRow.tsx (a live line's edit row, R10-6).
-  'src/components/purchasing': 6,
+  // Purchase orders GR-2 added: ReceiveForm.tsx (the receive page's form and its confirm dialog).
+  'src/components/purchasing': 7,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -442,7 +447,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // B-3b C6 added: lib/roles/{load,wired}.ts.
   // B-3b C7 added: lib/permissions/{load,wired}.ts; app/(app)/ArchivableList.tsx (the list both pages share; moved from admin/ by Revision 7 A-16, count unchanged),
   // app/(app)/admin/roles/{page,RolesList,RoleStates}.tsx, app/(app)/admin/roles/[id]/{page,RolePage,not-found}.tsx.
-  'src/lib/bff': 16,
+  // Purchase orders GR-2 H-1 added: lib/bff/heldKey.ts (gr-2-h1-spar.md converged text; its guard is at the end of this file).
+  'src/lib/bff': 17,
   'src/lib/bff/server': 7,
   // b3b-followup C-2 added: app/error.tsx, app/(app)/error.tsx, app/not-found.tsx.
   // c10 commit B added: app/bff/me/password/route.ts; moved (count unchanged) app/account/password/{page,
@@ -467,7 +473,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // app/(app)/goods-receipts/{page,GoodsReceiptsList,GoodsReceiptStates}.tsx,
   // app/(app)/goods-receipts/[id]/{page,GoodsReceiptPage,not-found}.tsx, and app/(app)/purchase-orders/[id]/ReceiptsSection.tsx
   // (the order page's Receipts section, no route).
-  'src/app': 85,
+  // Purchase orders GR-2 added: app/(app)/purchase-orders/[id]/receive/{page,ReceivePage}.tsx.
+  'src/app': 87,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -1442,6 +1449,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/purchasing/NewOrderForm.tsx',
       // Purchase orders PO-4a (G-F2 row): the draft header's editor.
       'src/components/purchasing/OrderHeaderForm.tsx',
+      // Purchase orders GR-2 (G-F2 row): the receive page's form (its confirm dialog is a sibling after it, never in it).
+      'src/components/purchasing/ReceiveForm.tsx',
       // Suppliers S-5 (G-F2 row): Add to catalogue's dialog is a <form> (its item list sits before it, never in it).
       'src/components/suppliers/AddEntryForm.tsx',
       // Suppliers S-4 (G-F2 row): the catalogue entry's Edit dialog is a <form>, so it joins here.
@@ -1956,7 +1965,7 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
   it('the item dirs and the renderer hold no such token', () => {
     const files = scanned();
     // Positive control: the scan reads the item family and the renderer, not an empty set.
-    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/purchase-orders/PurchaseOrdersList.tsx', 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', 'src/app/(app)/purchase-orders/[id]/LinesSection.tsx', 'src/components/purchasing/NewOrderForm.tsx', 'src/app/(app)/purchase-orders/new/NewPurchaseOrderPage.tsx', 'src/components/purchasing/OrderHeaderForm.tsx', 'src/components/purchasing/AddLineRow.tsx', 'src/app/(app)/goods-receipts/GoodsReceiptsList.tsx', 'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx', 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx']));
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/purchase-orders/PurchaseOrdersList.tsx', 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', 'src/app/(app)/purchase-orders/[id]/LinesSection.tsx', 'src/components/purchasing/NewOrderForm.tsx', 'src/app/(app)/purchase-orders/new/NewPurchaseOrderPage.tsx', 'src/components/purchasing/OrderHeaderForm.tsx', 'src/components/purchasing/AddLineRow.tsx', 'src/app/(app)/goods-receipts/GoodsReceiptsList.tsx', 'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx', 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx', 'src/components/purchasing/ReceiveForm.tsx', 'src/app/(app)/purchase-orders/[id]/receive/ReceivePage.tsx', 'src/lib/purchasing/results.ts']));
     // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8. Suppliers S-3 added the supplier
     // dirs (src/app/(app)/suppliers: 9 files at S-3) and lib/format/money.ts (+1). Suppliers S-4: EntryForm.tsx (the Edit
     // dialog, which holds a cost and a minimum order) is in the positive control; it is counted by EXPECTED_COUNTS.
@@ -1966,8 +1975,9 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
     // dir's new/{page,NewPurchaseOrderPage}.tsx → 9. PO-4a: components/purchasing/OrderHeaderForm.tsx (counted by
     // EXPECTED_COUNTS) is in the positive control. PO-5: components/purchasing/AddLineRow.tsx (the new line row, which holds a
     // quantity and a cost) likewise. Goods receipts GR-1: the order route dir gains [id]/ReceiptsSection.tsx → 10, and the
-    // receipt route dir joins with its 6 files.
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 10 + 6);
+    // receipt route dir joins with its 6 files. GR-2: the order route dir gains [id]/receive/{page,ReceivePage}.tsx → 12; the
+    // receive form (a quantity typed and sent as text) and the zero rule (`isNotReceived`, results.ts) are in the control.
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 12 + 6);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 
@@ -2959,5 +2969,123 @@ describe('architecture — G-51: no stock count or transfer while G-51 is open (
     const file = path.join(ROOT, G51_BACKEND_FILE);
     expect(existsSync(file), `G-51 parity: ${G51_BACKEND_FILE} is not where this reads the backend message, so the two could drift apart unseen.`).toBe(true);
     expect(phpInlineMessage(readFileSync(file, 'utf8'), G51_BACKEND_METHOD, G51_BACKEND_ANCHOR), 'G51_MESSAGE is no longer the backend text: sync it (the backend owns the canonical message).').toBe(G51_MESSAGE);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// GR-2 H-1 (gr-2-h1-spar.md converged text; first RED gr-2-h1-red.md M-1; round-2 RED gr-2-round2-red.md M-1, M-2, L-2, L-3;
+// b4-architecture.md R10-7): a create that moves stock or money holds its Idempotency-Key across an unknown outcome. Any
+// non-generated src/ file that calls one of the operations below by name (`<x>.call('<Operation>', …)`) must pass
+// `idempotencyKey: <h>.key()` where `<h>` is bound in the same file to `heldKey(…)` imported from `src/lib/bff/heldKey`, and
+// not declared in the very function that sends (a holder minted per press) — a callback nested inside that function counts
+// as a different function, so a per-press holder used from a `map`/`forEach` callback is not seen. A bare `newKey()`, `crypto.randomUUID()` or a
+// missing key is red. This is the trigger of frontend-residuals.md FE-R12 (the other creates' fresh key per press). Limits,
+// stated: a call through `caller.operation(op, …)` is not seen (no `src` file uses it today); a non-literal id in
+// `caller.call` is red outside `DYNAMIC_CALL_ALLOWED`; a holder created in a React component body (per render) with the
+// call in a nested handler is not seen — the behaviour tests (test/wired/receipt-held-key.test.ts) and the `useState`
+// review check hold that for CreateGoodsReceipt.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Closed list (a new entry is a deliberate edit): the §4.2 creates that move stock or money AND carry an Idempotency-Key
+ * (their Idem cell is `unique:…`; the generated surface says `idempotencyKeyRequired: true`). Status-guarded money writes
+ * (PayInvoice, ReverseInvoicePayment, VoidInvoice) send no key and are out by construction.
+ */
+const STOCK_OR_MONEY_OPERATIONS: readonly string[] = ['CreateGoodsReceipt', 'CreateStockAdjustment', 'CreateStockTransfer', 'CreateFulfilment', 'IssueInvoice', 'IssueCreditNote', 'IssueAdjustmentCreditNote', 'CreateSalesReturn'];
+const HELD_KEY_MODULE = 'src/lib/bff/heldKey';
+/** Files allowed to call `caller.call` with a non-literal operation id. reads.ts: the read transport; it sends no key. */
+const DYNAMIC_CALL_ALLOWED: readonly string[] = ['src/lib/bff/reads.ts'];
+
+function heldKeyViolations(files: readonly SourceFile[]): { violations: Violation[]; inspected: string[] } {
+  const out: Violation[] = [];
+  const inspected: string[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, 'src') || under(sf.file, 'src/generated')) continue;
+    const tree = parse(sf);
+    // Local names bound to the imported heldKey, then the names bound to a heldKey(...) call (with the function each is declared in).
+    const heldKeyNames = new Set<string>();
+    for (const st of tree.statements) {
+      if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
+      const t = targetOf(sf.file, st.moduleSpecifier.text).replace(/\.tsx?$/, '');
+      if (t !== HELD_KEY_MODULE) continue;
+      const named = st.importClause?.namedBindings;
+      if (named && ts.isNamedImports(named)) for (const el of named.elements) if ((el.propertyName ?? el.name).text === 'heldKey') heldKeyNames.add(el.name.text);
+    }
+    const holders = new Map<string, (ts.Node | undefined)[]>();
+    const calls: { call: ts.CallExpression; fn: ts.Node | undefined }[] = [];
+    const fns: ts.Node[] = [];
+    const visit = (node: ts.Node) => {
+      const fn = fns[fns.length - 1];
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && ts.isCallExpression(node.initializer) && ts.isIdentifier(node.initializer.expression) && heldKeyNames.has(node.initializer.expression.text)) {
+        holders.set(node.name.text, [...(holders.get(node.name.text) ?? []), fn]);
+      }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'call') {
+        const first = node.arguments[0];
+        if (first !== undefined && ts.isStringLiteralLike(first) && STOCK_OR_MONEY_OPERATIONS.includes(first.text)) calls.push({ call: node, fn });
+      }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'call') {
+        const first = node.arguments[0];
+        if (first !== undefined && !ts.isStringLiteralLike(first) && !DYNAMIC_CALL_ALLOWED.includes(sf.file) && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'caller')
+          out.push({ file: sf.file, detail: 'caller.call with a non-literal operation id: the stock-or-money check cannot see it (GR-2 H-1, FE-R12) — name the operation literally, or add the file to DYNAMIC_CALL_ALLOWED with a reason' });
+      }
+      const isFn = ts.isFunctionLike(node);
+      if (isFn) fns.push(node);
+      ts.forEachChild(node, visit);
+      if (isFn) fns.pop();
+    };
+    visit(tree);
+    for (const { call, fn } of calls) {
+      const op = (call.arguments[0] as ts.StringLiteralLike).text;
+      inspected.push(`${sf.file}:${op}`);
+      const options = call.arguments[3];
+      let value: ts.Expression | undefined;
+      if (options !== undefined && ts.isObjectLiteralExpression(options)) {
+        for (const p of options.properties) if (ts.isPropertyAssignment(p) && p.name.getText(tree) === 'idempotencyKey') value = p.initializer;
+      }
+      const holderFns =
+        value !== undefined && ts.isCallExpression(value) && value.arguments.length === 0 && ts.isPropertyAccessExpression(value.expression) && value.expression.name.text === 'key' && ts.isIdentifier(value.expression.expression)
+          ? holders.get(value.expression.expression.text)
+          : undefined;
+      // Held: a holder of that name exists, and none of them is declared in the function that sends (round-2 RED L-2).
+      const held = holderFns !== undefined && !holderFns.some((h) => h !== undefined && h === fn);
+      if (!held) out.push({ file: sf.file, detail: `${op} moves stock or money: its Idempotency-Key must come from a heldKey(…) holder's key(), not minted per press (GR-2 H-1, FE-R12)` });
+    }
+  }
+  return { violations: out, inspected };
+}
+
+describe('architecture — GR-2 H-1: a stock- or money-moving create holds its Idempotency-Key (heldKey; FE-R12 trigger)', () => {
+  it('the real tree: every call of a listed operation takes its key from a heldKey holder (the checker inspected CreateGoodsReceipt)', () => {
+    const surface = readFileSync('src/generated/api-surface.server.ts', 'utf8');
+    for (const op of STOCK_OR_MONEY_OPERATIONS) {
+      const entry = new RegExp(`\\n  ${op}: \\{[\\s\\S]*?\\n  \\}`).exec(surface)?.[0] ?? '';
+      expect(entry, `${op} is not in the generated surface`).not.toBe('');
+      expect(entry, `${op} must require an Idempotency-Key to be on this list`).toContain('idempotencyKeyRequired: true');
+    }
+    // Membership pinned (gr-2-round3-red.md L-1): a removal or an addition is a deliberate edit in two places, never a silent one.
+    expect([...STOCK_OR_MONEY_OPERATIONS].sort()).toEqual(['CreateFulfilment', 'CreateGoodsReceipt', 'CreateSalesReturn', 'CreateStockAdjustment', 'CreateStockTransfer', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice']);
+    const { violations, inspected } = heldKeyViolations(walk('src'));
+    expect(inspected).toEqual(['src/lib/purchasing/wired.ts:CreateGoodsReceipt']);
+    expect(violations).toEqual([]);
+  });
+
+  it('planted controls: a fresh key per press, a missing key, a holder not from heldKey, an import from elsewhere, a non-literal id, a per-press holder all go red; the held shape does not', () => {
+    const imp = "import { heldKey } from '@/lib/bff/heldKey';\n";
+    const planted: SourceFile[] = [
+      { file: 'src/lib/stock/A.ts', source: `${imp}export const a = (caller, newKey) => caller.call('CreateStockAdjustment', {}, {}, { idempotencyKey: newKey() });` },
+      { file: 'src/lib/stock/B.ts', source: `${imp}export const b = (caller) => caller.call('CreateStockTransfer', {}, {}, { signal: undefined });` },
+      { file: 'src/lib/stock/C.ts', source: `${imp}const pending = { key: () => crypto.randomUUID() };\nexport const c = (caller) => caller.call('CreateFulfilment', {}, {}, { idempotencyKey: pending.key() });` },
+      { file: 'src/lib/stock/D.ts', source: "import { heldKey } from '@/lib/bulk/results';\nconst k = heldKey(() => 'x');\nexport const d = (caller) => caller.call('IssueAdjustmentCreditNote', {}, {}, { idempotencyKey: k.key() });" },
+      { file: 'src/lib/stock/Dyn.ts', source: "export const w = (caller, op, newKey) => caller.call(op, {}, {}, { idempotencyKey: newKey() });" },
+      { file: 'src/lib/stock/E.ts', source: `${imp}export const e = (caller) => caller.call('IssueInvoice', {}, {});` },
+      { file: 'src/lib/stock/Ok.ts', source: `${imp}const held = heldKey(() => crypto.randomUUID());\nexport const ok = (caller) => caller.call('IssueCreditNote', {}, {}, { signal: undefined, idempotencyKey: held.key() });` },
+      { file: 'src/lib/stock/Alias.ts', source: "import { heldKey as hold } from '../bff/heldKey';\nconst h = hold(() => 'x');\nexport const ok2 = (caller) => caller.call('CreateSalesReturn', {}, {}, { idempotencyKey: h.key() });" },
+      { file: 'src/lib/stock/PerPress.ts', source: `${imp}export const p = (caller) => async () => { const h = heldKey(() => 'x'); return caller.call('CreateFulfilment', {}, {}, { idempotencyKey: h.key() }); };` },
+      // Not listed: the rule does not apply to a draft create; generated modules are never scanned; Function.prototype.call is not a caller.
+      { file: 'src/lib/stock/Other.ts', source: "export const o = (caller, newKey) => caller.call('CreatePurchaseOrder', {}, {}, { idempotencyKey: newKey() });" },
+      { file: 'src/lib/stock/Fn.ts', source: 'export const f = (g, self, a) => g.call(self, a);' },
+      { file: 'src/generated/x.ts', source: "export const g = (caller) => caller.call('CreateGoodsReceipt', {}, {}, {});" },
+    ];
+    expect(heldKeyViolations(planted).violations.map((v) => v.file)).toEqual(['src/lib/stock/A.ts', 'src/lib/stock/B.ts', 'src/lib/stock/C.ts', 'src/lib/stock/D.ts', 'src/lib/stock/Dyn.ts', 'src/lib/stock/E.ts', 'src/lib/stock/PerPress.ts']);
   });
 });

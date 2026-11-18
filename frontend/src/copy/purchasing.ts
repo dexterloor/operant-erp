@@ -25,6 +25,8 @@
 // PO-8 (row 9) adds Approve on a live draft: `APPROVE_ORDER.*` (B-6 / Rev 1a `summary`; `body` and `after` WITHOUT the
 // receive clause: Receive ships at GR-2, which adds it), `emptyDraft` in its final form, and `draftNote` in its final form
 // WITHOUT its third sentence (the owner clause SEC has not confirmed: final RED L-6; the commit that lands SEC's word adds it).
+// GR-2 (row 11) adds Receive: `RECEIVE.*` (B-8 / R1-B, `prefillNote` per D-12 / final RED M-8 (a), `onHandTooLarge` per M-1),
+// `APPROVE_ORDER.body` / `after` and `GOODS_RECEIPTS_LIST.noneYet` in their final forms, and `noneYetLink`.
 // The commit that ships each action replaces its key with the next form (R1a-1 rows 7–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
@@ -275,8 +277,8 @@ export const CANCEL_ORDER = {
  * UX B-6 `APPROVE_ORDER` (PO-8; Rev 1a with `summary`; R1a-1 row 9): **Approve** on a live draft's page, through its confirm
  * dialog (the plan's "Place order" is a step name, never a label). No expected date while D-4 is unruled. The dismiss is this
  * area's **Go back** (B-0); after a final refusal the dialog shows **Go back** only (B-6: ST-9b's Close shape). Heading
- * `NOT_APPROVED` on a refusal. `body` and `after` are their PO-8 forms, WITHOUT the receive clause (*"…and deliveries can be
- * received against it."* / *"Deliveries can be received against it."*): Receive ships at GR-2, which adds both. `after` and
+ * `NOT_APPROVED` on a refusal. `body` and `after` are their FINAL forms from GR-2 (R1a-1 row 11), WITH the receive clause
+ * (*"…and deliveries can be received against it."* / *"Deliveries can be received against it."*): Receive ships here. `after` and
  * `afterSupplier` (its second sentence, always; strike-able with C-1) are spoken together in the page's region.
  * `alreadyApproved` is UX D-2's, said from the re-read after A2. PO TO CONFIRM `body`'s last sentence (B-6).
  * `summaryWarehouse`, `unsavedHeader`, `totalChanged` and `warehouseChanged` are PLACEHOLDERS (po-8-m1-m2-recommendation.md
@@ -299,8 +301,8 @@ export const APPROVE_ORDER = {
    * line text hidden by a failed lines reading, which cannot be seen to undo it; the lines' Retry is beside it.
    */
   unsavedLines: 'Save or undo your changes to the lines before approving.',
-  body: (supplier: string) => `Once it's approved it can't be changed or deleted, only cancelled. You're recorded as the person who approved it. The app doesn't send it to ${supplier}: send it to them yourself.`,
-  after: (number: string) => `${number} is approved and now ordered.`,
+  body: (supplier: string) => `Once it's approved it can't be changed or deleted, only cancelled, and deliveries can be received against it. You're recorded as the person who approved it. The app doesn't send it to ${supplier}: send it to them yourself.`,
+  after: (number: string) => `${number} is approved and now ordered. Deliveries can be received against it.`,
   afterSupplier: (supplier: string) => `Remember to send the order to ${supplier}: the app doesn't.`,
   totalChanged: (total: string) => `It was approved with a total of ${total}: its lines changed after this page last read them.`,
   warehouseChanged: (name: string) => `It was approved for delivery to ${name}: its delivery warehouse changed after this page last read it.`,
@@ -596,8 +598,10 @@ export const GOODS_RECEIPTS_LIST = {
     const head = n === 1 ? '1 receipt shown.' : `${n} receipts shown.`;
     return q !== '' ? `${head} Receipt number starts with “${q}”.` : head;
   },
-  /** `noneYet`, GR-1 form (R1a-1 row 8): slot 1 only, no link (Note A). GR-2 ships the full form and `noneYetLink`. */
-  noneYet: 'No deliveries recorded yet.',
+  /** `noneYet`, final form from GR-2 (R1a-1 row 11; B-9 slots 1–2): its reason names Receive, which ships here. */
+  noneYet: 'No deliveries recorded yet. A goods receipt appears here when a delivery is received against a purchase order.',
+  /** `noneYetLink` (B-9 slot 3, only for a ListPurchaseOrders holder): the upstream flow. */
+  noneYetLink: 'Go to purchase orders',
   /** `loadFailed`. */
   loadFailed: "The list of goods receipts couldn't be loaded.",
   /**
@@ -663,4 +667,62 @@ export const GOODS_RECEIPT_PAGE = {
   /** `unit` (po-4b-ux-unit.md §3, NEW; its own key, the D-9 reason). */
   unit: 'Unit',
   location: 'Location',
+} as const;
+
+/**
+ * UX B-8 / R1-B `RECEIVE` (GR-2; R1a-1 row 11; heading `NOT_RECORDED` on a refusal): `/purchase-orders/[id]/receive`. One
+ * location per order line in this build (S-8); no received-date field (S-9); no cost or total on the page (D-6). Every
+ * Receiving-now box starts EMPTY beside *Still to come* (PO D-12), so `prefillNote` is final RED M-8 (a)'s text, not R1-B's.
+ * `onHandTooLarge(n)` is final RED M-1's client sentence for R3 (`stock_level.on_hand_fits`; UX BE-P12's text), shown instead
+ * of the served one, which names a stock count the app cannot take; deleted when BK-34 lands. `action` is the order page's
+ * Receive action (R1a-1 row 11 "Actions this commit adds").
+ */
+export const RECEIVE = {
+  action: 'Receive',
+  heading: (number: string) => `Receive a delivery for ${number}`,
+  intro: (supplier: string, warehouse: string) => `From ${supplier}, into ${warehouse}.`,
+  /** Columns: Line · Item · Ordered · Received so far · Still to come · Receiving now · Location (quantities with the line's unit, BK-33). */
+  line: 'Line',
+  item: 'Item',
+  ordered: 'Ordered',
+  receivedSoFar: 'Received so far',
+  stillToCome: 'Still to come',
+  receivingNow: 'Receiving now',
+  prefillNote: "Enter what arrived on each line. A line left empty or at 0 isn't recorded.",
+  /** Per-row accessible names (M-9, I until these tests). */
+  receivingNowName: (n: number) => `Receiving now, line ${n}`,
+  locationName: (n: number) => `Location, line ${n}`,
+  location: 'Location',
+  /** PLACEHOLDER, UX TO CONFIRM (no R1-B key): the select's unchosen option (the `warehousePrompt` shape; no preselection). */
+  locationPrompt: 'Choose a location',
+  locationHint: (warehouse: string) => `Only locations in ${warehouse} that aren't archived are listed.`,
+  locationKind: (code: string, kind: string) => `${code} — ${kind}`,
+  doneLinesNote: "Lines already received in full aren't listed.",
+  locationRequired: (n: number) => `Choose where line ${n} goes.`,
+  nothingToRecord: "Enter what arrived on at least one line. A line left empty or at 0 isn't recorded.",
+  submit: 'Record receipt',
+  dismiss: 'Go back to the order',
+  confirmTitle: 'Record this receipt?',
+  confirmBody: (n: number, warehouse: string) => `This records ${n === 1 ? '1 line' : `${n} lines`} into ${warehouse}, in the locations you chose, straight away. A receipt can't be changed or deleted afterwards.`,
+  confirmConfirm: 'Record receipt',
+  confirmDismiss: 'Go back',
+  /** `after(receipt, n, warehouse)` + `afterStatus(statusWords)`: the second sentence only from the order's re-read. */
+  after: (receipt: string, n: number, warehouse: string) => `${receipt} recorded: ${n === 1 ? '1 line' : `${n} lines`} received into ${warehouse}, and stock there is updated.`,
+  afterStatus: (statusWords: string) => `The order is now ${statusWords}.`,
+  orderChanged: (number: string, statusWords: string) => `${number} changed while you were on this page: it's now ${statusWords}, so nothing was recorded.`,
+  /** GR-2 H-1 (UX FINAL, gr-2-h1-ux.md §2): true only because the page holds one key for every press (`heldKey`). */
+  interrupted: "We can't tell whether the receipt was recorded. Stay on this page and press Record receipt again: it won't be recorded twice.",
+  /** GR-2 H-1 (UX FINAL, gr-2-h1-ux.md §1): a key conflict over a still receivable order (lines re-read, entries kept). Never the server's detail. */
+  earlierRecorded: "Your earlier attempt was recorded, so this one wasn't. What's still to come has been updated, and your entries are kept, so check them before you record again.",
+  /** PLACEHOLDER, UX TO CONFIRM (gr-2-h1-spar.md CONVERGED, d2): UX's first sentence alone, above `nothingToReceive` in the no-form state. */
+  earlierRecordedNoForm: "Your earlier attempt was recorded, so this one wasn't.",
+  /** PLACEHOLDER, UX TO CONFIRM (gr-2-h1-spar.md CONVERGED, d3): UX's first sentence + a reload clause, when the re-read after the conflict failed. */
+  earlierRecordedReload: "Your earlier attempt was recorded, so this one wasn't. Reload the page to see where things stand.",
+  stalePrefill: "Another receipt was recorded on this order since you opened this page. What's still to come has been updated, and your entries are kept, so check them before you record again.",
+  nothingToReceive: (number: string, statusWords: string) => `There's nothing to receive on ${number}: it's ${statusWords}.`,
+  backToOrder: (number: string) => `Back to ${number}`,
+  /** PLACEHOLDER, UX TO CONFIRM (gr-2-red.md M-1; D-16): the receive page when the order's warehouse has no live location. */
+  noLocations: (warehouse: string) => `${warehouse} has no locations that can take goods, so nothing can be received into it yet.`,
+  lineErrorUnplaced: (n: number, sentence: string) => `Line ${n}: ${sentence}`,
+  onHandTooLarge: (n: string | number) => `Order line ${n}: receiving this would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was received. The figure on record there may be wrong.`,
 } as const;

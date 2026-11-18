@@ -7,7 +7,7 @@ import { serverRead } from '@/lib/bff/server/reads';
 import { viewerMay } from '@/lib/bff/surface';
 import { loadCatalogueChoices, loadDeletedLines, loadLines, loadPurchaseOrder, loadReceipts, loadWarehouseChoices, type CatalogueChoicesLoad, type LinesLoad, type ReceiptsLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
 import { currentViewer, sessionEndedPath } from '../../currentViewer';
-import { PurchaseOrdersDenied } from '../PurchaseOrderStates';
+import { PurchaseOrdersDenied, RECEIVE_GATES } from '../PurchaseOrderStates';
 import { PurchaseOrderPage } from './PurchaseOrderPage';
 
 // `/purchase-orders/[id]` (purchase-orders-plan.md §2.2, §4 PO-1; UX B-3 / R1-B, R1a-1 row 1; Revision 8 R8-2; Revision 7
@@ -34,7 +34,9 @@ import { PurchaseOrderPage } from './PurchaseOrderPage';
 // session-ended notice; any other failure is the section's own state. From PO-9, Deleted lines: a live draft's deleted lines
 // (ListPurchaseOrderLines `?archived=true`), read after the live lines and only when those were read, for a viewer holding
 // RestorePurchaseOrderLine's codes; 401 → the session-ended notice; any other failure is the subsection's own state. From
-// PO-4b, Edit line: `canEditLine` follows UpdatePurchaseOrderLine's codes; the page offers it only on a live draft.
+// PO-4b, Edit line: `canEditLine` follows UpdatePurchaseOrderLine's codes; the page offers it only on a live draft. From
+// GR-2, Receive: `canReceive` follows `RECEIVE_GATES` (R1-3: CreateGoodsReceipt and ListStorageLocations, GetPurchaseOrder
+// already held); the page offers it only on an ordered or partly received live order.
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -94,5 +96,5 @@ export default async function Page({ params }: Params) {
     receipts = await loadReceipts(serverRead(session), { q: '', cursor: null }, undefined, { name: 'purchase_order_id', value: id });
     if (receipts.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
   }
-  return <PurchaseOrderPage canEditLine={viewerMay('UpdatePurchaseOrderLine', codes)} canRestoreLine={canRestoreLine} deletedLines={deletedLines} receipts={receipts} canOpenReceipt={viewerMay('GetGoodsReceipt', codes)} order={first.order} lines={lines} edit={edit} add={add} canDeleteLine={viewerMay('DeletePurchaseOrderLine', codes)} canDelete={viewerMay('DeletePurchaseOrder', codes)} canCancel={viewerMay('CancelPurchaseOrder', codes)} canApprove={viewerMay('ApprovePurchaseOrder', codes)} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
+  return <PurchaseOrderPage canEditLine={viewerMay('UpdatePurchaseOrderLine', codes)} canRestoreLine={canRestoreLine} deletedLines={deletedLines} receipts={receipts} canOpenReceipt={viewerMay('GetGoodsReceipt', codes)} order={first.order} lines={lines} edit={edit} add={add} canDeleteLine={viewerMay('DeletePurchaseOrderLine', codes)} canDelete={viewerMay('DeletePurchaseOrder', codes)} canCancel={viewerMay('CancelPurchaseOrder', codes)} canApprove={viewerMay('ApprovePurchaseOrder', codes)} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} canReceive={RECEIVE_GATES.every((operation) => viewerMay(operation, codes))} />;
 }

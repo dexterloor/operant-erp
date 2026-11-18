@@ -77,7 +77,9 @@ export async function classify(response: Response): Promise<Classified> {
     case 409:
       if (type === `${B}session-changed`) return { kind: 'session-changed' };
       if (type === `${P}business-rule-violated`) return { kind: 'refused', rule: str(body.rule), message: str(body.message) };
-      if (type === `${P}idempotency-key-conflict` || type === `${P}stale-record`) return { kind: 'refused', rule: str(body.rule), message: '' };
+      // GR-2 H-1: a key conflict carries the explicit discriminator; a stale record does not (both keep an empty message).
+      if (type === `${P}idempotency-key-conflict`) return { kind: 'refused', rule: str(body.rule), message: '', problem: 'idempotency-key-conflict' };
+      if (type === `${P}stale-record`) return { kind: 'refused', rule: str(body.rule), message: '' };
       return { kind: 'server-error', fault: true };
     case 422: {
       if (type !== `${P}validation-failed`) return { kind: 'server-error', fault: true };

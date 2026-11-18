@@ -1,7 +1,7 @@
 // Typed results of the purchase-order page's injected actions (Revision 7 A-19 item 5, Revision 8 R8-2), on the shared
 // kinds in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, PurchaseOrder, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '../api/purchasing';
+import type { CreatePurchaseOrderInput, GoodsReceipt, CreatePurchaseOrderLineInput, PurchaseOrder, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '../api/purchasing';
 import type { Contention, FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -244,3 +244,57 @@ export type ApproveOrderAction = () => Promise<ApproveOrderResult>;
  * request keep Approve.
  */
 export type ApproveDialogResult = { kind: 'approved'; order: PurchaseOrder } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/**
+ * GR-2 (final RED M-7 with L-9): the one zero rule. A Receiving-now box whose text, with leading and trailing spaces
+ * removed, is empty or only zeros (`0`, `00`, `0.000`) is NOT received and is not sent; anything else is sent as typed
+ * (`"0.5"` is). A string test only, never `Number` (the quantity scan): the client does no decimal arithmetic.
+ */
+export function isNotReceived(text: string): boolean {
+  const t = text.trim();
+  return t === '' || /^0+(\.0+)?$/.test(t);
+}
+
+/** GR-2: one row the receive form sends, in the request's order (the request index is the position here, M-6). */
+export interface ReceiveLineValues {
+  purchase_order_line_id: string;
+  quantity: string;
+  storage_location_id: string;
+}
+
+/** GR-2: the two per-row fields a 422 pointer `/lines/{i}/<field>` may name. */
+export type ReceiveRowField = 'quantity' | 'storage_location_id';
+
+/**
+ * `POST /purchase-orders/{id}/goods-receipts` (GR-2; one Idempotency-Key per page, held until consumed — H-1). `recorded` carries the 201 body
+ * and the order as re-read after it (`null` when that re-read failed: the arrival sentence then drops its status sentence).
+ * `invalid` a 422: each violation keyed by its REQUEST index as served, the digits of `/lines/{i}/…` (a string: no number
+ * parse in this family, the quantity scan; the form maps the index back to its row, M-6),
+ * anything else in `formErrors`. `over-received` (R1): the lines and the order as re-read, the server's sentence kept.
+ * `on-hand-too-large` (R3): the order line number named by the served sentence (its digits), or null. `order-changed` (R6 and any other refusal
+ * whose re-read shows an order nothing can be received on). `refused` any other 409, as sent. `earlier-recorded` (GR-2 H-1): a
+ * 409 `idempotency-key-conflict` on the held key — an earlier attempt from this page was recorded — with the order and lines
+ * as re-read: both when the order is still receivable, the order alone (`lines: null`) when nothing can be received on it,
+ * neither when the re-read failed.
+ */
+export type ReceiveResult =
+  | { kind: 'recorded'; receipt: GoodsReceipt; order: PurchaseOrder | null }
+  | { kind: 'invalid'; rows: ReadonlyMap<string, Partial<Record<ReceiveRowField, string>>>; formErrors: string[] }
+  | { kind: 'over-received'; message: string; order: PurchaseOrder; lines: PurchaseOrderLine[] }
+  | { kind: 'on-hand-too-large'; lineNumber: string | null }
+  | { kind: 'order-changed'; order: PurchaseOrder }
+  | { kind: 'earlier-recorded'; order: PurchaseOrder; lines: PurchaseOrderLine[] }
+  | { kind: 'earlier-recorded'; order: PurchaseOrder; lines: null }
+  | { kind: 'earlier-recorded'; order: null; lines: null }
+  | Contention
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type ReceiveAction = (lines: readonly ReceiveLineValues[]) => Promise<ReceiveResult>;
+
+/** GR-2: an order goods can be received against (plan §2.6): live and ordered or partly received. */
+export const isReceivable = (order: PurchaseOrder): boolean => order.archived_at === null && (order.status === 'ordered' || order.status === 'partially_received');

@@ -17,7 +17,7 @@ import { Chip } from '@/components/ui/Chip';
 import { DateTime } from '@/components/ui/DateTime';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { COULD_NOT_REACH, NOT_ADDED, NOT_DELETED, NOT_RESTORED, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
-import { ADD_LINE, APPROVE_ORDER, CANCEL_ORDER, DELETE_ORDER, ORDER_LINES, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RESTORE_ORDER, statusLabel } from '@/copy/purchasing';
+import { ADD_LINE, APPROVE_ORDER, CANCEL_ORDER, DELETE_ORDER, ORDER_LINES, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RECEIVE, RESTORE_ORDER, statusLabel } from '@/copy/purchasing';
 import type { PurchaseOrder, PurchaseOrderLine } from '@/lib/api/purchasing';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
@@ -74,6 +74,12 @@ export interface PurchaseOrderPageProps {
   canCancel?: boolean;
   /** PO-8: holds ApprovePurchaseOrder's codes — a live draft offers **Approve** (UX B-6; plan §2.5), to its creator too (ST-4f). */
   canApprove?: boolean;
+  /**
+   * GR-2: holds CreateGoodsReceipt's, GetPurchaseOrder's and ListStorageLocations' codes (R1-3, UX S-7): the page offers
+   * **Receive** (a link to `/purchase-orders/[id]/receive`) on an ordered or partly received live order. Without the
+   * locations read there is nothing to receive into, so no Receive (§2.8's composed shape).
+   */
+  canReceive?: boolean;
   /**
    * GR-1: the Receipts section's first page (ListGoodsReceipts with this order's id as its fixed filter, R10-4), or null.
    * Given by the server only for a live, placed order (never a draft: nothing can be received on one, `gr-1-followups-ux.md`
@@ -203,7 +209,7 @@ interface Shown {
  * reading. Its answers and commits carry the stamp of its send (the own-outcome floors). Every commit of a live draft's live
  * lines here also reads its deleted lines when they are shown (po-9-red.md R3-L-1), the dialogs' re-reads included.
  */
-export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false, canCancel = false, canApprove = false, receipts = null, canOpenReceipt = false, canRestoreLine = false, deletedLines = null, canEditLine = false }: PurchaseOrderPageProps) {
+export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false, canCancel = false, canApprove = false, receipts = null, canOpenReceipt = false, canRestoreLine = false, deletedLines = null, canEditLine = false, canReceive = false }: PurchaseOrderPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -685,6 +691,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
             {APPROVE_ORDER.action}
           </Button>
         ) : null}
+        {canReceive && cancellable(order) ? <Link href={`/purchase-orders/${order.id}/receive`}>{RECEIVE.action}</Link> : null}
         {canCancel && cancellable(order) ? (
           <Button variant="destructive" onClick={openCancel}>
             {CANCEL_ORDER.action}

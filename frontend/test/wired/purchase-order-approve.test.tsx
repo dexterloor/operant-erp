@@ -74,7 +74,7 @@ const h1 = () => screen.getByRole('heading', { level: 1 });
 const badge = (label: string) => screen.queryByText(label, { selector: 'span' });
 
 const TITLE = 'Approve PO-000001?';
-/** UX Rev 1a `summary(supplier, total)` (two lines) and R1a-1 row 9's `body` (no receive clause: Receive ships at GR-2). */
+/** UX Rev 1a `summary(supplier, total)` (two lines) and R1-B `body` in its final form (R1a-1 row 11: the receive clause from GR-2). */
 const SUPPLIER_LINE = 'Supplier: Acme Supplies';
 const TOTAL_LINE = 'Total: 25.00 GBP';
 /** M-1 (a) (po-8-m1-m2-recommendation.md Revision 1 — FINAL; PLACEHOLDER, UX TO CONFIRM): where the order goes. */
@@ -82,11 +82,11 @@ const WAREHOUSE_LINE = 'Deliver to: Main warehouse';
 const UNSAVED = 'Save or undo your change to Deliver to before approving.';
 const TOTAL_CHANGED = 'It was approved with a total of 99.00 GBP: its lines changed after this page last read them.';
 const WAREHOUSE_CHANGED = 'It was approved for delivery to East depot: its delivery warehouse changed after this page last read it.';
-const AFTER_HEAD = 'PO-000001 is approved and now ordered.';
+const AFTER_HEAD = 'PO-000001 is approved and now ordered. Deliveries can be received against it.';
 const AFTER_TAIL = "Remember to send the order to Acme Supplies: the app doesn't.";
-const BODY = "Once it's approved it can't be changed or deleted, only cancelled. You're recorded as the person who approved it. The app doesn't send it to Acme Supplies: send it to them yourself.";
-/** R1a-1 row 9's `after` (no receive clause) + B-6 `afterSupplier` (second sentence, always). */
-const AFTER = 'PO-000001 is approved and now ordered. Remember to send the order to Acme Supplies: the app doesn\'t.';
+const BODY = "Once it's approved it can't be changed or deleted, only cancelled, and deliveries can be received against it. You're recorded as the person who approved it. The app doesn't send it to Acme Supplies: send it to them yourself.";
+/** R1-B `after` in its final form (R1a-1 row 11, GR-2: the receive clause) + B-6 `afterSupplier` (always). */
+const AFTER = 'PO-000001 is approved and now ordered. Deliveries can be received against it. Remember to send the order to Acme Supplies: the app doesn\'t.';
 const ALREADY = 'PO-000001 was already approved.';
 const INTERRUPTED = "We can't tell whether PO-000001 was approved. Press Approve to try again.";
 const CHANGED = "PO-000001 changed since this page was loaded, so this wasn't done. Reload the page to see where it stands.";
@@ -158,17 +158,19 @@ describe('/purchase-orders/[id] — Approve (PO-8; UX B-6)', () => {
     expect(approve()).toHaveFocus();
   });
 
-  it('the dialog body and the after-sentence have no receive clause (R1-2: Receive ships at GR-2)', async () => {
+  // GR-2 moved this test (R1-5 GR-2 "Adds Approve's receive clause and moves its PO-8 test"; R1a-1 row 11): from GR-2 the
+  // body and the after-sentence say deliveries can be received, because Receive exists. Mutation: ship PO-8's form → red.
+  it('the dialog body and the after-sentence carry the receive clause (R1a-1 row 11: Receive ships at GR-2)', async () => {
     stubFetch([json(200, ORDERED), json(200, ORDERED), LINES_REPLY()]);
     const u = userEvent.setup();
     show();
     const spoken = textsOf(region());
     await u.click(approve());
-    expect(dialog().textContent).not.toMatch(/deliveries|receiv/i);
+    expect(dialog().textContent).toContain('only cancelled, and deliveries can be received against it.');
     await u.click(inDialog('Approve'));
     await waitFor(() => expect(region()).toHaveTextContent(AFTER));
     spoken.stop();
-    for (const t of spoken.texts) expect(t).not.toMatch(/deliveries|receiv/i);
+    expect(spoken.texts.filter((t) => t !== '')).toEqual([AFTER]);
   });
 
   it('a 200: POST {} with no key; the re-read (order + lines) turns the page Ordered in the same mount — the draft’s inputs gone; focus h1; "After" spoken once; one refresh', async () => {
