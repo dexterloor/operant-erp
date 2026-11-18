@@ -100,15 +100,19 @@ final readonly class SupplierProductWriter
     /** The one statement `DeleteSupplierProduct` issues; the pair predicate is what keeps another supplier's entry out. */
     public const DELETE = 'DELETE FROM supplier_product WHERE id = ?::uuid AND supplier_id = ?::uuid';
 
-    public const ITEM_LISTED = 'This supplier already lists this item. Change its terms instead.';
+    /** `UX` BE-S3, `suppliers-ux-copy.md` Revision 1 FINAL (BK-29). */
+    public const ITEM_LISTED = 'This item is already in this supplier\'s catalogue. Edit that entry instead.';
 
-    public const ITEM_UNKNOWN = 'No live inventory item in this workspace has this id.';
+    /** `UX` BE-S4, `suppliers-ux-copy.md` Revision 1 FINAL (BK-29); one sentence for an unknown, foreign or archived item. */
+    public const ITEM_UNKNOWN = 'This item is archived or isn\'t in this workspace, so it can\'t be added to a catalogue.';
 
     public const ITEM_SHAPE = 'This field must be a UUID naming an item in this workspace.';
 
-    public const UNIT_COST_SHAPE = 'This field must be a non-negative decimal string with at most 15 integer digits and 4 fractional digits.';
+    /** `UX` BE-S5, `suppliers-ux-copy.md` Revision 1 FINAL (BK-29); the `ItemWriter::NOT_A_DECIMAL` shape. */
+    public const UNIT_COST_SHAPE = 'Enter 0 or a positive amount, for example 12.50. Use only digits and at most one decimal point, with 1 to 15 digits before the point and 1 to 4 after it.';
 
-    public const MOQ_SHAPE = 'This field must be a positive decimal string with at most 13 integer digits and 6 fractional digits.';
+    /** `UX` BE-S6, `suppliers-ux-copy.md` Revision 1 FINAL (BK-29); the `ItemWriter::NOT_A_DECIMAL` shape. */
+    public const MOQ_SHAPE = 'Enter a number greater than 0, for example 10 or 2.5. Use only digits and at most one decimal point, with 1 to 13 digits before the point and 1 to 6 after it.';
 
     public const LEAD_TIME_RANGE = 'Lead time must be a whole number of days, 0 or more.';
 
