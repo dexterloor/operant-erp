@@ -191,7 +191,7 @@ export interface ApprovePurchaseOrderInput {
  * page re-reads after it too (po-8-red.md L-1). Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent;
  * po-4a-red.md L-4).
  */
-export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item', illegalTransition: 'purchase_order.status_transition_is_legal', approverIsCreator: 'purchase_order.approver_is_not_the_creator' } as const;
+export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item', illegalTransition: 'purchase_order.status_transition_is_legal', approverIsCreator: 'purchase_order.approver_is_not_the_creator', lineNotArchived: 'purchase_order_line.is_not_archived' } as const;
 
 /**
  * PO-5 (purchase-orders-final-red.md H-2): the one 422 violation the new line row does not render as served — an item that

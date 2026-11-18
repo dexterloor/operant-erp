@@ -17,6 +17,8 @@ const v = vi.hoisted(() => ({
   archived: false,
   catalogueReads: [] as string[],
   catalogue: 'ok' as 'ok' | 'session-ended' | 'forbidden' | 'server-error',
+  deletedReads: [] as string[],
+  deleted: 'ok' as 'ok' | 'session-ended' | 'forbidden' | 'server-error',
 }));
 vi.mock('@/app/(app)/currentViewer', async (actual) => ({
   ...(await actual<typeof import('@/app/(app)/currentViewer')>()),
@@ -61,6 +63,11 @@ vi.mock('@/lib/purchasing/load', async (actual) => {
     // Goods receipts GR-1: the order page reads its Receipts section for a ListGoodsReceipts holder (this file's
     // "everything but ListPurchaseOrderLines" seat holds it); an empty page here, so the page renders as before.
     loadReceipts: async () => ({ kind: 'ok', items: [], nextCursor: null, previousCursor: null, tenantHasRows: false }),
+    // PO-9: the live draft's deleted lines (`?archived=true`), recorded per read.
+    loadDeletedLines: async (_read: unknown, orderId: string) => {
+      v.deletedReads.push(orderId);
+      return v.deleted === 'ok' ? { kind: 'ok', lines: [], nextCursor: null } : { kind: v.deleted };
+    },
     loadCatalogueChoices: async (_read: unknown, supplierId: string) => {
       v.catalogueReads.push(supplierId);
       return v.catalogue === 'ok' ? { kind: 'ok', entries: [ENTRY] } : { kind: v.catalogue };
@@ -74,6 +81,7 @@ const { PurchaseOrderPage } = await import('@/app/(app)/purchase-orders/[id]/Pur
 async function render(codes: string[]): Promise<ReactElement> {
   v.codes = codes;
   v.catalogueReads = [];
+  v.deletedReads = [];
   const el = await Page({ params: Promise.resolve({ id: ORDER_ID }) });
   expect(isValidElement(el)).toBe(true);
   return el as ReactElement;
@@ -149,6 +157,63 @@ describe('/purchase-orders/[id] — Add line’s and Delete line’s gates (PO-5
       expect(addOf(await render(BUYER))).toEqual({ catalogue: { kind: 'server-error' } });
     } finally {
       v.catalogue = 'ok';
+    }
+  });
+});
+
+// PO-9: Deleted lines and Restore line. `deletedLines` is read only for a LIVE DRAFT whose lines were read, for a viewer
+// holding RestorePurchaseOrderLine's codes; `canRestoreLine` follows those codes. A 401 on that read → the session-ended
+// notice; any other failure is the subsection's own state.
+describe('/purchase-orders/[id] — Deleted lines’ gate (PO-9)', () => {
+  const deletedOf = (el: ReactElement) => (el.props as { deletedLines: unknown }).deletedLines;
+  const restoreOf = (el: ReactElement) => (el.props as { canRestoreLine: unknown }).canRestoreLine;
+
+  it('a live draft and purchase_order.edit: the deleted lines read once, and Restore line', async () => {
+    const el = await render(['purchase_order.view', 'purchase_order.edit']);
+    expect(deletedOf(el)).toEqual({ kind: 'ok', lines: [], nextCursor: null });
+    expect(v.deletedReads).toEqual([ORDER_ID]);
+    expect(restoreOf(el)).toBe(true);
+  });
+
+  it('without RestorePurchaseOrderLine, without ListPurchaseOrderLines, on any other status, or on a deleted draft: nothing read', async () => {
+    let el = await render(['purchase_order.view']);
+    expect(deletedOf(el)).toBeNull();
+    expect(restoreOf(el)).toBe(false);
+    expect(v.deletedReads).toEqual([]);
+    v.byOperation = (op) => op !== 'ListPurchaseOrderLines';
+    try {
+      el = await render([]);
+      expect(deletedOf(el)).toBeNull();
+      expect(v.deletedReads).toEqual([]);
+    } finally {
+      v.byOperation = null;
+    }
+    try {
+      for (const status of ['ordered', 'partially_received', 'received', 'cancelled']) {
+        v.status = status;
+        expect(deletedOf(await render(BUYER))).toBeNull();
+        expect(v.deletedReads).toEqual([]);
+      }
+      v.status = 'draft';
+      v.archived = true;
+      expect(deletedOf(await render(BUYER))).toBeNull();
+      expect(v.deletedReads).toEqual([]);
+    } finally {
+      v.status = 'draft';
+      v.archived = false;
+    }
+  });
+
+  it('a 401 on the deleted lines read → the session-ended notice; a 403 or another failure is the subsection’s own state', async () => {
+    try {
+      v.deleted = 'session-ended';
+      await expect(render(BUYER)).rejects.toThrow(encodeURIComponent(`/purchase-orders/${ORDER_ID}`));
+      v.deleted = 'forbidden';
+      expect(deletedOf(await render(BUYER))).toEqual({ kind: 'forbidden' });
+      v.deleted = 'server-error';
+      expect(deletedOf(await render(BUYER))).toEqual({ kind: 'server-error' });
+    } finally {
+      v.deleted = 'ok';
     }
   });
 });

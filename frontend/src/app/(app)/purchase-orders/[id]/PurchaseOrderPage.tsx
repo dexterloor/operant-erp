@@ -16,16 +16,16 @@ import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
 import { DateTime } from '@/components/ui/DateTime';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
-import { COULD_NOT_REACH, NOT_ADDED, NOT_DELETED, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
+import { COULD_NOT_REACH, NOT_ADDED, NOT_DELETED, NOT_RESTORED, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
 import { ADD_LINE, APPROVE_ORDER, CANCEL_ORDER, DELETE_ORDER, ORDER_LINES, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN, RESTORE_ORDER, statusLabel } from '@/copy/purchasing';
 import type { PurchaseOrder, PurchaseOrderLine } from '@/lib/api/purchasing';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { renderMoney } from '@/lib/format/money';
-import { loadCatalogueChoices, loadLines, loadPurchaseOrder, loadWarehouseChoices, type CatalogueChoicesLoad, type LinesLoad, type ReceiptsLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
+import { loadCatalogueChoices, loadDeletedLines, loadLines, loadPurchaseOrder, loadWarehouseChoices, type CatalogueChoicesLoad, type LinesLoad, type ReceiptsLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
 import type { AddLineValues, ApproveDialogResult, CancelDialogResult, OrderChange } from '@/lib/purchasing/results';
-import { lineCreate, lineDelete, orderApprove, orderCancel, orderDelete, orderRestore, orderSave } from '@/lib/purchasing/wired';
+import { lineCreate, lineDelete, lineRestore, orderApprove, orderCancel, orderDelete, orderRestore, orderSave } from '@/lib/purchasing/wired';
 import type { DeleteResult } from '@/lib/results';
 import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
@@ -84,6 +84,18 @@ export interface PurchaseOrderPageProps {
   receipts?: ReceiptsLoad | null;
   /** GR-1: holds GetGoodsReceipt's codes — each receipt number in the section links to its page. */
   canOpenReceipt?: boolean;
+  /**
+   * PO-9: holds RestorePurchaseOrderLine's codes (`purchase_order.edit`, Delete line's code) — a live draft whose lines are
+   * read shows **Deleted lines** with **Restore** per row, and its line writes that change which lines are deleted read them
+   * again.
+   */
+  canRestoreLine?: boolean;
+  /**
+   * PO-9: `ListPurchaseOrderLines?archived=true` on first render, or null. Given by the server only for a live draft whose
+   * lines were read and a `canRestoreLine` viewer (a failed read is the subsection's own state). A draft that LOADED deleted
+   * gets them from its restore's re-read.
+   */
+  deletedLines?: LinesLoad | null;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -93,6 +105,8 @@ const cancellable = (o: PurchaseOrder) => o.archived_at === null && (o.status ==
 interface Shown {
   order: PurchaseOrder;
   lines: { gen: number; value: LinesLoad } | null;
+  /** PO-9: the live draft's deleted lines, or null (not read, or a deleted order). */
+  deleted: { gen: number; value: LinesLoad } | null;
 }
 
 /**
@@ -167,15 +181,26 @@ interface Shown {
  * carries a visible reason instead (M-1 (b)); the dialog names the delivery warehouse (M-1 (a)); and when the 200 body's total
  * or warehouse differs from what the dialog opened with, the region message says so between its two sentences (M-2;
  * po-8-m1-m2-recommendation.md Revision 1 — FINAL).
+ *
+ * From PO-9 a live draft's lines section ends with **Deleted lines** (`canRestoreLine`, `deletedLines`; the server reads them
+ * for a live draft whose lines were read) with **Restore** per row (`LinesSection`). Restore line is one of the page's line
+ * writes: while it is in flight no other line write sends and Approve / Delete purchase order open nothing (po-8-red.md H-1's
+ * shape). Delete line and Restore line commit the deleted lines with the order and its live lines, in one commit, so a
+ * restored line leaves Deleted lines and returns to the table in the same mount (Restore purchase order reads them too; Add
+ * line deletes none, so it does not). Restore line's re-reads and answer carry the stamp of its send: the own-outcome floors
+ * drop what an answer sent before the person's own Delete purchase order, Cancel order or Approve would commit, say or show.
  */
-export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false, canCancel = false, canApprove = false, receipts = null, canOpenReceipt = false }: PurchaseOrderPageProps) {
+export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerId, canRestore, canReadLines, canOpenSupplier, canOpenWarehouse, canOpenItem, edit = null, add = null, canDeleteLine = false, canDelete = false, canCancel = false, canApprove = false, receipts = null, canOpenReceipt = false, canRestoreLine = false, deletedLines = null }: PurchaseOrderPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
   const { message, announce, clear } = useLiveRegion();
   // A deleted order never carries lines, from the first render on (the server reads none for it; `commit` keeps the rule).
   const firstLines: Shown['lines'] = initial.archived_at === null && initialLines !== null ? { gen: 0, value: initialLines } : null;
-  const [shown, setShown] = useCommittedState<Shown>({ order: initial, lines: firstLines });
+  const firstDeleted: Shown['deleted'] = firstLines !== null && deletedLines !== null ? { gen: 0, value: deletedLines } : null;
+  const [shown, setShown] = useCommittedState<Shown>({ order: initial, lines: firstLines, deleted: firstDeleted });
+  // PO-9: the deleted lines are read with a write's re-read only while the page can show them.
+  const readDeleted = canRestoreLine && canReadLines;
   const [swap, setSwap] = useState<'forbidden' | 'not-found' | null>(null);
   const [rereadError, setRereadError] = useState<{ gen: number; cause: Cause } | null>(null);
   const [retrying, setRetrying] = useState(false);
@@ -219,6 +244,8 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   const committedAsOf = useRef(0);
   // The lines last committed (a commit that keeps them reuses them; a Retry reads lines only when none are shown).
   const committedLines = useRef<Shown['lines']>(firstLines);
+  const committedDeleted = useRef<Shown['deleted']>(firstDeleted);
+  const deletedReads = useRef(0);
   const linesReads = useRef(0);
   // Whether the reading last committed is an editable draft (live, `draft`), for the stale-refusal rule (FE-R7, the supplier
   // page's): decided from what was committed, never from the render the Save was pressed in.
@@ -254,7 +281,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
     }
     // PO-6 (po-6-red.md, spar on :384; the items UX ruling L-1): a Save sent before a 204 of the person's own Delete — or,
     // from PO-7, before a 200 of their own Cancel order — does not put its failed re-read over what that left; its reading,
-    // sentence and focus stand. Compared only with the two floors. Swaps are kept: they say what the viewer may see now.
+    // sentence and focus stand. Compared only with the person's own outcomes (`beforeOwnOutcome`: the delete, cancel and approve floors). Swaps are kept: they say what the viewer may see now.
     if (sentAsOf !== undefined && beforeOwnOutcome(sentAsOf)) return;
     // After RestoreActions' own after-restore focus, so the region error's heading takes it.
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
@@ -266,7 +293,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
    * generation; a live one read without lines keeps what is shown.
    */
   const commit = useCallback(
-    async (order: PurchaseOrder, lines: LinesLoad | null, asOf: number, sentAsOf?: number) => {
+    async (order: PurchaseOrder, lines: LinesLoad | null, asOf: number, sentAsOf?: number, deleted?: LinesLoad) => {
       if (asOf < committedAsOf.current) return;
       if (sentAsOf !== undefined && beforeOwnOutcome(sentAsOf)) return;
       committedAsOf.current = asOf;
@@ -280,13 +307,23 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
       if (committedEditable.current) setStaleRefusal(null);
       const next = order.archived_at !== null ? null : lines !== null ? { gen: ++linesReads.current, value: lines } : committedLines.current;
       committedLines.current = next;
-      await setShown({ order, lines: next });
+      // PO-9: the deleted lines read with this reading replace what is shown, in the same commit; unread, they are kept —
+      // less any line this reading shows live (po-9-red.md M-1 (a): a line is never shown both live and deleted).
+      const kept = committedDeleted.current;
+      const liveIds = lines?.kind === 'ok' ? new Set(lines.lines.map((l) => l.id)) : null;
+      const keptPruned =
+        kept !== null && kept.value.kind === 'ok' && liveIds !== null && kept.value.lines.some((l) => liveIds.has(l.id))
+          ? { gen: ++deletedReads.current, value: { ...kept.value, lines: kept.value.lines.filter((l) => !liveIds.has(l.id)) } }
+          : kept;
+      const nextDeleted = order.archived_at !== null ? null : deleted !== undefined ? { gen: ++deletedReads.current, value: deleted } : keptPruned;
+      committedDeleted.current = nextDeleted;
+      await setShown({ order, lines: next, deleted: nextDeleted });
     },
     [setShown, beforeOwnOutcome],
   );
 
   // The wiring is built when the action runs, not during render: `commit` writes the stamp refs (react-hooks/refs).
-  const restore = useCallback(() => orderRestore({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed })(), [caller, id, stamp, canReadLines, commit, failed]);
+  const restore = useCallback(() => orderRestore({ caller, id, stamp, readLines: canReadLines, readDeleted, setOrder: commit, onRereadFailed: failed })(), [caller, id, stamp, canReadLines, readDeleted, commit, failed]);
   const onRestored = useCallback(() => {
     setStaleRefusal(null);
     router.refresh();
@@ -298,12 +335,12 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
     async (changes: OrderChange) => {
       headerSaving.current = true;
       try {
-        return await orderSave({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed })(changes);
+        return await orderSave({ caller, id, stamp, readLines: canReadLines, readDeleted, setOrder: commit, onRereadFailed: failed })(changes);
       } finally {
         headerSaving.current = false;
       }
     },
-    [caller, id, stamp, canReadLines, commit, failed],
+    [caller, id, stamp, canReadLines, readDeleted, commit, failed],
   );
   const onSaved = useCallback(() => router.refresh(), [router]);
   const reloadWarehouses = useCallback(async () => {
@@ -341,9 +378,15 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
   );
   const onAddRefusedStale = useCallback((text: string) => refusedStale(NOT_ADDED, text), [refusedStale]);
   const onDeleteRefusedStale = useCallback((text: string) => refusedStale(NOT_DELETED, text), [refusedStale]);
+  const onRestoreLineRefusedStale = useCallback((text: string) => refusedStale(NOT_RESTORED, text), [refusedStale]);
   // PO-5: the line writes (the same wiring, stamp and commit as Save's).
-  const addLine = useCallback((values: AddLineValues) => lineCreate({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed })(values), [caller, id, stamp, canReadLines, commit, failed]);
-  const deleteLine = useCallback((line: PurchaseOrderLine) => lineDelete({ caller, id, stamp, readLines: canReadLines, setOrder: commit, onRereadFailed: failed })(line), [caller, id, stamp, canReadLines, commit, failed]);
+  // PO-9: every line write's wiring carries `readDeleted`; which writes read the deleted lines is decided once, in
+  // `lib/purchasing/wired.ts` (Add line deletes none, so it reads none).
+  const addLine = useCallback((values: AddLineValues) => lineCreate({ caller, id, stamp, readLines: canReadLines, readDeleted, setOrder: commit, onRereadFailed: failed })(values), [caller, id, stamp, canReadLines, readDeleted, commit, failed]);
+  const deleteLine = useCallback((line: PurchaseOrderLine) => lineDelete({ caller, id, stamp, readLines: canReadLines, readDeleted, setOrder: commit, onRereadFailed: failed })(line), [caller, id, stamp, canReadLines, readDeleted, commit, failed]);
+  // PO-9: Restore line (the same wiring, stamp and commit; its re-reads carry the stamp of its send, so the own-outcome floors
+  // drop them).
+  const restoreLine = useCallback((line: PurchaseOrderLine) => lineRestore({ caller, id, stamp, readLines: canReadLines, readDeleted, setOrder: commit, onRereadFailed: failed })(line), [caller, id, stamp, canReadLines, readDeleted, commit, failed]);
   // PO-6: the 204 floor, raised before the delete's re-read is sent, so a reading requested earlier is dropped even when that
   // re-read fails.
   const onDeleted = useCallback((s: number) => {
@@ -464,13 +507,17 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
     const mine = ++stamps.current;
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadPurchaseOrder(readOf(caller), id, d.signal);
+    // po-9-red.md M-1 (b): a live draft whose Deleted lines are shown reads them with its lines (a failed re-read after a line
+    // write may have left both out of date, M-2).
+    const withDeleted = r.kind === 'ok' && readDeleted && r.order.archived_at === null && r.order.status === 'draft';
     // Live with no lines shown (a restore whose lines were not committed): read them now, with the order.
-    const lines = r.kind === 'ok' && r.order.archived_at === null && canReadLines && committedLines.current === null ? await loadLines(readOf(caller), id, d.signal) : null;
+    const lines = r.kind === 'ok' && r.order.archived_at === null && canReadLines && (committedLines.current === null || withDeleted) ? await loadLines(readOf(caller), id, d.signal) : null;
+    const deleted = withDeleted ? await loadDeletedLines(readOf(caller), id, d.signal) : undefined;
     d.cancel();
     setRetrying(false);
     if (committedAsOf.current > mine) return;
     if (r.kind === 'ok') {
-      await commit(r.order, lines, mine);
+      await commit(r.order, lines, mine, undefined, deleted);
       h1.current?.focus();
     } else failed(r.kind, mine);
   };
@@ -735,6 +782,11 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
           deleteCode={gateCode('DeletePurchaseOrderLine')}
           onRefusedStale={onDeleteRefusedStale}
           lineWrites={{ begin: beginLineWrite, end: endLineWrite }}
+          deleted={
+            canRestoreLine && actionable && shown.deleted !== null
+              ? { lines: shown.deleted, restore: restoreLine, restoreCode: gateCode('RestorePurchaseOrderLine'), ownOutcomeAfter: beforeOwnOutcome, onRefusedStale: onRestoreLineRefusedStale }
+              : null
+          }
         />
       ) : null}
       {receipts !== null && s !== 'draft' && !archived && !deletedHere ? <ReceiptsSection orderId={order.id} orderNumber={order.order_number} initial={receipts} canOpenReceipt={canOpenReceipt} cancelled={s === 'cancelled'} /> : null}

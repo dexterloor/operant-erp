@@ -463,6 +463,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['purchase_order.delete'],
     },
   },
+  RestorePurchaseOrderLine: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders/{id}/lines/{lineId}/restoration',
+    pathParams: ['id', 'lineId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
+    },
+  },
   RestoreRole: {
     method: 'POST',
     template: '/api/v1/roles/{id}/restoration',

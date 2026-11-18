@@ -43,6 +43,7 @@
   "RejectRoleGrantProposal",
   "RestoreItem",
   "RestorePurchaseOrder",
+  "RestorePurchaseOrderLine",
   "RestoreRole",
   "RestoreStorageLocation",
   "RestoreSupplier",

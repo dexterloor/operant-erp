@@ -125,6 +125,19 @@ export type DeleteLineResult = { kind: 'deleted' } | StaleLineWrite | Contention
 export type DeleteLineAction = (line: PurchaseOrderLine) => Promise<DeleteLineResult>;
 
 /**
+ * `POST /purchase-orders/{id}/lines/{lineId}/restoration` (PO-9; no body, no key: a repeat is refused W24). `restored`
+ * resolves after the stamped re-read (order, live lines and deleted lines, one commit) is committed, or after the page was
+ * told it failed — then `listStale` (po-9-red.md M-2: the screen may still show the old total and the line struck). `already-restored`: W24 once the re-read is an editable draft, or any refusal after which the re-read shows the
+ * line live (R1-17: restored elsewhere or by an interrupted press; po-9-red.md L-1). The stale kinds as Delete line's. `contention` is P1; `refused` any other 409 as sent (L8: a
+ * newer line holds the number), after the re-read was committed. `not-found` likewise follows a committed re-read.
+ * `sentAsOf` is the stamp taken when the request was sent: the page says, shows and focuses nothing for an answer to a
+ * request sent before the person's own Delete purchase order, Cancel order or Approve outcome.
+ */
+export type RestoreLineResult = { kind: 'restored'; listStale: boolean } | { kind: 'already-restored' } | StaleLineWrite | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+export type RestoreLineAction = (line: PurchaseOrderLine) => Promise<{ result: RestoreLineResult; sentAsOf: number }>;
+
+/**
  * `DELETE /purchase-orders/{id}` (PO-6; no body, no key: a repeat is refused P10). `deleted` resolves after the stamped
  * re-read is committed, or after the page was told it failed (the page then keeps the 204 as a fact: read-only). The stale
  * kinds are P9's rule (plan Response L-1: P11 is P9) followed by the re-read: `no-longer-draft` (committed; UX D-2's sentence

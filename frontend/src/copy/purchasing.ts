@@ -7,8 +7,9 @@
 // (`NEW_PURCHASE_ORDER.*`), `newOrder`, `createOrder`, `noneYet` in its final form and `emptyDraft` in its PO-3 form. The
 // keys whose final form names a later action (`emptyDraft`'s approving, `draftNote`, `orderedNote`) stay in earlier forms.
 // PO-4a (row 4) adds Save on a draft's header: the editor's keys and `draftNote` / `supplierFixed` in their PO-4a forms.
-// PO-5 (row 5) adds Add line and Delete line: `ADD_LINE.*`, `DELETE_LINE.*` (`after` without the restore clause: Restore
-// line ships at PO-9), `ORDER_LINES.actions` / `emptyNote`; `ADD_LINE.archivedNote` is not here until BK-38.
+// PO-5 (row 5) adds Add line and Delete line: `ADD_LINE.*`, `DELETE_LINE.*` (`after` without the restore clause until PO-9),
+// `ORDER_LINES.actions` / `emptyNote`; `ADD_LINE.archivedNote` is not here until BK-38.
+// PO-9 (row 12) adds Restore line: `ORDER_LINES.deletedLines*`, `RESTORE_LINE.*` and `DELETE_LINE.after` in its final form.
 // PO-6 (row 6) adds Delete purchase order on a live draft: `DELETE_ORDER.*` (B-14), and the three keys that name deleting in
 // their PO-6 forms: `supplierFixed` final, `draftNote` = "…It can be changed or deleted.", `noneArchived` final.
 // PO-7 (row 7) adds Cancel order on an ordered or partly received order: `CANCEL_ORDER.*` (B-7, both bodies; Rev 1a: the
@@ -335,6 +336,18 @@ export const ORDER_LINES = {
    * gated on `purchase_order.edit` alone — a seat without the catalogue read gets no Add, so no note).
    */
   emptyNote: (supplier: string) => `Add what you're ordering, one item per line. Only items in ${supplier}'s catalogue can be added.`,
+  /**
+   * `deletedLines` (the subsection's h3; R1-B, PO-9, X-17: not "Removed lines") · `deletedLinesEmpty` · `deletedLinesNote`
+   * (UX R1-B `ORDER_LINES`, R1a-1 row 12; Rev 0 B-4: a live draft, `purchase_order.edit`).
+   */
+  deletedLines: 'Deleted lines',
+  deletedLinesEmpty: 'No deleted lines.',
+  deletedLinesNote: "Lines deleted from this draft can be restored while it's still a draft.",
+  /**
+   * The deleted lines' own read failed (first render or its Retry). NOT a UX key: R1-B writes none (FE-LEAD's placeholder,
+   * in `loadFailed`'s shape; UX TO CONFIRM).
+   */
+  deletedLinesLoadFailed: "This draft's deleted lines couldn't be loaded.",
 } as const;
 
 /**
@@ -388,13 +401,36 @@ export const ADD_LINE = {
 
 /**
  * UX R1-B `DELETE_LINE` (PO-5; X-4: a direct row action, no dialog; X-17: *Delete*; heading `NOT_DELETED`). `after` is the
- * PO-5 form, without *" It can be restored from Deleted lines."*: Restore line and the Deleted lines view ship at PO-9.
+ * final form (R1a-1 row 12) — PO-9 ships Restore line and the Deleted lines subsection, so it adds *" It can be restored from
+ * Deleted lines."* — but only while the page shows Deleted lines (`restorable`; po-9-red.md L-2: the clause names a place).
  */
 export const DELETE_LINE = {
   action: 'Delete',
   deleteName: (n: number) => `Delete line ${n}`,
-  after: (n: number, sku: string) => `Line ${n} (${sku}) was deleted.`,
+  after: (n: number, sku: string, restorable: boolean) => (restorable ? `Line ${n} (${sku}) was deleted. It can be restored from Deleted lines.` : `Line ${n} (${sku}) was deleted.`),
   interrupted: (n: number) => `We can't tell whether line ${n} was deleted. Check this order's lines before you try again.`,
+} as const;
+
+/**
+ * UX R1-B `RESTORE_LINE` (PO-9; B-5 "Restore a line", as Rev 0): **Restore** in each Deleted lines row (its accessible name
+ * *Restore line {n}*, M-9), no dialog (the restore precedent); heading `NOT_RESTORED` on a refusal (the server's sentence as
+ * sent, W25 / L8 included). `alreadyRestored` replaces the server's W24 (R1-17). `interrupted`: a repeat is W24 → `alreadyRestored`.
+ */
+export const RESTORE_LINE = {
+  action: 'Restore',
+  /**
+   * po-9-red.md M-3: two deleted lines can share a number (a discarded number is reused), so the name, `after` and
+   * `alreadyRestored` carry the SKU, in `DELETE_LINE.after`'s shape. PLACEHOLDER forms of UX's keys: UX TO CONFIRM.
+   */
+  name: (n: number, sku: string) => `Restore line ${n} (${sku})`,
+  after: (n: number, sku: string) => `Line ${n} (${sku}) was restored and counts in the total again.`,
+  /**
+   * po-9-red.md M-2: a 200 whose re-read failed (the screen still shows the old total and the line struck). NOT a UX key:
+   * PLACEHOLDER, UX TO CONFIRM (`ADD_LINE.afterListStale`'s shape).
+   */
+  afterListStale: (n: number, sku: string) => `Line ${n} (${sku}) was restored. We couldn't load this order again, so its lines and total may be out of date.`,
+  alreadyRestored: (n: number, sku: string) => `Line ${n} (${sku}) was already restored.`,
+  interrupted: (n: number) => `We can't tell whether line ${n} was restored. Press Restore to try again.`,
 } as const;
 
 /** UX B-12 `PURCHASING_FORBIDDEN` (CONFIRMS R1-5): the label is read from `permissionLabels.ts` by the operation's code. */

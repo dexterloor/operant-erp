@@ -277,7 +277,8 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
   // Purchase orders PO-5 (plan R1-5 PO-5 "L1 → … catalogue re-read"): L1's rule, compared in lib/purchasing/wired.ts.
   // Purchase orders PO-7 (plan §2.2 "Stale page", C2 → re-read): the status guard's rule, compared in lib/purchasing/wired.ts.
   // Purchase orders PO-8 (po-8-red.md L-1, A1 → re-read): DSoD-1's Approve rule, compared in lib/purchasing/wired.ts.
-  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator'],
+  // Purchase orders PO-9 (po-9-red.md L-1, W24 → already restored): the line restore's not-archived rule, compared in lib/purchasing/wired.ts.
+  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived'],
 };
 
 /** The code-shaped literals a home's top-level declarations hold (the ones `literalViolations` exempts there). */

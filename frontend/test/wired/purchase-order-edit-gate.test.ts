@@ -54,6 +54,9 @@ vi.mock('@/lib/purchasing/load', async (actual) => {
       },
     }),
     loadLines: async () => ({ kind: 'ok', lines: [], nextCursor: null }),
+    // Purchase orders PO-9: the order page reads a live draft's deleted lines for a RestorePurchaseOrderLine holder; none here,
+    // so the page renders as before.
+    loadDeletedLines: async () => ({ kind: 'ok', lines: [], nextCursor: null }),
     loadWarehouseChoices: async () => {
       v.warehouseReads += 1;
       return v.warehouses === 'ok' ? { kind: 'ok', warehouses: [{ id: 'w', code: 'MAIN', name: 'Main' }] } : { kind: v.warehouses };

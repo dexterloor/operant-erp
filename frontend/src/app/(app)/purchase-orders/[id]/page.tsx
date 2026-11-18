@@ -5,7 +5,7 @@ import { PURCHASE_ORDER_PAGE, PURCHASE_ORDERS_LIST } from '@/copy/purchasing';
 import { isRecordId } from '@/lib/bff/paths';
 import { serverRead } from '@/lib/bff/server/reads';
 import { viewerMay } from '@/lib/bff/surface';
-import { loadCatalogueChoices, loadLines, loadPurchaseOrder, loadReceipts, loadWarehouseChoices, type CatalogueChoicesLoad, type ReceiptsLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
+import { loadCatalogueChoices, loadDeletedLines, loadLines, loadPurchaseOrder, loadReceipts, loadWarehouseChoices, type CatalogueChoicesLoad, type LinesLoad, type ReceiptsLoad, type WarehouseChoicesLoad } from '@/lib/purchasing/load';
 import { currentViewer, sessionEndedPath } from '../../currentViewer';
 import { PurchaseOrdersDenied } from '../PurchaseOrderStates';
 import { PurchaseOrderPage } from './PurchaseOrderPage';
@@ -31,7 +31,9 @@ import { PurchaseOrderPage } from './PurchaseOrderPage';
 // Receipts section: page 1 of this order's receipts (ListGoodsReceipts with the order's id as its one fixed filter,
 // Revision 10 R10-4), read last and only for a live, placed order — never a draft, on which nothing can be received
 // (gr-1-followups-ux.md §4) — and a ListGoodsReceipts holder (A-20: absent, not fetched, otherwise); 401 → the
-// session-ended notice; any other failure is the section's own state.
+// session-ended notice; any other failure is the section's own state. From PO-9, Deleted lines: a live draft's deleted lines
+// (ListPurchaseOrderLines `?archived=true`), read after the live lines and only when those were read, for a viewer holding
+// RestorePurchaseOrderLine's codes; 401 → the session-ended notice; any other failure is the subsection's own state.
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -68,6 +70,12 @@ export default async function Page({ params }: Params) {
     lines = await loadLines(serverRead(session), id);
     if (lines.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
   }
+  const canRestoreLine = viewerMay('RestorePurchaseOrderLine', codes);
+  let deletedLines: LinesLoad | null = null;
+  if (lines !== null && first.order.status === 'draft' && canRestoreLine) {
+    deletedLines = await loadDeletedLines(serverRead(session), id);
+    if (deletedLines.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
+  }
   let edit: { warehouses: WarehouseChoicesLoad } | null = null;
   if (first.order.archived_at === null && first.order.status === 'draft' && viewerMay('UpdatePurchaseOrder', codes) && viewerMay('ListWarehouses', codes)) {
     const warehouses = await loadWarehouseChoices(serverRead(session));
@@ -85,5 +93,5 @@ export default async function Page({ params }: Params) {
     receipts = await loadReceipts(serverRead(session), { q: '', cursor: null }, undefined, { name: 'purchase_order_id', value: id });
     if (receipts.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
   }
-  return <PurchaseOrderPage receipts={receipts} canOpenReceipt={viewerMay('GetGoodsReceipt', codes)} order={first.order} lines={lines} edit={edit} add={add} canDeleteLine={viewerMay('DeletePurchaseOrderLine', codes)} canDelete={viewerMay('DeletePurchaseOrder', codes)} canCancel={viewerMay('CancelPurchaseOrder', codes)} canApprove={viewerMay('ApprovePurchaseOrder', codes)} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
+  return <PurchaseOrderPage canRestoreLine={canRestoreLine} deletedLines={deletedLines} receipts={receipts} canOpenReceipt={viewerMay('GetGoodsReceipt', codes)} order={first.order} lines={lines} edit={edit} add={add} canDeleteLine={viewerMay('DeletePurchaseOrderLine', codes)} canDelete={viewerMay('DeletePurchaseOrder', codes)} canCancel={viewerMay('CancelPurchaseOrder', codes)} canApprove={viewerMay('ApprovePurchaseOrder', codes)} viewerId={viewer.id} canRestore={viewerMay('RestorePurchaseOrder', codes)} canReadLines={viewerMay('ListPurchaseOrderLines', codes)} canOpenSupplier={viewerMay('GetSupplier', codes)} canOpenWarehouse={viewerMay('GetWarehouse', codes)} canOpenItem={viewerMay('GetItem', codes)} />;
 }

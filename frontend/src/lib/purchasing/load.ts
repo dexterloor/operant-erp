@@ -95,6 +95,20 @@ export async function loadLines(read: Read, orderId: string, signal?: AbortSigna
   return { kind: 'ok', lines: items, nextCursor: body.next_cursor };
 }
 
+/**
+ * `ListPurchaseOrderLines?archived=true` (PO-9): the draft's DELETED lines — those deleted on their own (a deleted draft is not
+ * read: its page shows no lines, po-2-progress.md D-1) — the whole set in one answer, in served order. It sends `archived=true`
+ * and nothing else (no `limit`, no cursor) and reports the answer's `next_cursor` as `loadLines` does.
+ */
+export async function loadDeletedLines(read: Read, orderId: string, signal?: AbortSignal): Promise<LinesLoad> {
+  const a = await read('ListPurchaseOrderLines', { params: { id: orderId }, query: new URLSearchParams({ archived: 'true' }), signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown; next_cursor?: unknown } | null;
+  const items = body?.items;
+  if (!Array.isArray(items) || !items.every(isPurchaseOrderLine) || !isCursor(body?.next_cursor)) return { kind: 'server-error' };
+  return { kind: 'ok', lines: items, nextCursor: body.next_cursor };
+}
+
 /** GR-1: one page of goods receipts (`ListGoodsReceipts`), structurally a `PagedLoad<GoodsReceipt>` (lib imports nothing from app). */
 export type ReceiptsLoad =
   | { readonly kind: 'ok'; readonly items: GoodsReceipt[]; readonly nextCursor: string | null; readonly previousCursor: string | null; readonly tenantHasRows: boolean }

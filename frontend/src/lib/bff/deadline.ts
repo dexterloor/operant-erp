@@ -93,6 +93,11 @@ export const ACTION_DEADLINES_MS = {
    * status refusal, to say what the order is now. The page's re-read after the dialog closes runs under `reread`.
    */
   orderApprove: 30_000,
+  /**
+   * Restore a deleted line of a draft purchase order (PO-9): the request + the GetPurchaseOrder, lines and deleted lines
+   * re-read; also that re-read after a refusal, to see whether the line came back elsewhere or the page was stale.
+   */
+  lineRestore: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

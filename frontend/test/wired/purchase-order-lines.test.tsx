@@ -372,7 +372,7 @@ describe('/purchase-orders/[id] — Delete line (PO-5; X-4: direct, no dialog)',
     expect(screen.getAllByRole('button', { name: /^Delete line \d$/ })).toHaveLength(2);
   });
 
-  it('deleted: DELETE …/lines/{id} (no body, no key, no dialog); the order and lines re-read; focus the Lines heading, then "Line 2 (SKU-2) was deleted." — and nothing mentions restoring a line', async () => {
+  it('deleted: DELETE …/lines/{id} (no body, no key, no dialog); the order and lines re-read; focus the Lines heading, then "Line 2 (SKU-2) was deleted." — no restore clause on a page that draws no Deleted lines (PO-9 moved this test; po-9-red.md L-2)', async () => {
     const calls = stubFetch([empty(204), json(200, { ...DRAFT, total_amount: '25.0000' }), json(200, page([line(1)]))]);
     const u = userEvent.setup();
     show();
@@ -388,11 +388,11 @@ describe('/purchase-orders/[id] — Delete line (PO-5; X-4: direct, no dialog)',
     expect(linesHeading()).toHaveFocus();
     expect(texts.texts).toEqual(['', 'Line 2 (SKU-2) was deleted.']);
     texts.stop();
-    // X-4's condition (until PO-9): no restore wording and no Deleted lines control anywhere on the page.
+    // X-4's condition held until PO-9; PO-9 moved it deliberately (final RED "Checked and held"; po-9-red.md L-2): the restore
+    // clause is spoken only while the page shows Deleted lines (`purchase-order-line-restore.test.tsx` pins it). This page was
+    // given no deleted lines (a seat without the restore), so no subsection is drawn, no deleted-lines read is sent (the call
+    // list above) and the sentence names no place to restore from.
     expect(region().textContent).not.toMatch(/restor/i);
-    expect(document.querySelector('section')!.textContent).not.toMatch(/Deleted lines|restored from/i);
-    expect(screen.queryByRole('button', { name: /Deleted lines/ })).toBeNull();
-    expect(screen.queryByRole('link', { name: /Deleted lines/ })).toBeNull();
     expect(screen.queryByRole('heading', { name: /Deleted lines/ })).toBeNull();
   });
 

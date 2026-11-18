@@ -5,12 +5,12 @@ import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import type { Refused } from '../results';
-import { isPurchaseOrder, isPurchaseOrderLine, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
-import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, ORDER_FIELDS, type AddLineAction, type ApproveOrderAction, type ApproveOrderResult, type AddLineResult, type CancelOrderAction, type CancelOrderResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type DeleteOrderAction, type DeleteOrderResult, type OrderChange, type RestoreOrderAction, type SaveOrderAction } from './results';
+import { isPurchaseOrder, isPurchaseOrderLine, loadDeletedLines, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
+import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, ORDER_FIELDS, type AddLineAction, type ApproveOrderAction, type ApproveOrderResult, type AddLineResult, type CancelOrderAction, type CancelOrderResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type DeleteOrderAction, type DeleteOrderResult, type OrderChange, type RestoreLineAction, type RestoreLineResult, type RestoreOrderAction, type SaveOrderAction } from './results';
 
 // The purchasing family's actions over the BFF (Revision 8 R8-2; the lib/suppliers/wired.ts shape). PO-2 shipped
 // Restore purchase order; PO-3 Create purchase order; PO-4a Save (the draft's header); PO-5 adds Add line and Delete line;
-// PO-6 Delete purchase order; PO-7 Cancel order; PO-8 Approve (all four at the end of this file).
+// PO-6 Delete purchase order; PO-7 Cancel order; PO-8 Approve; PO-9 Restore line (all five at the end of this file).
 // Restore takes no Idempotency-Key: it is guarded by `deleted_at` (a repeat is refused P12).
 // One deadline covers the request, its GetPurchaseOrder re-read and, for a ListPurchaseOrderLines holder, the order's live
 // lines. Restore compares no refusal code: a refusal is followed by a re-read, and what the re-read shows decides (live →
@@ -37,11 +37,20 @@ export interface OrderWiring {
   /** Holds ListPurchaseOrderLines' codes: only then is a live order's lines read with it. */
   readonly readLines: boolean;
   /**
+   * PO-9: the page shows a live draft's Deleted lines (a RestorePurchaseOrderLine holder whose lines are read): only then are
+   * a live draft's deleted lines (`?archived=true`) read with it — by Delete line, Restore line and Restore purchase order,
+   * the writes that change which lines are deleted (Add line deletes none), and by Save, which may run beside a line write
+   * (po-9-red.md M-1 (b)).
+   */
+  readonly readDeleted?: boolean;
+  /**
    * Sets the re-read order (and, for a live one read with its lines, those lines; `null` = no lines read) under the stamp
    * of the re-read, and resolves after the commit that shows them. `sentAsOf`, given only with a write's own answer body,
    * is the stamp taken when that write was sent: the page drops the body when a 204 arrived after it (PO-6, the 204 floor).
+   * `deleted` (PO-9), given only when the deleted lines were read with the order, replaces the Deleted lines shown in the same
+   * commit; absent, what is shown is kept.
    */
-  readonly setOrder: (order: PurchaseOrder, lines: LinesLoad | null, asOf: number, sentAsOf?: number) => Promise<void>;
+  readonly setOrder: (order: PurchaseOrder, lines: LinesLoad | null, asOf: number, sentAsOf?: number, deleted?: LinesLoad) => Promise<void>;
   /**
    * A re-read after a write did not answer an order: the page shows its region error, or swaps (ST-4b / ST-5). `sentAsOf`,
    * given only by Save (both sites), is the stamp taken when its PATCH was sent: the page drops the region error — never the
@@ -60,6 +69,15 @@ export interface OrderWiring {
    * approve floor, po-8-progress.md; the page never lets a Save of its own overlap an approval, po-8-red.md H-1).
    */
   readonly onApproved?: (asOf: number) => void;
+}
+
+/**
+ * PO-9: a live draft's deleted lines, read under the action's deadline; `undefined` (not read: the page keeps what it shows)
+ * when the page shows no Deleted lines or the order is not a live draft (the page shows them on a live draft only).
+ */
+async function deletedFor(w: OrderWiring, order: PurchaseOrder, signal: AbortSignal): Promise<LinesLoad | undefined> {
+  if (w.readDeleted !== true || order.archived_at !== null || order.status !== 'draft') return undefined;
+  return loadDeletedLines(readOf(w.caller), order.id, signal);
 }
 
 /** A live order's lines, read under the action's deadline; `null` for a deleted order or a viewer without the read. */
@@ -81,7 +99,8 @@ export function orderRestore(w: OrderWiring): RestoreOrderAction {
             const s = w.stamp();
             const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
             if (again.kind === 'ok' && again.order.archived_at === null) {
-              await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
+              const lines = await linesFor(w, again.order, deadline.signal);
+              await w.setOrder(again.order, lines, s, undefined, await deletedFor(w, again.order, deadline.signal));
               return { kind: 'already-live', order: again.order, message: r.message };
             }
             if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
@@ -100,11 +119,14 @@ export function orderRestore(w: OrderWiring): RestoreOrderAction {
       if (!isPurchaseOrder(r.body)) return { kind: 'server-error' };
       const s = w.stamp();
       const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
-      if (again.kind === 'ok') await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
-      else {
+      if (again.kind === 'ok') {
+        const lines = await linesFor(w, again.order, deadline.signal);
+        await w.setOrder(again.order, lines, s, undefined, await deletedFor(w, again.order, deadline.signal));
+      } else {
         // The 200 body is the server's new state: commit it (with its lines), so the page never says "restored" over the
         // deleted banner.
-        await w.setOrder(r.body, await linesFor(w, r.body, deadline.signal), s);
+        const lines = await linesFor(w, r.body, deadline.signal);
+        await w.setOrder(r.body, lines, s, undefined, await deletedFor(w, r.body, deadline.signal));
         w.onRereadFailed(again.kind, s);
       }
       return { kind: 'restored', order: r.body };
@@ -178,6 +200,7 @@ export function orderSave(w: OrderWiring): SaveOrderAction {
             const s = w.stamp();
             const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
             if (again.kind === 'ok' && (again.order.archived_at !== null || again.order.status !== 'draft')) {
+              // Not a live draft: `deletedFor` reads none (Deleted lines is shown on a live draft only).
               await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
               // A live order that is no longer a draft: UX D-2's sentence, built from what was read, whatever the refusal
               // (it is true of the page either way). A deleted one: the server's sentence (P8, true: Restore exists) —
@@ -204,11 +227,16 @@ export function orderSave(w: OrderWiring): SaveOrderAction {
       if (!isPurchaseOrder(r.body)) return { kind: 'server-error' };
       const s = w.stamp();
       const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
-      if (again.kind === 'ok') await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
-      else {
+      // po-9-red.md M-1 (b): a Save's reading carries the deleted lines too (a line write may have run beside it, D-11), so the
+      // reading that lands last never shows a line live and deleted at once, or neither.
+      if (again.kind === 'ok') {
+        const lines = await linesFor(w, again.order, deadline.signal);
+        await w.setOrder(again.order, lines, s, undefined, await deletedFor(w, again.order, deadline.signal));
+      } else {
         // The 200 body is the server's new state: commit it, so the page shows what was saved (Restore's rule), unless a
         // 204 arrived after this Save was sent (the body is then the order before the delete; PO-6).
-        await w.setOrder(r.body, await linesFor(w, r.body, deadline.signal), s, sent);
+        const lines = await linesFor(w, r.body, deadline.signal);
+        await w.setOrder(r.body, lines, s, sent, await deletedFor(w, r.body, deadline.signal));
         w.onRereadFailed(again.kind, s, sent);
       }
       return { kind: 'saved', order: r.body, sentAsOf: sent };
@@ -234,7 +262,11 @@ async function afterLineRefusal(w: OrderWiring, r: Refused, signal: AbortSignal,
     return r.rule === PURCHASE_ORDER_REFUSAL.notDraft ? { kind: 'changed-since-loaded' } : r;
   }
   const editable = again.order.archived_at === null && again.order.status === 'draft';
-  if (!editable || commitLive) await w.setOrder(again.order, await linesFor(w, again.order, signal), s);
+  if (!editable || commitLive) {
+    const lines = await linesFor(w, again.order, signal);
+    // PO-9: Delete line (`commitLive`) changes which lines are deleted; its deleted lines are read with it.
+    await w.setOrder(again.order, lines, s, undefined, commitLive ? await deletedFor(w, again.order, signal) : undefined);
+  }
   if (editable) return r;
   return again.order.archived_at === null ? { kind: 'no-longer-draft', order: again.order } : { kind: 'refused-archived', message: r.message };
 }
@@ -246,15 +278,16 @@ async function afterLineRefusal(w: OrderWiring, r: Refused, signal: AbortSignal,
  * shows both as read; `false` when either read failed (an order read failure is the page's region error; a lines read
  * failure is committed as the section's own state).
  */
-async function rereadAfterLineWrite(w: OrderWiring, signal: AbortSignal): Promise<boolean> {
+async function rereadAfterLineWrite(w: OrderWiring, signal: AbortSignal, withDeleted = false, sentAsOf?: number): Promise<boolean> {
   const s = w.stamp();
   const again = await loadPurchaseOrder(readOf(w.caller), w.id, signal);
   if (again.kind !== 'ok') {
-    w.onRereadFailed(again.kind, s);
+    w.onRereadFailed(again.kind, s, sentAsOf);
     return false;
   }
   const lines = await linesFor(w, again.order, signal);
-  await w.setOrder(again.order, lines, s);
+  // PO-9: Delete line and Restore line change which lines are deleted, so the Deleted lines come in the same commit.
+  await w.setOrder(again.order, lines, s, sentAsOf, withDeleted ? await deletedFor(w, again.order, signal) : undefined);
   return lines === null || lines.kind === 'ok';
 }
 
@@ -313,7 +346,7 @@ export function lineDelete(w: OrderWiring): DeleteLineAction {
     try {
       const r = await w.caller.call('DeletePurchaseOrderLine', { id: w.id, lineId: line.id }, undefined, { signal: deadline.signal });
       if (r.kind === 'ok') {
-        await rereadAfterLineWrite(w, deadline.signal);
+        await rereadAfterLineWrite(w, deadline.signal, true);
         return { kind: 'deleted' };
       }
       switch (r.kind) {
@@ -321,7 +354,7 @@ export function lineDelete(w: OrderWiring): DeleteLineAction {
           if (r.rule === PLATFORM_REFUSAL.contention) return { kind: 'contention', message: r.message };
           return afterLineRefusal(w, r, deadline.signal, true);
         case 'not-found':
-          await rereadAfterLineWrite(w, deadline.signal);
+          await rereadAfterLineWrite(w, deadline.signal, true);
           return r;
         case 'forbidden':
         case 'session-ended':
@@ -503,6 +536,63 @@ export function orderApprove(w: OrderWiring): ApproveOrderAction {
           return r;
         default:
           return { kind: 'server-error' };
+      }
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Restore line (PO-9; the `lineDelete` shape; no dialog, the restore precedent). No body, no Idempotency-Key: guarded by
+// `deleted_at` (a repeat is refused W24). The stamp of the moment the request is sent goes back with every answer, and with
+// each re-read's commit, so the page drops what an answer to a request sent before the person's own Delete purchase order,
+// Cancel order or Approve would commit, say or show (the page's own-outcome floors; behind the page's one-write-at-a-time
+// guard those cannot overlap a Restore, so this is defence). A 200 is followed by the stamped re-read (order, live lines and
+// deleted lines, one commit). P1 is `contention`. Any other 409, and a 404, are followed by that re-read too, and ANY good
+// reading is committed (the row must leave Deleted lines if the line came back elsewhere); a reading that is no longer an
+// editable draft is named as Delete line's; one that shows the line live is `already-restored` (W24, R1-17); otherwise the
+// refusal as sent (L8), its row and Restore kept. A failed re-read is the page's region error; P9's rule then says UX D-2's
+// changed-since sentence.
+export function lineRestore(w: OrderWiring): RestoreLineAction {
+  return async (line) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.lineRestore);
+    const sent = w.stamp();
+    const done = (result: RestoreLineResult) => ({ result, sentAsOf: sent });
+    try {
+      const r = await w.caller.call('RestorePurchaseOrderLine', { id: w.id, lineId: line.id }, undefined, { signal: deadline.signal });
+      if (r.kind === 'ok') {
+        if (!isPurchaseOrderLine(r.body)) return done({ kind: 'server-error' });
+        const shown = await rereadAfterLineWrite(w, deadline.signal, true, sent);
+        return done({ kind: 'restored', listStale: !shown });
+      }
+      switch (r.kind) {
+        case 'refused': {
+          if (r.rule === PLATFORM_REFUSAL.contention) return done({ kind: 'contention', message: r.message });
+          const s = w.stamp();
+          const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
+          if (again.kind !== 'ok') {
+            w.onRereadFailed(again.kind, s, sent);
+            return done(r.rule === PURCHASE_ORDER_REFUSAL.notDraft ? { kind: 'changed-since-loaded' } : r);
+          }
+          const lines = await linesFor(w, again.order, deadline.signal);
+          await w.setOrder(again.order, lines, s, sent, await deletedFor(w, again.order, deadline.signal));
+          if (again.order.archived_at !== null) return done({ kind: 'refused-archived', message: r.message });
+          if (again.order.status !== 'draft') return done({ kind: 'no-longer-draft', order: again.order });
+          // po-9-red.md L-1: W24 says the line is live whatever the lines read returned (R1-17: its words are never shown).
+          if (r.rule === PURCHASE_ORDER_REFUSAL.lineNotArchived) return done({ kind: 'already-restored' });
+          if (lines !== null && lines.kind === 'ok' && lines.lines.some((l) => l.id === line.id)) return done({ kind: 'already-restored' });
+          return done(r);
+        }
+        case 'not-found':
+          await rereadAfterLineWrite(w, deadline.signal, true, sent);
+          return done(r);
+        case 'forbidden':
+        case 'session-ended':
+        case 'unreachable':
+        case 'server-error':
+          return done(r);
+        default:
+          return done({ kind: 'server-error' });
       }
     } finally {
       deadline.cancel();
