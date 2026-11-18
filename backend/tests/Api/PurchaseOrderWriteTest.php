@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Purchasing\Infrastructure\Entity\PurchaseOrder;
+use App\Modules\UserManagement\Domain\DefaultRoles;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -489,6 +490,40 @@ final class PurchaseOrderWriteTest extends PurchaseOrderTestCase
         self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
         self::assertSame('7.000000', $this->json()['quantity']);
         self::assertSame('2.5000', $this->json()['unit_cost'], 'An absent field was changed.');
+    }
+
+    /**
+     * **Every line write body serves the item's unit** (BK-33; PC-9's eighth exception: the `CreatePurchaseOrderLine`,
+     * `UpdatePurchaseOrderLine` and `RestorePurchaseOrderLine` responses under `purchase_order.edit`, PC-17). The item is set
+     * to `BOX` before its catalogue entry exists (after that `UpdateItem` refuses, BK-24), never the fixture's `EA`. Acts as
+     * the default `buyer`, so the audience is a real role, not every declared code.
+     */
+    #[Test]
+    public function theLineWriteBodiesServeTheItemsUnit(): void
+    {
+        $draft = $this->seedDraft(self::TENANT_A, 'PO-000001');
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET unit_of_measure_code = ? WHERE id = ?::uuid', ['BOX', $draft['item']]);
+        $this->seedSupplierProduct(self::TENANT_A, $draft['supplier'], $draft['item']);
+        $this->actAs(self::TENANT_A, DefaultRoles::codesFor(DefaultRoles::BUYER));
+
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines', [
+            'inventory_item_id' => $draft['item'],
+            'quantity' => '3',
+            'unit_cost' => '4.5000',
+        ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('BOX', $this->json()['unit_of_measure_code'], 'CreatePurchaseOrderLine');
+        $line = (string) $this->json()['id'];
+
+        $this->send('PATCH', '/purchase-orders/'.$draft['order'].'/lines/'.$line, ['quantity' => '7.000000']);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame(['7.000000', 'BOX'], [$this->json()['quantity'], $this->json()['unit_of_measure_code']], 'UpdatePurchaseOrderLine');
+
+        $this->send('DELETE', '/purchase-orders/'.$draft['order'].'/lines/'.$line);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->send('POST', '/purchase-orders/'.$draft['order'].'/lines/'.$line.'/restoration');
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame('BOX', $this->json()['unit_of_measure_code'], 'RestorePurchaseOrderLine');
     }
 
     /**

@@ -89,12 +89,14 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
                     'purchase_order_line' => ['id' => $po['lines'][0], 'line_number' => 1],
                     'inventory_item' => ['id' => $po['items'][0], 'sku' => 'SKU-PO-000001-0', 'name' => 'Item zero'],
                     'quantity' => '6.000000',
+                    'unit_of_measure_code' => 'EA',
                     'storage_location' => ['id' => $po['bin'], 'code' => 'A-01'],
                 ],
                 [
                     'purchase_order_line' => ['id' => $po['lines'][1], 'line_number' => 2],
                     'inventory_item' => ['id' => $po['items'][1], 'sku' => 'SKU-PO-000001-1', 'name' => 'Item one'],
                     'quantity' => '4.000000',
+                    'unit_of_measure_code' => 'EA',
                     'storage_location' => ['id' => $secondBin, 'code' => 'B-07'],
                 ],
             ],
@@ -263,6 +265,51 @@ final class GoodsReceiptCreateTest extends PurchaseOrderTestCase
             [['id' => $po['items'][0], 'sku' => 'SKU-PO-000001-0', 'name' => 'SKU-PO-000001-0']],
             array_column($this->json()['lines'], 'inventory_item'),
         );
+    }
+
+    /**
+     * **Each receipt line serves its ordered item's unit** (BK-33; PC-9's eighth exception). `goods_receipt_line` has no item
+     * column, so the unit is the ordered line's item's, read through the same join as `lines[].inventory_item`. Built inline
+     * rather than through {@see self::orderedOrderWithLines()}, because the units must be set (`BOX`, `KG`, never the
+     * fixture's `EA`) before any line names the items (BK-24). The 201 and `GetGoodsReceipt` serve the same units, and an
+     * item archived after the delivery keeps its unit on the receipt.
+     */
+    #[Test]
+    public function eachReceiptLineServesItsOrderedItemsUnit(): void
+    {
+        $supplier = $this->seedSupplier(self::TENANT_A, 'Acme PO-000001');
+        $warehouse = $this->seedWarehouse(self::TENANT_A, 'WH PO-000001');
+        $order = $this->seedOrder(self::TENANT_A, 'PO-000001', $supplier, $warehouse, status: PurchaseOrder::STATUS_ORDERED);
+        $box = $this->seedItem(self::TENANT_A, 'SKU-BOX');
+        $kg = $this->seedItem(self::TENANT_A, 'SKU-KG');
+        foreach ([$box => 'BOX', $kg => 'KG'] as $item => $unit) {
+            $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET unit_of_measure_code = ? WHERE id = ?::uuid', [$unit, $item]);
+        }
+        $boxLine = $this->seedLine(self::TENANT_A, $order, $box, lineNumber: 1);
+        $kgLine = $this->seedLine(self::TENANT_A, $order, $kg, lineNumber: 2);
+        $bin = $this->seedLocation(self::TENANT_A, $warehouse, 'A-01');
+
+        $this->receive($order, [
+            ['purchase_order_line_id' => $boxLine, 'quantity' => '3', 'storage_location_id' => $bin],
+            ['purchase_order_line_id' => $kgLine, 'quantity' => '2', 'storage_location_id' => $bin],
+        ]);
+        self::assertSame(201, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $id = (string) $this->json()['id'];
+        $units = static fn (array $lines): array => array_combine(
+            array_map(static fn (array $l): string => (string) $l['purchase_order_line']['id'], $lines),
+            array_column($lines, 'unit_of_measure_code'),
+        );
+        self::assertSame([$boxLine => 'BOX', $kgLine => 'KG'], $units($this->json()['lines']), 'CreateGoodsReceipt');
+
+        $this->send('GET', '/goods-receipts/'.$id);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([$boxLine => 'BOX', $kgLine => 'KG'], $units($this->json()['lines']), 'GetGoodsReceipt');
+
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET deleted_at = now() WHERE id = ?::uuid', [$box]);
+        $this->send('GET', '/goods-receipts/'.$id);
+        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        self::assertSame([$boxLine => 'BOX', $kgLine => 'KG'], $units($this->json()['lines']),
+            'A receipt line whose item was archived after the delivery must still serve that item\'s unit.');
     }
 
     /**

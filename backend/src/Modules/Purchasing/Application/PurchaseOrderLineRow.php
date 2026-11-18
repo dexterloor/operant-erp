@@ -75,7 +75,8 @@ final class PurchaseOrderLineRow
 
         SQL.self::OUTSTANDING.<<<'SQL'
          AS quantity_outstanding,
-        i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name
+        i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name,
+        i.unit_of_measure_code AS inventory_item_unit_of_measure_code
         SQL;
 
     /**
@@ -88,6 +89,9 @@ final class PurchaseOrderLineRow
      * entire reason it is soft-deleted"* — and dropping the row from this list
      * would make a purchase order lose a line because somebody tidied a
      * catalogue.
+     *
+     * The same join also serves the item's unit as the line's `unit_of_measure_code`
+     * (BK-33), archived items included: read live, never snapshotted.
      */
     public const FROM = <<<'SQL'
         FROM purchase_order_line pol
@@ -102,6 +106,7 @@ final class PurchaseOrderLineRow
             lineNumber: (int) $row['line_number'],
             inventoryItem: new ItemReference((string) $row['inventory_item_id'], (string) $row['inventory_item_sku'], (string) $row['inventory_item_name']),
             quantity: (string) $row['quantity_ordered'],
+            unitOfMeasureCode: (string) $row['inventory_item_unit_of_measure_code'],
             unitCost: (string) $row['unit_cost'],
             quantityReceived: (string) $row['quantity_received'],
             quantityOutstanding: (string) $row['quantity_outstanding'],

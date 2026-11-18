@@ -43,7 +43,9 @@ use Symfony\Component\Uid\Uuid;
  * key, and an item archived after the delivery is still the item that arrived.
  * It reads `inventory_item`, a table `Modules\Inventory` owns — the same A-2
  * residual as `PurchaseOrderLineRow`'s item join. The order line's reference is
- * `{id, line_number}` (API-23b clause (i)).
+ * `{id, line_number}` (API-23b clause (i)). The same join also serves the
+ * item's unit as the line's `unit_of_measure_code` (BK-33), archived items
+ * included: read live, never snapshotted.
  *
  * **`ListGoodsReceipts` (remaining-ops G1)** reads the same row through the same two statements, so a list row is
  * byte-for-byte `GetGoodsReceipt`'s document; see {@see self::listStatement()} for its two orders.
@@ -212,6 +214,7 @@ final readonly class GoodsReceiptReader
         SELECT grl.id, grl.goods_receipt_id, grl.purchase_order_line_id, grl.quantity_received,
                pol.line_number AS purchase_order_line_number,
                i.id AS inventory_item_id, i.sku AS inventory_item_sku, i.name AS inventory_item_name,
+               i.unit_of_measure_code AS inventory_item_unit_of_measure_code,
                sl.id AS storage_location_id, sl.code AS storage_location_code
           FROM goods_receipt_line grl
           JOIN purchase_order_line pol ON pol.tenant_id = grl.tenant_id AND pol.id = grl.purchase_order_line_id
@@ -263,6 +266,7 @@ final readonly class GoodsReceiptReader
                 purchaseOrderLine: new OrderLineReference((string) $line['purchase_order_line_id'], (int) $line['purchase_order_line_number']),
                 inventoryItem: new ItemReference((string) $line['inventory_item_id'], (string) $line['inventory_item_sku'], (string) $line['inventory_item_name']),
                 quantity: (string) $line['quantity_received'],
+                unitOfMeasureCode: (string) $line['inventory_item_unit_of_measure_code'],
                 storageLocation: new LocationReference((string) $line['storage_location_id'], (string) $line['storage_location_code']),
             ), $lines),
         );

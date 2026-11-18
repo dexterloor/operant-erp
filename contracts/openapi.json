@@ -1461,6 +1461,16 @@
                                         "code"
                                     ],
                                     "type": "object"
+                                },
+                                "unit_of_measure_code": {
+                                    "enum": [
+                                        "EA",
+                                        "BOX",
+                                        "KG",
+                                        "L",
+                                        "M"
+                                    ],
+                                    "type": "string"
                                 }
                             },
                             "required": [
@@ -1468,6 +1478,7 @@
                                 "purchase_order_line",
                                 "inventory_item",
                                 "quantity",
+                                "unit_of_measure_code",
                                 "storage_location"
                             ],
                             "type": "object"
@@ -2871,6 +2882,16 @@
                     },
                     "unit_cost": {
                         "type": "string"
+                    },
+                    "unit_of_measure_code": {
+                        "enum": [
+                            "EA",
+                            "BOX",
+                            "KG",
+                            "L",
+                            "M"
+                        ],
+                        "type": "string"
                     }
                 },
                 "required": [
@@ -2878,6 +2899,7 @@
                     "line_number",
                     "inventory_item",
                     "quantity",
+                    "unit_of_measure_code",
                     "unit_cost",
                     "quantity_received",
                     "quantity_outstanding",
