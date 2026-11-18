@@ -92,7 +92,7 @@ const MIRRORED: Record<string, string[]> = {
   // Purchase orders PO-1 (purchase-orders-plan.md §3; Revision 10 R10-2): the order, its line, the line's inline item
   // reference and the two references the order carries; each later commit adds the input it first sends.
   PurchaseOrder: keysOf<PurchaseOrder>()({ id: true, order_number: true, status: true, supplier: true, warehouse: true, currency_code: true, total_amount: true, ordered_at: true, expected_at: true, created_by: true, archived_at: true }),
-  PurchaseOrderLine: keysOf<PurchaseOrderLine>()({ id: true, line_number: true, inventory_item: true, quantity: true, quantity_received: true, quantity_outstanding: true, unit_cost: true, archived_at: true }),
+  PurchaseOrderLine: keysOf<PurchaseOrderLine>()({ id: true, line_number: true, inventory_item: true, quantity: true, quantity_received: true, quantity_outstanding: true, unit_cost: true, archived_at: true, unit_of_measure_code: true }),
   'PurchaseOrderLine.inventory_item': keysOf<PurchaseOrderItemReference>()({ id: true, sku: true, name: true }),
   // Purchase orders PO-5: Add line's body (the new line row sends the chosen item and the two fields as typed).
   'PurchaseOrderLine.CreatePurchaseOrderLineInput': keysOf<CreatePurchaseOrderLineInput>()({ inventory_item_id: true, quantity: true, unit_cost: true }),
@@ -109,7 +109,7 @@ const MIRRORED: Record<string, string[]> = {
   // Goods receipts GR-1: the receipt (register, receipt page, the order page's section) and its inline references.
   GoodsReceipt: keysOf<GoodsReceipt>()({ id: true, receipt_number: true, received_at: true, purchase_order: true, received_by: true, lines: true }),
   'GoodsReceipt.purchase_order': keysOf<GoodsReceiptOrderReference>()({ id: true, order_number: true }),
-  'GoodsReceipt.lines[]': keysOf<GoodsReceiptLine>()({ id: true, purchase_order_line: true, inventory_item: true, quantity: true, storage_location: true }),
+  'GoodsReceipt.lines[]': keysOf<GoodsReceiptLine>()({ id: true, purchase_order_line: true, inventory_item: true, quantity: true, storage_location: true, unit_of_measure_code: true }),
   'GoodsReceipt.lines[].purchase_order_line': keysOf<GoodsReceiptOrderLineReference>()({ id: true, line_number: true }),
   'GoodsReceipt.lines[].inventory_item': keysOf<PurchaseOrderItemReference>()({ id: true, sku: true, name: true }),
   'GoodsReceipt.lines[].storage_location': keysOf<GoodsReceiptLocationReference>()({ id: true, code: true }),

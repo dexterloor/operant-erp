@@ -52,6 +52,7 @@ const line = (n: number): PurchaseOrderLine => ({
   quantity_outstanding: '2.000000',
   unit_cost: '12.5000',
   archived_at: null,
+  unit_of_measure_code: 'EA',
 });
 const LINES: LinesLoad = { kind: 'ok', lines: [line(1), line(2)], nextCursor: null };
 const LINES_REPLY = () => json(200, page([line(1), line(2)]));

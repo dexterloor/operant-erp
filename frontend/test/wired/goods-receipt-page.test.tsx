@@ -20,8 +20,8 @@ const R: GoodsReceipt = {
   purchase_order: ORDER,
   received_by: { id: 'f1b2c3d4-0000-4000-8000-000000000001', display_name: 'Wanda Warehouse' },
   lines: [
-    { id: 'a1b2c3d4-0000-4000-8000-000000000001', purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000001', line_number: 1 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000001', sku: 'SKU-1', name: 'Widget' }, quantity: '1234567890123.123456', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000001', code: 'A-01' } },
-    { id: 'a1b2c3d4-0000-4000-8000-000000000002', purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000003', line_number: 3 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000002', sku: 'SKU-2', name: 'Gadget' }, quantity: '10.000000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000002', code: 'B-07' } },
+    { id: 'a1b2c3d4-0000-4000-8000-000000000001', purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000001', line_number: 1 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000001', sku: 'SKU-1', name: 'Widget' }, quantity: '1234567890123.123456', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000001', code: 'A-01' }, unit_of_measure_code: 'EA' },
+    { id: 'a1b2c3d4-0000-4000-8000-000000000002', purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000003', line_number: 3 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000002', sku: 'SKU-2', name: 'Gadget' }, quantity: '10.000000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000002', code: 'B-07' }, unit_of_measure_code: 'EA' },
   ],
 };
 const show = (over: { receipt?: GoodsReceipt; canOpenOrder?: boolean; canOpenItem?: boolean } = {}) => renderWired(<GoodsReceiptPage receipt={over.receipt ?? R} canOpenOrder={over.canOpenOrder ?? false} canOpenItem={over.canOpenItem ?? false} />);

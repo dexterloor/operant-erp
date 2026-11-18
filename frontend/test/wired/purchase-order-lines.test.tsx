@@ -39,6 +39,7 @@ const line = (n: number, over: Partial<PurchaseOrderLine> = {}): PurchaseOrderLi
   quantity_outstanding: '2.000000',
   unit_cost: '12.5000',
   archived_at: null,
+  unit_of_measure_code: 'EA',
   ...over,
 });
 const entry = (n: number, over: Partial<CatalogueChoice> = {}): CatalogueChoice => ({

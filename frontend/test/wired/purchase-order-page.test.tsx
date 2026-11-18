@@ -37,6 +37,7 @@ const line = (n: number, over: Partial<PurchaseOrderLine> = {}): PurchaseOrderLi
   quantity_outstanding: '7.500000',
   unit_cost: '12.5000',
   archived_at: null,
+  unit_of_measure_code: 'EA',
   ...over,
 });
 const lines = (ls: PurchaseOrderLine[], nextCursor: string | null = null): LinesLoad => ({ kind: 'ok', lines: ls, nextCursor });

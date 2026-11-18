@@ -30,8 +30,8 @@ const receipt = (n: number, over: Partial<GoodsReceipt> = {}): GoodsReceipt => (
   purchase_order: ORDER,
   received_by: { id: 'f1b2c3d4-0000-4000-8000-000000000001', display_name: 'Wanda Warehouse' },
   lines: [
-    { id: `a1b2c3d4-0000-4000-8000-${String(n).padStart(10, '0')}01`, purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000001', line_number: 1 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000001', sku: 'SKU-1', name: 'Widget' }, quantity: '10.500000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000001', code: 'A-01' } },
-    { id: `a1b2c3d4-0000-4000-8000-${String(n).padStart(10, '0')}02`, purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000002', line_number: 2 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000002', sku: 'SKU-2', name: 'Gadget' }, quantity: '3.000000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000002', code: 'A-02' } },
+    { id: `a1b2c3d4-0000-4000-8000-${String(n).padStart(10, '0')}01`, purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000001', line_number: 1 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000001', sku: 'SKU-1', name: 'Widget' }, quantity: '10.500000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000001', code: 'A-01' }, unit_of_measure_code: 'EA' },
+    { id: `a1b2c3d4-0000-4000-8000-${String(n).padStart(10, '0')}02`, purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000002', line_number: 2 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000002', sku: 'SKU-2', name: 'Gadget' }, quantity: '3.000000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000002', code: 'A-02' }, unit_of_measure_code: 'EA' },
   ],
   ...over,
 });

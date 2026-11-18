@@ -659,7 +659,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   ActorReference: ['display_name', 'id'],
   Collection: ['items', 'next_cursor', 'previous_cursor', 'tenant_has_rows'],
   GoodsReceipt: ['id', 'lines', 'purchase_order', 'receipt_number', 'received_at', 'received_by'],
-  'GoodsReceipt.lines[]': ['id', 'inventory_item', 'purchase_order_line', 'quantity', 'storage_location'],
+  'GoodsReceipt.lines[]': ['id', 'inventory_item', 'purchase_order_line', 'quantity', 'storage_location', 'unit_of_measure_code'],
   'GoodsReceipt.lines[].inventory_item': ['id', 'name', 'sku'],
   'GoodsReceipt.lines[].purchase_order_line': ['id', 'line_number'],
   'GoodsReceipt.lines[].storage_location': ['code', 'id'],
@@ -675,7 +675,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'PurchaseOrder.CancelPurchaseOrderInput': ['reason'],
   'PurchaseOrder.CreatePurchaseOrderInput': ['currency_code', 'expected_at', 'lines', 'supplier_id', 'warehouse_id'],
   'PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch': ['expected_at', 'supplier_id', 'warehouse_id'],
-  PurchaseOrderLine: ['archived_at', 'id', 'inventory_item', 'line_number', 'quantity', 'quantity_outstanding', 'quantity_received', 'unit_cost'],
+  PurchaseOrderLine: ['archived_at', 'id', 'inventory_item', 'line_number', 'quantity', 'quantity_outstanding', 'quantity_received', 'unit_cost', 'unit_of_measure_code'],
   'PurchaseOrderLine.CreatePurchaseOrderLineInput': ['inventory_item_id', 'quantity', 'unit_cost'],
   'PurchaseOrderLine.inventory_item': ['id', 'name', 'sku'],
   Role: ['archived_at', 'description', 'holder_count', 'id', 'is_system', 'margin_exposure', 'name', 'permission_codes'],
@@ -704,6 +704,9 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
 
 /** Each served `enum` of a mirrored schema's property, in served order (Revision 7 A-21). */
 export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  'GoodsReceipt.lines[]': {
+    unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
+  },
   Item: {
     unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },
@@ -711,6 +714,9 @@ export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonl
     unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },
   'Item.UpdateItemInput.jsonMergePatch': {
+    unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
+  },
+  PurchaseOrderLine: {
     unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },
   SodRowRef: {

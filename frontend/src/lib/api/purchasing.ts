@@ -61,6 +61,13 @@ export interface PurchaseOrderLine {
   quantity_outstanding: string;
   unit_cost: string;
   archived_at: string | null;
+  /**
+   * The line's unit, which its three quantities are in and `unit_cost` is the price of one of (BK-33, `bc5a4a2`; one of the
+   * served `UnitsOfMeasure` codes, never null; the item's current unit, which cannot change once a line names the item —
+   * BK-24). Mirrored at the merge of `bc5a4a2`; nothing reads it yet: the interim *item's unit* headings give way to it
+   * at PO-4b (final RED L-11). Take it from the 201 or the List, never from an earlier read. Never sent.
+   */
+  unit_of_measure_code: string;
 }
 
 /** `GoodsReceipt.purchase_order` (served inline; GR-1): the order a receipt was recorded against, by id and number. */
@@ -83,8 +90,9 @@ export interface GoodsReceiptLocationReference {
 
 /**
  * One line of a goods receipt (served inline in `GoodsReceipt.lines`). `quantity` is a decimal string (scale 6, rendered by
- * `lib/format/quantity.ts`), never a number. The item reference is the order line's `{id, sku, name}` shape; no unit is
- * served (BK-33), so a quantity heading carries the interim *item's unit* (QR-8). No cost is served on a receipt.
+ * `lib/format/quantity.ts`), never a number. The item reference is the order line's `{id, sku, name}` shape (no unit on
+ * it, owner Q-A); the line's own `unit_of_measure_code` is served since BK-33 (`bc5a4a2`), but until GR-2 a quantity heading
+ * still carries the interim *item's unit* (QR-8). No cost is served on a receipt.
  */
 export interface GoodsReceiptLine {
   id: string;
@@ -92,6 +100,8 @@ export interface GoodsReceiptLine {
   inventory_item: PurchaseOrderItemReference;
   quantity: string;
   storage_location: GoodsReceiptLocationReference;
+  /** The unit `quantity` is in (BK-33; a served `UnitsOfMeasure` code, never null). Mirrored at the merge of `bc5a4a2`. */
+  unit_of_measure_code: string;
 }
 
 /**

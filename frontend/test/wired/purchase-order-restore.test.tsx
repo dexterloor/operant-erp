@@ -45,6 +45,7 @@ const line = (n: number): PurchaseOrderLine => ({
   quantity_outstanding: '2.000000',
   unit_cost: '12.5000',
   archived_at: null,
+  unit_of_measure_code: 'EA',
 });
 const show = (over: Partial<PurchaseOrderPageProps> = {}) =>
   renderWired(<PurchaseOrderPage order={DELETED} lines={null} viewerId={VIEWER_ID} canRestore canReadLines canOpenSupplier={false} canOpenWarehouse={false} canOpenItem={false} {...over} />);

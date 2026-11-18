@@ -44,7 +44,7 @@ const receipt = (n: number, over: Partial<GoodsReceipt> = {}): GoodsReceipt => (
   received_at: '2026-03-04T11:00:00Z',
   purchase_order: { id: ORDER_ID, order_number: 'PO-000001' },
   received_by: { id: 'f1b2c3d4-0000-4000-8000-000000000001', display_name: 'Wanda Warehouse' },
-  lines: [{ id: `a1b2c3d4-0000-4000-8000-${String(n).padStart(12, '0')}`, purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000001', line_number: 1 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000001', sku: 'SKU-1', name: 'Widget' }, quantity: '2.000000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000001', code: 'A-01' } }],
+  lines: [{ id: `a1b2c3d4-0000-4000-8000-${String(n).padStart(12, '0')}`, purchase_order_line: { id: 'b1b2c3d4-0000-4000-8000-000000000001', line_number: 1 }, inventory_item: { id: 'c1b2c3d4-0000-4000-8000-000000000001', sku: 'SKU-1', name: 'Widget' }, quantity: '2.000000', storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000001', code: 'A-01' }, unit_of_measure_code: 'EA' }],
   ...over,
 });
 const ok = (items: GoodsReceipt[], over: Partial<Extract<ReceiptsLoad, { kind: 'ok' }>> = {}): ReceiptsLoad => ({ kind: 'ok', items, nextCursor: null, previousCursor: null, tenantHasRows: items.length > 0, ...over });
