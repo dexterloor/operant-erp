@@ -131,7 +131,7 @@ final class SupplierDeleteTest extends PurchaseOrderTestCase
 
             self::assertSame(409, $this->httpStatus(), $status.': '.$this->client()->getResponse()->getContent());
             self::assertSame('supplier.has_open_purchase_orders', $this->json()['rule'], $status);
-            self::assertSame('This supplier still has 1 open purchase order, so it can\'t be deleted until each open order is received in full or cancelled. A draft can simply be deleted.', $this->json()['detail'], $status);
+            self::assertSame('This supplier still has 1 open purchase order, so it can\'t be deleted while it has any. Drafts count as open.', $this->json()['detail'], $status);
             self::assertNull($this->stored($supplier)['deleted_at'], $status);
         }
 
@@ -144,6 +144,7 @@ final class SupplierDeleteTest extends PurchaseOrderTestCase
 
         $this->delete($many);
         self::assertSame(409, $this->httpStatus());
+        self::assertSame('This supplier still has 2 open purchase orders, so it can\'t be deleted while it has any. Drafts count as open.', $this->json()['detail']);
         self::assertSame(\sprintf(SupplierWriter::HAS_OPEN_PURCHASE_ORDERS, SupplierWriter::openPurchaseOrders(2)), $this->json()['detail']);
         self::assertSame([], $this->auditRowsOf(AuditEvent::SUPPLIER_DELETED), 'A refused delete wrote a trail row.');
     }

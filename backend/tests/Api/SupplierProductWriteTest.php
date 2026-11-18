@@ -106,9 +106,9 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
         self::assertSame([
             ['pointer' => '/inventory_item_id', 'code' => 'not_a_uuid', 'message' => 'This field must be a UUID naming an item in this workspace.'],
             ['pointer' => '/supplier_sku', 'code' => 'blank', 'message' => 'This field may not be blank.'],
-            ['pointer' => '/unit_cost', 'code' => 'not_a_decimal', 'message' => 'This field must be a non-negative decimal string with at most 15 integer digits and 4 fractional digits.'],
+            ['pointer' => '/unit_cost', 'code' => 'not_a_decimal', 'message' => 'Enter 0 or a positive amount, for example 12.50. Use only digits and at most one decimal point, with 1 to 15 digits before the point and 1 to 4 after it.'],
             ['pointer' => '/lead_time_days', 'code' => 'out_of_range', 'message' => 'Lead time must be a whole number of days, 0 or more.'],
-            ['pointer' => '/minimum_order_quantity', 'code' => 'not_a_positive_decimal', 'message' => 'This field must be a positive decimal string with at most 13 integer digits and 6 fractional digits.'],
+            ['pointer' => '/minimum_order_quantity', 'code' => 'not_a_positive_decimal', 'message' => 'Enter a number greater than 0, for example 10 or 2.5. Use only digits and at most one decimal point, with 1 to 13 digits before the point and 1 to 6 after it.'],
         ], $this->fieldErrors());
 
         // Past each column's width, and a lead time sent as text.
@@ -146,7 +146,7 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
         foreach ([Uuid::v4()->toRfc4122(), $this->seedItem(self::TENANT_B, 'SKU-THEIRS'), $archived] as $item) {
             $this->create($supplier, ['inventory_item_id' => $item, 'supplier_sku' => 'SP-X', 'unit_cost' => '1', 'lead_time_days' => 1]);
             self::assertSame(422, $this->httpStatus(), $item);
-            self::assertSame([['pointer' => '/inventory_item_id', 'code' => 'unknown_reference', 'message' => 'No live inventory item in this workspace has this id.']],
+            self::assertSame([['pointer' => '/inventory_item_id', 'code' => 'unknown_reference', 'message' => 'This item is archived or isn\'t in this workspace, so it can\'t be added to a catalogue.']],
                 $this->fieldErrors());
         }
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM supplier_product'));
@@ -172,7 +172,7 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
         $this->create($supplier, array_replace($body, ['supplier_sku' => 'SP-AGAIN', 'unit_cost' => '2']));
         self::assertSame(409, $this->httpStatus());
         self::assertSame('supplier_product.item_is_listed_once_per_supplier', $this->json()['rule']);
-        self::assertSame('This supplier already lists this item. Change its terms instead.', $this->json()['detail']);
+        self::assertSame('This item is already in this supplier\'s catalogue. Edit that entry instead.', $this->json()['detail']);
         self::assertSame([['supplier_sku' => 'SP-ONCE', 'unit_cost' => '1.0000']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT supplier_sku, unit_cost FROM supplier_product WHERE supplier_id = ?::uuid', [$supplier]));
 
@@ -514,7 +514,7 @@ final class SupplierProductWriteTest extends PurchaseOrderTestCase
 
         $this->send('PATCH', '/suppliers/'.$supplier, ['currency_code' => 'USD', 'name' => 'Priced In Dollars']);
         self::assertSame([409, 'supplier.currency_is_fixed_while_terms_exist',
-            'This supplier\'s catalogue is priced in its current currency. Remove its catalogue entries before changing the currency.'],
+            'This supplier\'s catalogue is priced in its current currency, so the currency can be changed only once its catalogue is empty.'],
             [$this->httpStatus(), $this->json()['rule'] ?? null, $this->json()['detail'] ?? null]);
         self::assertSame([['currency_code' => 'EUR', 'name' => 'Priced In Euros']], $this->fetchAsOwnerForTenant(self::TENANT_A,
             'SELECT currency_code, name FROM supplier WHERE id = ?::uuid', [$supplier]));

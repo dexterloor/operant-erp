@@ -79,12 +79,13 @@ final readonly class SupplierWriter
     public const ALREADY_ARCHIVED = 'This supplier is already archived. It\'s in the archived suppliers.';
 
     /**
-     * `UX` final copy (`owed-ux-c5.md` FINAL (a1)); `SEC` S-2 kept the count (`owed-sec-c5.md` §2.3 — the caller holds
-     * `supplier.delete` and may lack `purchase_order.view`). `%s` is {@see self::openPurchaseOrders()}, never a bare `%d`
-     * (R-2: a count is singular or plural, never `(s)`). The remedy is passive (R-3): `supplier.delete` does not imply
-     * `purchase_order.cancel`.
+     * `UX` final copy, `suppliers-ux-copy.md` Revision 1 FINAL BE-S1 (BK-28): the refusal states the blocking condition, not
+     * a remedy the web app cannot carry out (BK-20's shape, `WarehouseWriter::HAS_OPEN_PURCHASE_ORDERS`). `SEC` S-2 kept the
+     * count (`owed-sec-c5.md` §2.3 — the caller holds `supplier.delete` and may lack `purchase_order.view`). `%s` is
+     * {@see self::openPurchaseOrders()}, never a bare `%d` (R-2). The remedy clause returns once Receive, Cancel and Delete
+     * draft have all shipped (`purchase-orders-ux-copy.md` L-8; re-checked at GR-2).
      */
-    public const HAS_OPEN_PURCHASE_ORDERS = 'This supplier still has %s, so it can\'t be deleted until each open order is received in full or cancelled. A draft can simply be deleted.';
+    public const HAS_OPEN_PURCHASE_ORDERS = 'This supplier still has %s, so it can\'t be deleted while it has any. Drafts count as open.';
 
     /**
      * **`DeleteSupplier`'s row lock** — public so the two-connection race tests hold THIS statement, never a transcription.
@@ -106,7 +107,8 @@ final readonly class SupplierWriter
     /** A live supplier took the archived one's name while it was archived (`UX` final copy, `owed-ux-c5.md` FINAL (a1)). */
     public const NAME_TAKEN_ON_RESTORE = 'Another supplier now uses this supplier\'s name, so it can\'t be restored. It can be restored once that supplier is renamed.';
 
-    public const CURRENCY_FIXED = 'This supplier\'s catalogue is priced in its current currency. Remove its catalogue entries before changing the currency.';
+    /** `UX` BE-S2, `suppliers-ux-copy.md` Revision 1 FINAL (BK-29); passive (R-3): `supplier.edit` does not imply `supplier_product.edit`. */
+    public const CURRENCY_FIXED = 'This supplier\'s catalogue is priced in its current currency, so the currency can be changed only once its catalogue is empty.';
 
     public const TERMS_OUT_OF_RANGE = 'Payment terms must be a whole number of days from 0 to %d.';
 
