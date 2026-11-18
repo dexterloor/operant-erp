@@ -17,6 +17,7 @@ use App\Modules\Purchasing\Application\GoodsReceiptView;
 use App\Modules\Purchasing\Application\OrderReference;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Security\PermissionGate;
+use App\SharedKernel\Reference\UnitsOfMeasure;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -34,8 +35,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * it shipped bare, a defect), and `purchase_order_line_id` as clause (i)'s
  * `purchase_order_line = {id, line_number}` (owner ruling Q1(b), 2026-09-15; it
  * was bare until then). §4.4.3's additions add `lines[].inventory_item = {id, sku,
- * name}` (owner rulings Q1(c) and Q-A). The request side is unchanged — both
- * references are accepted as ids.
+ * name}` (owner rulings Q1(c) and Q-A), and BK-33 adds `lines[].unit_of_measure_code`,
+ * that item's unit, beside the reference rather than in it. The request side is
+ * unchanged — both references are accepted as ids.
  *
  * `GetGoodsReceipt` is declared FIRST on purpose. API Platform's own
  * `Location` names a resource's first item operation, and that is the URI the
@@ -84,7 +86,7 @@ final class GoodsReceiptResource
      * The served schema of one `GoodsReceiptLineView` (BK-13 C2). Without it the list's items fall back to `string|null`, because the
      * element type lives only in a docblock. A field is optional only when it is nullable and skipped when null.
      */
-    private const LINE_SCHEMA = ['type' => 'object', 'required' => ['id', 'purchase_order_line', 'inventory_item', 'quantity', 'storage_location'], 'properties' => [
+    private const LINE_SCHEMA = ['type' => 'object', 'required' => ['id', 'purchase_order_line', 'inventory_item', 'quantity', 'unit_of_measure_code', 'storage_location'], 'properties' => [
         'id' => ['type' => 'string', 'format' => 'uuid'],
         'purchase_order_line' => ['type' => 'object', 'required' => ['id', 'line_number'], 'properties' => [
             'id' => ['type' => 'string', 'format' => 'uuid'],
@@ -96,6 +98,7 @@ final class GoodsReceiptResource
             'name' => ['type' => 'string'],
         ]],
         'quantity' => ['type' => 'string'],
+        'unit_of_measure_code' => ['type' => 'string', 'enum' => UnitsOfMeasure::CODES],
         'storage_location' => ['type' => 'object', 'required' => ['id', 'code'], 'properties' => [
             'id' => ['type' => 'string', 'format' => 'uuid'],
             'code' => ['type' => 'string'],

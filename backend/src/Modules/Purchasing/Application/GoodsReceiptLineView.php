@@ -15,7 +15,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * it was returned bare as a registered deviation. `inventory_item = {id, sku,
  * name}` is §4.4.3's additions sentence for GoodsReceipt (owner ruling Q1(c)) in
  * clause (ii)'s shape (Q-A): `goods_receipt_line` has no item column, so it is the
- * ordered line's item. `storage_location = {id, code}` is the chain.
+ * ordered line's item. `storage_location = {id, code}` is the chain. Since BK-33 the
+ * line also carries `unit_of_measure_code`, that item's unit, beside the reference.
  */
 final readonly class GoodsReceiptLineView
 {
@@ -26,6 +27,9 @@ final readonly class GoodsReceiptLineView
         #[SerializedName('inventory_item')]
         public ItemReference $inventoryItem,
         public string $quantity,
+        /** The ordered line's item's unit, the unit `quantity` is in; one of `UnitsOfMeasure::CODES`, never null (BK-33). */
+        #[SerializedName('unit_of_measure_code')]
+        public string $unitOfMeasureCode,
         #[SerializedName('storage_location')]
         public LocationReference $storageLocation,
     ) {

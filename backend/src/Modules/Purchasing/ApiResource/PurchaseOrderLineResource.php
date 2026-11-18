@@ -20,6 +20,7 @@ use App\Modules\Purchasing\Application\ItemReference;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
+use App\SharedKernel\Reference\UnitsOfMeasure;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -39,7 +40,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  *      `SchemaManifest::TABLES['purchase_order_line']['deletion']` is `soft` —
  *      cascaded from the order by trigger, never written by this module;
  *   4. plus §4.4.3's additions row for **PurchaseOrderLine** — `line_number`,
- *      `quantity_received` and `quantity_outstanding` — and nothing else.
+ *      `quantity_received` and `quantity_outstanding` — and nothing else;
+ *      and, since BK-33, `unit_of_measure_code`: the item's unit, never a member
+ *      of the `inventory_item` reference, which stays `{id, sku, name}`
+ *      (API-23b, owner Q-A).
  *
  * `inventory_item` is `{id, sku, name}` — API-23b clause (ii), owner ruling Q-A
  * (2026-09-15) — through `ItemReference`.
@@ -197,6 +201,10 @@ final class PurchaseOrderLineResource
          * **contract's** name wins on the wire.
          */
         public string $quantity,
+        /** One of {@see UnitsOfMeasure::CODES}, served as that enum (BK-33; BK-31's form): the item's unit, the unit `quantity`, `quantity_received` and `quantity_outstanding` are in; never null. */
+        #[SerializedName('unit_of_measure_code')]
+        #[ApiProperty(schema: ['type' => 'string', 'enum' => UnitsOfMeasure::CODES])]
+        public string $unitOfMeasureCode,
         #[SerializedName('unit_cost')]
         public string $unitCost,
         #[SerializedName('quantity_received')]

@@ -152,7 +152,7 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
 
         self::assertSame(200, $this->httpStatus());
         self::assertSame([
-            'id', 'line_number', 'inventory_item', 'quantity', 'unit_cost',
+            'id', 'line_number', 'inventory_item', 'quantity', 'unit_of_measure_code', 'unit_cost',
             'quantity_received', 'quantity_outstanding', 'archived_at',
         ], array_keys($this->json()['items'][0]));
     }
@@ -204,6 +204,47 @@ final class PurchaseOrderReadTest extends PurchaseOrderTestCase
             [6, ['id' => $c, 'sku' => 'SKU-C', 'name' => 'Gamma washer']],
             [$body['line_number'], $body['inventory_item']],
         );
+    }
+
+    /**
+     * **Each line serves its item's unit, read live** (BK-33; `SECURITY_MODEL.md` PC-9's eighth exception; the precedent is
+     * `SupplierProductListTest::eachEntryServesItsItemsUnit`). The two items are set to `BOX` and `KG` BEFORE any line or
+     * catalogue entry names them (after that `UpdateItem` refuses, BK-24) and never to the fixture's `EA`, so a reader that
+     * hard-codes `EA`, or serves one line's unit on every row, is visible. An archived item keeps its unit on the line, an
+     * archived line is served with its unit, and an owner `UPDATE` of the item's unit (the one bypass BK-24 leaves open)
+     * moves the served value: the unit is never snapshotted.
+     */
+    #[Test]
+    public function eachLineServesItsItemsUnit(): void
+    {
+        $d = $this->seedDraft(self::TENANT_A, 'PO-000001');
+        $box = $this->seedItem(self::TENANT_A, 'SKU-BOX');
+        $kg = $this->seedItem(self::TENANT_A, 'SKU-KG');
+        foreach ([$box => 'BOX', $kg => 'KG'] as $item => $unit) {
+            $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET unit_of_measure_code = ? WHERE id = ?::uuid', [$unit, $item]);
+        }
+        $l1 = $this->seedLine(self::TENANT_A, $d['order'], $box, lineNumber: 1);
+        $l2 = $this->seedLine(self::TENANT_A, $d['order'], $kg, lineNumber: 2);
+
+        $this->send('GET', '/purchase-orders/'.$d['order'].'/lines');
+        self::assertSame(200, $this->httpStatus());
+        self::assertSame([$l1 => 'BOX', $l2 => 'KG'], array_column($this->json()['items'], 'unit_of_measure_code', 'id'));
+
+        $this->send('DELETE', '/items/'.$box);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->send('GET', '/purchase-orders/'.$d['order'].'/lines');
+        self::assertSame([$l1 => 'BOX', $l2 => 'KG'], array_column($this->json()['items'], 'unit_of_measure_code', 'id'),
+            'A line whose item was archived must still serve that item\'s unit.');
+
+        $this->send('DELETE', '/purchase-orders/'.$d['order'].'/lines/'.$l2);
+        self::assertSame(204, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
+        $this->send('GET', '/purchase-orders/'.$d['order'].'/lines?archived=true');
+        self::assertSame([$l2 => 'KG'], array_column($this->json()['items'], 'unit_of_measure_code', 'id'));
+
+        $this->insertAsOwnerForTenant(self::TENANT_A, 'UPDATE inventory_item SET unit_of_measure_code = ? WHERE id = ?::uuid', ['L', $kg]);
+        $this->send('GET', '/purchase-orders/'.$d['order'].'/lines?archived=true');
+        self::assertSame([$l2 => 'L'], array_column($this->json()['items'], 'unit_of_measure_code', 'id'),
+            'The line\'s unit is the item\'s, read live; it is never snapshotted (BK-33, PC-9\'s eighth exception).');
     }
 
     /**
