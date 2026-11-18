@@ -52,7 +52,7 @@ export function GoodsReceiptPage({ receipt, canOpenOrder, canOpenItem }: GoodsRe
         <p>{GOODS_RECEIPT_PAGE.readOnlyNote}</p>
       </div>
       <section aria-labelledby={linesHeading}>
-        <h2 id={linesHeading}>{ORDER_LINES.heading}</h2>
+        <h2 id={linesHeading}>{GOODS_RECEIPT_PAGE.linesHeading}</h2>
         <table className={listStyles.table}>
           <thead>
             <tr>

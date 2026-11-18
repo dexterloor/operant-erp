@@ -143,7 +143,7 @@ describe('/purchase-orders — the Open segment (UX B-1 / R1-B)', () => {
     renderWired(<PurchaseOrdersList initial={ok([O1])} />);
     const box = screen.getByRole('searchbox', { name: 'Search by order number' });
     expect(box).toHaveAttribute('placeholder', 'Start of an order number');
-    expect(box).toHaveAccessibleDescription('For example PO-0001. Order numbers are matched as typed, so use capitals.');
+    expect(box).toHaveAccessibleDescription('For example PO-000123. Order numbers are matched as typed, so use capitals.');
   });
 
   it('PO-1 ships no action: no New purchase order, no create link, no sort control, no supplier filter', () => {

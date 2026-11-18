@@ -50,6 +50,8 @@ describe('/goods-receipts/[id] — the receipt page (UX B-10)', () => {
     show({ canOpenItem: true, canOpenOrder: true });
     expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Order line', 'Item', "Quantity (item's unit)", 'Location']);
     expect(cellsOf(0)).toEqual(['1', 'SKU-1 — Widget', '1234567890123.123456', 'A-01']);
+    // The table's heading is the receipt page's own key (UX D-9: GOODS_RECEIPT_PAGE.linesHeading), not the order page's.
+    expect(screen.getByRole('heading', { level: 2, name: 'Lines' })).toBeInTheDocument();
     expect(cellsOf(1)).toEqual(['3', 'SKU-2 — Gadget', '10', 'B-07']);
     const rows = document.querySelectorAll('tbody tr');
     expect(within(rows[0] as HTMLElement).queryByRole('link', { name: 'A-01' })).toBeNull();
@@ -66,6 +68,11 @@ describe('/goods-receipts/[id] — the receipt page (UX B-10)', () => {
     expect(screen.queryByRole('link', { name: 'B-07' })).toBeNull();
   });
 
+  /**
+   * A smoke check: the fixture serves no cost, so this cannot go red. No cost reaches a receipt surface because the receipt
+   * wire types carry none (`wireParity.test.ts`), and no receipt surface can reach `renderMoney` (`architecture.test.ts`,
+   * 'no money reachable from any receipt surface').
+   */
   it('read-only: no button, no input, no cost', () => {
     show({ canOpenOrder: true, canOpenItem: true });
     expect(screen.queryAllByRole('button')).toEqual([]);

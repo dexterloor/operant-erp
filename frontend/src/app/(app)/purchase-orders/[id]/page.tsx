@@ -28,8 +28,9 @@ import { PurchaseOrderPage } from './PurchaseOrderPage';
 // purchase order follows DeletePurchaseOrder's codes (the page offers it only on a live draft). From PO-7, Cancel order
 // follows CancelPurchaseOrder's codes (the page offers it only on an ordered or partly received order). From GR-1, the
 // Receipts section: page 1 of this order's receipts (ListGoodsReceipts with the order's id as its one fixed filter,
-// Revision 10 R10-4), read last and only for a live order and a ListGoodsReceipts holder (A-20: absent, not fetched,
-// otherwise); 401 → the session-ended notice; any other failure is the section's own state.
+// Revision 10 R10-4), read last and only for a live, placed order — never a draft, on which nothing can be received
+// (gr-1-followups-ux.md §4) — and a ListGoodsReceipts holder (A-20: absent, not fetched, otherwise); 401 → the
+// session-ended notice; any other failure is the section's own state.
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -79,7 +80,7 @@ export default async function Page({ params }: Params) {
     add = { catalogue };
   }
   let receipts: ReceiptsLoad | null = null;
-  if (first.order.archived_at === null && viewerMay('ListGoodsReceipts', codes)) {
+  if (first.order.archived_at === null && first.order.status !== 'draft' && viewerMay('ListGoodsReceipts', codes)) {
     receipts = await loadReceipts(serverRead(session), { q: '', cursor: null }, undefined, { name: 'purchase_order_id', value: id });
     if (receipts.kind === 'session-ended') redirect(sessionEndedPath(`/purchase-orders/${encodeURIComponent(id)}`));
   }

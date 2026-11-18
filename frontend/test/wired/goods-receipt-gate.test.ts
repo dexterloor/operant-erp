@@ -6,8 +6,9 @@ import { describe, expect, it, vi } from 'vitest';
 // (ListGoodsReceipts), its first read (page 1, no search, NO fixed filter), the links it offers by GetGoodsReceipt and
 // GetPurchaseOrder, 401 / 403. The receipt page: its gate (GetGoodsReceipt), its links by GetPurchaseOrder and GetItem,
 // 401 / 403 / 404 / a non-record id. The order page: its Receipts section is read — page 1, with the order's id as
-// `purchase_order_id` — only for a ListGoodsReceipts holder (A-20: absent and not fetched otherwise), never for a deleted
-// draft; 401 on it → the session-ended notice, any other failure the section's own state.
+// `purchase_order_id` — only for a ListGoodsReceipts holder (A-20: absent and not fetched otherwise), never for a draft,
+// live or deleted (gr-1-followups-ux.md §4: hidden on drafts); 401 on it → the session-ended notice, any other failure the
+// section's own state.
 
 const ORDER_ID = 'd1b2c3d4-0000-4000-8000-000000000001';
 const RECEIPT_ID = 'e1b2c3d4-0000-4000-8000-000000000003';
@@ -17,6 +18,7 @@ const v = vi.hoisted(() => ({
   receipts: 'ok' as 'ok' | 'session-ended' | 'forbidden' | 'server-error',
   receipt: 'ok' as 'ok' | 'not-found' | 'session-ended' | 'forbidden',
   archived: false,
+  status: 'partially_received',
 }));
 vi.mock('@/app/(app)/currentViewer', async (actual) => ({
   ...(await actual<typeof import('@/app/(app)/currentViewer')>()),
@@ -43,7 +45,7 @@ vi.mock('@/lib/purchasing/load', async (actual) => {
     loadReceipt: async () => (v.receipt === 'ok' ? { kind: 'ok', receipt: RECEIPT } : { kind: v.receipt }),
     loadPurchaseOrder: async () => ({
       kind: 'ok',
-      order: { id: ORDER_ID, order_number: 'PO-000001', status: 'partially_received', supplier: { id: 's', name: 'Acme' }, warehouse: { id: 'w', name: 'Main' }, currency_code: 'GBP', total_amount: '0.0000', ordered_at: null, expected_at: null, created_by: null, archived_at: v.archived ? '2026-03-04T11:00:00Z' : null },
+      order: { id: ORDER_ID, order_number: 'PO-000001', status: v.status, supplier: { id: 's', name: 'Acme' }, warehouse: { id: 'w', name: 'Main' }, currency_code: 'GBP', total_amount: '0.0000', ordered_at: null, expected_at: null, created_by: null, archived_at: v.archived ? '2026-03-04T11:00:00Z' : null },
     }),
     loadLines: async () => ({ kind: 'ok', lines: [], nextCursor: null }),
   };
@@ -153,6 +155,29 @@ describe('/purchase-orders/[id] — the Receipts section’s first read (A-20, R
       expect(v.receiptsCalls).toEqual([]);
     } finally {
       v.archived = false;
+    }
+  });
+
+  // gr-1-followups-ux.md §4 / arch 3c item 1: nothing can be received on a draft, so its page makes no ListGoodsReceipts read.
+  it('a live draft’s receipts are not read', async () => {
+    v.status = 'draft';
+    try {
+      expect((await orderPage(['purchase_order.view', 'goods_receipt.view'])).props.receipts).toBeNull();
+      expect(v.receiptsCalls).toEqual([]);
+    } finally {
+      v.status = 'partially_received';
+    }
+  });
+
+  it('every placed status is read: ordered, partly received, received, cancelled', async () => {
+    try {
+      for (const status of ['ordered', 'partially_received', 'received', 'cancelled']) {
+        v.status = status;
+        expect((await orderPage(['purchase_order.view', 'goods_receipt.view'])).props.receipts).toMatchObject({ kind: 'ok' });
+        expect(v.receiptsCalls).toHaveLength(1);
+      }
+    } finally {
+      v.status = 'partially_received';
     }
   });
 

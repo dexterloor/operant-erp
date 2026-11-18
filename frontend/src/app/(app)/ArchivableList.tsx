@@ -126,8 +126,10 @@ export type EmptyState = (v: EmptyView, segment?: string) => { heading: string; 
 export type ArchivedView = { order: 'newest-deleted-first'; caption: string; rows: 'plain' | 'struck' } | { order: 'as-served'; caption?: undefined; rows: 'plain' | 'struck' };
 
 /**
- * The paged list's own words (R8-1; UX per family). `pager` labels the two page buttons per view (live: Previous / Next;
- * Archived: Newer / Older, Older being the next page). `pageShown` is the sentence after a page loads by its cursor, with a
+ * The paged list's own words (R8-1; UX per family). `pager` labels the two page buttons: the words follow the served order
+ * (R8-1 item 3 as amended, Revision 10 A-4): Newer / Older only on a view served newest first by a date or time, Previous /
+ * Next otherwise. Whatever the words, `previous` labels the button that sends `previous_cursor` and `next` the one that sends
+ * `next_cursor`. `pageShown` is the sentence after a page loads by its cursor, with a
  * position cue (R8-1 item 6); never called with no rows. `noMore` is the state an empty page reached by a cursor shows
  * (R8-1 item 5), never an empty state of ST-2.
  */

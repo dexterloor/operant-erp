@@ -73,8 +73,10 @@ export interface PurchaseOrderPageProps {
   canCancel?: boolean;
   /**
    * GR-1: the Receipts section's first page (ListGoodsReceipts with this order's id as its fixed filter, R10-4), or null.
-   * Given by the server only for a live order and a ListGoodsReceipts holder (A-20: absent, not fetched, otherwise). Shown
-   * while the order on the page is live; a draft deleted on this page loses it.
+   * Given by the server only for a live, placed order (never a draft: nothing can be received on one, `gr-1-followups-ux.md`
+   * §4) and a ListGoodsReceipts holder (A-20: absent, not fetched, otherwise). Shown while the order on the page is live and
+   * not a draft (the current status; `receipts !== null` stays in the condition, so an order approved on this page shows
+   * no section until it is reloaded — UX accepts it, arch 3c). Its empty sentence follows the current status (cancelled).
    */
   receipts?: ReceiptsLoad | null;
   /** GR-1: holds GetGoodsReceipt's codes — each receipt number in the section links to its page. */
@@ -624,7 +626,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
           lineWrites={{ begin: beginLineWrite, end: endLineWrite }}
         />
       ) : null}
-      {receipts !== null && !archived && !deletedHere ? <ReceiptsSection orderId={order.id} orderNumber={order.order_number} initial={receipts} canOpenReceipt={canOpenReceipt} /> : null}
+      {receipts !== null && s !== 'draft' && !archived && !deletedHere ? <ReceiptsSection orderId={order.id} orderNumber={order.order_number} initial={receipts} canOpenReceipt={canOpenReceipt} cancelled={s === 'cancelled'} /> : null}
       {deleting ? (
         <DeleteDialog
           copy={{

@@ -2087,25 +2087,158 @@ describe('architecture — goods receipts GR-1: R10-2, the receipt pages stay in
   });
 });
 
-// Goods receipts GR-1 (purchase-orders-plan.md §4 GR-1: "no money rendered on any receipt surface"; UX D-6): a receipt
-// serves no cost, so no receipt surface imports the money renderer — the receipt folder and the order page's Receipts section.
-const RECEIPT_SURFACES = (files: readonly SourceFile[]) => files.filter((f) => under(f.file, RECEIPTS_ROUTE_DIR) || f.file === 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx');
-const moneyOnReceipts = (files: readonly SourceFile[]) => RECEIPT_SURFACES(files).filter((f) => specifiersOf(f).some((s) => targetOf(f.file, s) === 'src/lib/format/money')).map((f) => f.file);
+// ---------------------------------------------------------------------------------------------------------------------
+// Revision 10 R10-2 (amended, gr-1-followups-arch.md item 2 / A-3, as corrected by gr-1-followups-red.md L-4, L-5): route
+// folders import only their own family's route folders and the shared (app)-root modules; nothing under src/app outside
+// (app)/ is imported from (app)/ at all. CSS modules included (one of the two purchasing edges is a stylesheet), so unlike
+// importViolations this check does not skip `.css` specifiers.
+// ---------------------------------------------------------------------------------------------------------------------
 
-describe('architecture — goods receipts GR-1: no money on any receipt surface', () => {
-  it('neither the receipt folder nor the Receipts section imports lib/format/money (7 files scanned)', () => {
+const APP_ROOT = 'src/app/(app)';
+/** Families that own more than one route folder (R10-2). A new entry is a deliberate edit and needs an architecture line. */
+const ROUTE_FAMILIES: readonly (readonly string[])[] = [['purchase-orders', 'goods-receipts']];
+/** The route folder a path is in: the first folder under (app)/ (`admin/<folder>` for the admin pages); null for an (app)-root module. */
+function routeFolderOf(p: string): string | null {
+  if (!under(p, APP_ROOT)) return null;
+  const parts = p.slice(APP_ROOT.length + 1).split('/');
+  if (parts.length === 1) return null;
+  return parts[0] === 'admin' ? `admin/${parts[1]}` : parts[0]!;
+}
+const sameFamily = (a: string, b: string) => a === b || ROUTE_FAMILIES.some((f) => f.includes(a) && f.includes(b));
+/** A specifier naming a directory under (app)/ means that directory's index file (a barrel; gr-1b-red M-1). */
+const isDirIn = (files: readonly SourceFile[], t: string) => files.some((f) => f.file.startsWith(`${t}/`));
+const folderOfTarget = (files: readonly SourceFile[], t: string) => (isDirIn(files, t) ? routeFolderOf(`${t}/index.ts`) : routeFolderOf(t));
+
+function routeFolderViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, APP_ROOT)) continue;
+    const from = routeFolderOf(sf.file);
+    for (const spec of specifiersOf(sf)) {
+      const t = targetOf(sf.file, spec);
+      if (!under(t, 'src/app')) continue;
+      const to = folderOfTarget(files, t);
+      let ok: boolean;
+      if (!under(t, APP_ROOT)) ok = false; // src/app outside (app)/: (auth), (dev), bff, fonts, the root layout — from any (app) file
+      else if (from === null) ok = to === null; // an (app)-root module imports no route folder
+      else ok = to === null || sameFamily(from, to);
+      if (!ok) out.push({ file: sf.file, detail: `a route folder imports another family's route folder, or an (app) file imports a route folder it may not or src/app outside (app)/ (R10-2): '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — R10-2: route folders import only their own family’s route folders and the (app)-root modules', () => {
+  it('the real (app) tree has no violation, and the two purchasing edges are really seen (not an empty domain)', () => {
     const files = walk('src/app');
-    expect(RECEIPT_SURFACES(files).length).toBe(7);
-    expect(moneyOnReceipts(files)).toEqual([]);
+    // Distinct pairs (RED L-5): a second import statement between the same two files is not a new edge.
+    const edges = [
+      ...new Set(
+        files
+          .flatMap((f) => specifiersOf(f).map((s) => `${f.file} -> ${targetOf(f.file, s)}`))
+          .filter((e) => {
+            const [a, b] = e.split(' -> ') as [string, string];
+            return routeFolderOf(a) !== null && folderOfTarget(files, b) !== null && routeFolderOf(a) !== folderOfTarget(files, b);
+          }),
+      ),
+    ].sort();
+    // An exact pin: a third cross-folder edge, even inside the family, turns this red on purpose, so whoever adds it records it.
+    expect(edges).toEqual([
+      'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx -> src/app/(app)/purchase-orders/PurchaseOrders.module.css',
+      'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx -> src/app/(app)/goods-receipts/GoodsReceiptsList',
+    ]);
+    expect(routeFolderViolations(files)).toEqual([]);
   });
 
-  it('planted controls: a money import in either goes red; the order page itself (which shows money) is outside the scan', () => {
+  it('planted controls: each clause goes red; its own family both ways, its own folder and the (app)-root modules do not', () => {
     const planted: SourceFile[] = [
-      { file: 'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
-      { file: 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx', source: "import { renderMoney } from '../../../../lib/format/money';" },
-      { file: 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/app/(app)/goods-receipts/F.tsx', source: "import '../items/ItemsList';" }, // gr-1-red P-1 / L-9
+      { file: 'src/app/(app)/goods-receipts/[id]/G.tsx', source: "import styles from '@/app/(app)/suppliers/Suppliers.module.css';" }, // CSS counts
+      { file: 'src/app/(app)/purchase-orders/H.tsx', source: "export type W = import('../warehouses/WarehousesList').X;" },
+      { file: 'src/app/(app)/admin/users/I.tsx', source: "import { RolesList } from '../roles/RolesList';" }, // admin/<x> are separate folders
+      { file: 'src/app/(app)/items/J.tsx', source: "import { LoginRoute } from '@/app/(auth)/login/LoginRoute';" }, // outside (app)/
+      { file: 'src/app/(app)/K.tsx', source: "import { ItemsList } from './items/ItemsList';" }, // (app)-root → route folder
+      { file: 'src/app/(app)/L.tsx', source: "import { x } from '../fonts';" }, // (app)-root → src/app outside (app)/ (RED L-4)
+      { file: 'src/app/(app)/items/index.ts', source: "export * from './ItemsList';" }, // allowed: its own folder
+      { file: 'src/app/(app)/goods-receipts/B.tsx', source: "import { ItemsList } from '../items';" }, // a barrel import of another family (gr-1b-red M-1)
+      // Allowed: own family both ways, own folder, (app)-root modules, other roots.
+      { file: 'src/app/(app)/goods-receipts/Ok.tsx', source: "import s from '../purchase-orders/PurchaseOrders.module.css';\nimport { ArchivableList } from '../ArchivableList';\nimport { GoodsReceiptsDenied } from './GoodsReceiptStates';\nimport { loadReceipts } from '@/lib/purchasing/load';" },
+      { file: 'src/app/(app)/purchase-orders/[id]/Ok2.tsx', source: "import { receiptColumns } from '../../goods-receipts/GoodsReceiptsList';" },
     ];
-    expect(moneyOnReceipts(planted)).toEqual(['src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx', 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx']);
+    expect(routeFolderViolations(planted).map((v) => v.file)).toEqual([
+      'src/app/(app)/goods-receipts/F.tsx',
+      'src/app/(app)/goods-receipts/[id]/G.tsx',
+      'src/app/(app)/purchase-orders/H.tsx',
+      'src/app/(app)/admin/users/I.tsx',
+      'src/app/(app)/items/J.tsx',
+      'src/app/(app)/K.tsx',
+      'src/app/(app)/L.tsx',
+      'src/app/(app)/goods-receipts/B.tsx',
+    ]);
+  });
+});
+
+// Goods receipts GR-1 (purchase-orders-plan.md §4 GR-1: "no money rendered on any receipt surface"; UX D-6), Revision 10
+// A-5 (gr-1-followups-arch.md item 6, as corrected by gr-1-followups-red.md M-1): no receipt surface — the receipt folder and
+// the order page's Receipts section — reaches `lib/format/money.ts` through ANY chain of imports. This holds the money
+// helper only; the receipt wire types carrying no cost is held by `wireParity.test.ts`.
+const RECEIPT_SURFACES = (files: readonly SourceFile[]) => files.filter((f) => under(f.file, RECEIPTS_ROUTE_DIR) || f.file === 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx');
+const MONEY = 'src/lib/format/money.ts';
+/**
+ * Every src file reachable from `from` through any import kind specifiersOf sees (type imports included: conservative).
+ * An import that resolves to no scanned file throws: a silent unresolved import would be a hole in the closure.
+ */
+function reachableFrom(files: readonly SourceFile[], from: SourceFile): Set<string> {
+  const byFile = new Map(files.map((f) => [f.file, f] as const)); // later entries (planted) override real ones
+  const seen = new Set<string>();
+  const stack = [from];
+  while (stack.length > 0) {
+    const sf = stack.pop()!;
+    for (const spec of specifiersOf(sf)) {
+      const t = targetOf(sf.file, spec);
+      if (t.startsWith('pkg:') || /\.css$/.test(t)) continue;
+      const hit = [t, `${t}.ts`, `${t}.tsx`, `${t}/index.ts`, `${t}/index.tsx`].map((c) => byFile.get(c)).find((x) => x !== undefined);
+      if (hit === undefined) throw new Error(`reachableFrom: ${sf.file} imports '${spec}', which resolves to no scanned file`);
+      if (!seen.has(hit.file)) {
+        seen.add(hit.file);
+        stack.push(hit);
+      }
+    }
+  }
+  return seen;
+}
+const moneyOnReceipts = (files: readonly SourceFile[]) => RECEIPT_SURFACES(files).filter((f) => reachableFrom(files, f).has(MONEY)).map((f) => f.file);
+
+describe('architecture — goods receipts GR-1: no money reachable from any receipt surface', () => {
+  it('no receipt surface reaches lib/format/money through any chain of imports (7 surfaces)', () => {
+    const files = walk('src'); // the closure leaves src/app
+    expect(RECEIPT_SURFACES(files).length).toBe(7);
+    expect(moneyOnReceipts(files)).toEqual([]);
+    // Positive controls on real files: the closure is not empty, and it really follows chains.
+    const section = files.find((f) => f.file === 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx')!;
+    expect([...reachableFrom(files, section)]).toEqual(expect.arrayContaining(['src/app/(app)/goods-receipts/GoodsReceiptsList.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/ArchivableList.tsx']));
+    const orderPage = files.find((f) => f.file === 'src/app/(app)/purchase-orders/[id]/page.tsx')!;
+    expect(specifiersOf(orderPage).map((s) => targetOf(orderPage.file, s))).not.toContain('src/lib/format/money'); // not a direct import…
+    expect(reachableFrom(files, orderPage).has(MONEY)).toBe(true); // …yet reached (page → PurchaseOrderPage → money)
+  });
+
+  /**
+   * Plants never reuse a real file's path: a planted file replaces the real one for every importer, so a real surface
+   * importing it would reach money through the plant.
+   */
+  it('planted controls: a direct import, a components hop, a route-folder hop and a two-hop chain go red; family logic does not', () => {
+    const real = walk('src');
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/goods-receipts/[id]/Direct.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/components/purchasing/CostCell.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/app/(app)/goods-receipts/X.tsx', source: "import { CostCell } from '@/components/purchasing/CostCell';" },
+      { file: 'src/app/(app)/goods-receipts/Y.tsx', source: "import { LinesSection } from '../purchase-orders/[id]/LinesSection';" }, // real file, real money import
+      { file: 'src/lib/purchasing/costText.ts', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/components/purchasing/Two.tsx', source: "import { costText } from '@/lib/purchasing/costText';" },
+      { file: 'src/app/(app)/goods-receipts/W.tsx', source: "import { Two } from '@/components/purchasing/Two';" },
+      { file: 'src/app/(app)/goods-receipts/Z.tsx', source: "import { loadReceipts } from '@/lib/purchasing/load';\nimport { ArchivableList } from '../ArchivableList';" },
+    ];
+    expect(moneyOnReceipts([...real, ...planted]).sort()).toEqual(['src/app/(app)/goods-receipts/W.tsx', 'src/app/(app)/goods-receipts/X.tsx', 'src/app/(app)/goods-receipts/Y.tsx', 'src/app/(app)/goods-receipts/[id]/Direct.tsx']);
   });
 });
 

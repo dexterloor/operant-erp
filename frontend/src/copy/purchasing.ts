@@ -15,6 +15,12 @@
 // reason is single-line) and `orderedNote` in its final form ("…It can still be cancelled.").
 // GR-1 (row 8) adds reading receipts: `GOODS_RECEIPTS_LIST.*` (with `noneYet` in its GR-1 form, no link), the register's
 // paging words and `GOODS_RECEIPT_PAGE.*`; the order page's Receipts section uses `forOrder` / `forOrderEmpty`.
+// GR-1b (Revision 1d, `gr-1-followups-ux.md` as corrected by `gr-1-followups-red.md`, which win over the copy file for these
+// keys): both `searchHint`s take the six-digit shape of a number; the register's caption and pager follow its served order
+// (receipt number: *Highest receipt number first*, Previous · Next); the section gets its own paging copy
+// (`GOODS_RECEIPTS_FOR_ORDER_PAGING`, Newer · Older), `forOrderCaption` and `forOrderEmptyCancelled`; both `noMore` bodies
+// say only what happened; `GOODS_RECEIPT_PAGE.linesHeading` is the receipt page's own key. `receiptsLink` is struck (§3) and
+// `GOODS_RECEIPT_PAGE.loadFailed` withdrawn (D-8): neither is here.
 // The commit that ships each action replaces its key with the next form (R1a-1 rows 7–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
@@ -78,7 +84,7 @@ export const PURCHASE_ORDERS_LIST = {
   /** `searchFor(archived)` · `searchPlaceholder` · `searchHint` (X-2: no upper-casing; the hint stays). */
   searchFor: (archived: boolean) => (archived ? 'Search archived orders by order number' : 'Search by order number'),
   searchPlaceholder: 'Start of an order number',
-  searchHint: 'For example PO-0001. Order numbers are matched as typed, so use capitals.',
+  searchHint: 'For example PO-000123. Order numbers are matched as typed, so use capitals.',
   /**
    * The settled announcement (first load, a switch, a settle; the core's `shown`, never called with 0). NOT a UX key:
    * Revision 1 lists none for the purchase-order list though the core requires one (the suppliers D-1 precedent; UX TO
@@ -466,20 +472,20 @@ export const GOODS_RECEIPTS_LIST = {
   lines: 'Lines',
   /** `receivedByUnknown` (`received_by` nullable, PC-11 (4a)). */
   receivedByUnknown: 'Not recorded',
-  /** `caption` (the served order; rendered through the list's `notice`, R10-1). */
-  caption: 'Newest first',
+  /**
+   * `caption` (the register's served order, receipt number descending; rendered through the list's `notice`, R10-1). Not
+   * "Newest first": it is read against the *Received* column, and `received_at` may be backdated (UX §2).
+   */
+  caption: 'Highest receipt number first',
   /** `searchFor` · `searchPlaceholder` · `searchHint` (X-2: no upper-casing; the hint says so). */
   searchFor: 'Search by receipt number',
   searchPlaceholder: 'Start of a receipt number',
-  searchHint: 'For example GR-0001. Receipt numbers are matched as typed, so use capitals.',
+  searchHint: 'For example GR-000123. Receipt numbers are matched as typed, so use capitals.',
   /** `searched(q)` · `noMatch(q)` · `clearSearch` (the house word). */
   searched: (q: string) => `Receipt number starts with “${q}”.`,
   noMatch: (q: string) => `No receipt number starts with “${q}”.`,
   clearSearch: 'Clear search',
-  /**
-   * The settled announcement (the core's `shown`, never called with 0). NOT a UX key (the PO-1 D-5 precedent; UX TO
-   * CONFIRM): `liveRange`'s noun, then `searched(q)`.
-   */
+  /** The settled announcement (the core's `shown`, never called with 0; CONFIRMED, UX D-9): `liveRange`'s noun, then `searched(q)`. The section uses it with an empty `q`. */
   shown: (n: number, q: string) => {
     const head = n === 1 ? '1 receipt shown.' : `${n} receipts shown.`;
     return q !== '' ? `${head} Receipt number starts with “${q}”.` : head;
@@ -488,21 +494,43 @@ export const GOODS_RECEIPTS_LIST = {
   noneYet: 'No deliveries recorded yet.',
   /** `loadFailed`. */
   loadFailed: "The list of goods receipts couldn't be loaded.",
-  /** `forOrder(number)` (the order page's Receipts section heading) · `forOrderEmpty`. */
+  /**
+   * The order page's Receipts section: `forOrder(number)` (its heading) · `forOrderCaption` (its served order, received
+   * time descending, through the list's `notice`) · its empty sentence by the page's CURRENT status (UX §4):
+   * `forOrderEmpty` (not cancelled; in practice ordered) · `forOrderEmptyCancelled` (cancelled). Never shown on a draft.
+   */
   forOrder: (number: string) => `Receipts for ${number}`,
+  forOrderCaption: 'Most recently received first',
   forOrderEmpty: 'Nothing has been received on this order yet.',
+  forOrderEmptyCancelled: 'Nothing was received on this order.',
 } as const;
 
-/** UX B-9 paging (CONFIRMS R1-3/R1-8 shapes): Newer · Older; `liveRange` with receipt numbers. */
+/**
+ * The register's paging words (UX §2, RED option (a); R8-1 item 3 as amended): served by receipt number, a key, so
+ * Previous · Next — `next` sends `next_cursor`. `liveRange` names the first and last receipt numbers (CONFIRMED, D-9).
+ */
 export const GOODS_RECEIPTS_PAGING = {
-  /** Newest first, so the previous page is newer and the next one older. */
-  pager: { previous: 'Newer', next: 'Older' },
-  /** `liveRange(n, first, last)`; the one-row form is the PO list's shape (NOT a UX key; UX TO CONFIRM). */
+  pager: { previous: 'Previous', next: 'Next' },
   liveRange: (n: number, first: string, last: string) => (n === 1 ? `1 receipt shown, ${first}.` : `${n} receipts shown, ${first} to ${last}.`),
-  /** `noMore`: NOT a UX key for receipts — the PO list's R1-7 words with the receipt noun (PLACEHOLDER, UX TO CONFIRM). */
+  /** `noMore` (D-9): heading and action CONFIRMED; the body states only what happened (receipts are never deleted). */
   noMore: {
     heading: 'There are no more goods receipts here.',
-    body: 'The list changed after the page you were on was loaded.',
+    body: 'The page you asked for came back empty.',
+    action: 'Back to the first page',
+  },
+} as const;
+
+/**
+ * The order page's Receipts section paging words (UX §2; RED L-1's name, L-2's sentence): served newest received first, so
+ * Newer · Older — Older sends `next_cursor`, Newer `previous_cursor`. The page sentence is positional (the section is not
+ * ordered by number, and `received_at` may be backdated), so it names the newest and the oldest receipt shown.
+ */
+export const GOODS_RECEIPTS_FOR_ORDER_PAGING = {
+  pager: { previous: 'Newer', next: 'Older' },
+  liveRange: (n: number, first: string, last: string) => (n === 1 ? `1 receipt shown, ${first}.` : `${n} receipts shown, newest received ${first}, oldest ${last}.`),
+  noMore: {
+    heading: 'There are no more receipts for this order here.',
+    body: 'The page you asked for came back empty.',
     action: 'Back to the first page',
   },
 } as const;
@@ -518,9 +546,11 @@ export const GOODS_RECEIPT_PAGE = {
   /** `readOnlyNote` (deletion class none: a state, names no action). */
   readOnlyNote: "A receipt can't be changed or deleted.",
   /**
-   * Lines columns: Order line · Item · Quantity · Location (interim unit heading until BK-33, final RED L-11). The table's
-   * heading is `ORDER_LINES.heading` (*Lines*; B-10 writes none of its own).
+   * `linesHeading` (D-9: the word confirmed, its own key so a later change to the order page's heading cannot silently
+   * change this page). Lines columns: Order line · Item · Quantity · Location (interim unit heading until BK-33, final RED
+   * L-11).
    */
+  linesHeading: 'Lines',
   orderLine: 'Order line',
   item: 'Item',
   quantity: "Quantity (item's unit)",

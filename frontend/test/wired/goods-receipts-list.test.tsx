@@ -7,8 +7,9 @@ import { SEARCH_SETTLE_MS } from '@/app/(app)/ArchivableList';
 import { GoodsReceiptsList } from '@/app/(app)/goods-receipts/GoodsReceiptsList';
 import type { GoodsReceipt } from '@/lib/api/purchasing';
 import { pageQuery } from '@/lib/bff/reads';
+import { formatDateTime } from '@/lib/format/dates';
 import { loadReceipts, type ReceiptsLoad } from '@/lib/purchasing/load';
-import { json, page, renderWired, stubFetch, textsOf, type Recorded } from './harness';
+import { json, page, renderWired, stubFetch, textsOf, TZ, type Recorded } from './harness';
 
 // Goods receipts GR-1 (purchase-orders-plan.md §2.7, Revision 0 §4 GR-1, R1-5 GR-1; final RED GR-1 / L-7 / L-3 Note A;
 // b4-architecture.md Revision 10 R10-3, R10-4; UX B-9 `GOODS_RECEIPTS_LIST`, R1a-1 row 8). The register is the real
@@ -83,13 +84,18 @@ describe('R10-4 — pageQuery carries one fixed filter', () => {
 });
 
 describe('/goods-receipts — the register (UX B-9)', () => {
-  it('Receipt · Purchase order · Received · Received by · Lines; newest first; the number links to the receipt page', () => {
+  it('Receipt · Purchase order · Received · Received by · Lines; highest receipt number first; the number links to the receipt page', () => {
     renderWired(<GoodsReceiptsList initial={ok([G3, G2, G1])} canOpenReceipt canOpenOrder />);
     expect(screen.getByRole('heading', { level: 1, name: 'Goods receipts' })).toBeInTheDocument();
     expect(headers()).toEqual(['Receipt', 'Purchase order', 'Received', 'Received by', 'Lines']);
     expect(within(screen.getByText('GR-000003').closest('tr')!).getByRole('link', { name: 'GR-000003' })).toHaveAttribute('href', `/goods-receipts/${G3.id}`);
     expect(within(screen.getByText('GR-000003').closest('tr')!).getByRole('link', { name: 'PO-000001' })).toHaveAttribute('href', `/purchase-orders/${ORDER.id}`);
-    expect(screen.getByText('Newest first', { selector: 'p' })).toBeInTheDocument();
+    // The caption names the served order, receipt number descending (gr-1-followups-ux.md §2: "Newest first" was false
+    // against the Received column, which the sender may backdate).
+    expect(screen.getByText('Highest receipt number first', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.queryByText('Newest first')).toBeNull();
+    // Received: DT-1's date-and-time form in the viewer's zone (UX D-7; gr-1-red L-5).
+    expect(cells('GR-000003')[2]).toBe(formatDateTime(G3.received_at, TZ));
     expect(cells('GR-000003')[3]).toBe('Wanda Warehouse');
     // Lines is a count of the served lines, not a quantity sum.
     expect(cells('GR-000003')[4]).toBe('2');
@@ -127,23 +133,41 @@ describe('/goods-receipts — the register (UX B-9)', () => {
     await u.click(screen.getByRole('button', { name: 'Clear search' }));
     await waitFor(() => expect(screen.getByText('GR-000002')).toBeInTheDocument());
     // A page press reads the next page under the settled (empty) search.
-    await u.click(screen.getByRole('button', { name: 'Older' }));
+    await u.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => expect(screen.getByText('GR-000001')).toBeInTheDocument());
     expect(registerRequests(calls)).toEqual([{ q: 'gr-0' }, {}, { after: 'n2' }]);
+    // The register never writes the address (plan Rev 1 GR-1; gr-1-red L-8): a reload opens page 1.
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 
-  it('paging: Older reads after the cursor, Newer before; the page sentence names the first and last receipt numbers', async () => {
+  // R8-1 item 3 as amended (gr-1-followups-red.md H-1): a view ordered by a key says Previous / Next — the register is
+  // served by receipt number, so never Newer / Older — and the `next` label's button sends `after=<next_cursor>`.
+  it('paging: Previous · Next (key-ordered); Next sends after=<next_cursor>, Previous before=<previous_cursor>; the page sentence names the first and last receipt numbers', async () => {
     const calls = stubFetch([json(200, page([G2, G1], { previous_cursor: 'p2' })), json(200, page([G3], { next_cursor: 'n1' }))]);
     const u = userEvent.setup();
     renderWired(<GoodsReceiptsList initial={ok([G3], { nextCursor: 'n1' })} canOpenReceipt canOpenOrder />);
+    expect(screen.queryByRole('button', { name: 'Older' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Newer' })).toBeNull();
     const said = textsOf(region());
-    await u.click(screen.getByRole('button', { name: 'Older' }));
+    await u.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => expect(screen.getByText('GR-000001')).toBeInTheDocument());
     await waitFor(() => expect(said.texts).toContain('2 receipts shown, GR-000002 to GR-000001.'));
-    await u.click(screen.getByRole('button', { name: 'Newer' }));
+    await u.click(screen.getByRole('button', { name: 'Previous' }));
     await waitFor(() => expect(screen.getByText('GR-000003')).toBeInTheDocument());
     said.stop();
     expect(registerRequests(calls)).toEqual([{ after: 'n1' }, { before: 'p2' }]);
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  // UX D-9: heading and action confirmed; the body says only what happened (receipts are never deleted).
+  it('a page press that comes back empty: "There are no more goods receipts here." · "The page you asked for came back empty." · Back to the first page', async () => {
+    stubFetch([json(200, page([], { tenant_has_rows: true }))]);
+    const u = userEvent.setup();
+    renderWired(<GoodsReceiptsList initial={ok([G3], { nextCursor: 'n1' })} canOpenReceipt canOpenOrder />);
+    await u.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(screen.getByText('There are no more goods receipts here.', { selector: 'p' })).toBeInTheDocument());
+    expect(screen.getByText('The page you asked for came back empty.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to the first page' })).toBeInTheDocument();
   });
 
   it('a settled search speaks a sentence naming the search', async () => {
@@ -178,7 +202,7 @@ describe('/goods-receipts — the register (UX B-9)', () => {
 
   it('the search box says what it matches (UX B-9 searchHint)', () => {
     renderWired(<GoodsReceiptsList initial={ok([G3])} canOpenReceipt canOpenOrder />);
-    expect(screen.getByRole('searchbox', { name: 'Search by receipt number' })).toHaveAccessibleDescription('For example GR-0001. Receipt numbers are matched as typed, so use capitals.');
+    expect(screen.getByRole('searchbox', { name: 'Search by receipt number' })).toHaveAccessibleDescription('For example GR-000123. Receipt numbers are matched as typed, so use capitals.');
     expect(screen.getByRole('searchbox')).toHaveAttribute('placeholder', 'Start of a receipt number');
   });
 

@@ -19,7 +19,7 @@ const SEARCH = { label: GOODS_RECEIPTS_LIST.searchFor, placeholder: GOODS_RECEIP
 
 /**
  * One receipt row's columns (UX B-9), shared by the register and the order page's Receipts section (the same `purchasing`
- * family, R10-2): Receipt (its number, a link to `/goods-receipts/[id]` only for a GetGoodsReceipt holder) · Purchase order
+ * family, R10-2 as amended by A-3: the one part that crosses the two route folders): Receipt (its number, a link to `/goods-receipts/[id]` only for a GetGoodsReceipt holder) · Purchase order
  * (the register only: its number, a link only for a GetPurchaseOrder holder — viewer reads receipts without orders) ·
  * Received (date and time, the viewer's zone) · Received by (`received_by.display_name`, or *Not recorded*) · Lines (a
  * count of the served lines, never a quantity sum). No cost: a receipt serves none (UX D-6).
@@ -33,7 +33,11 @@ export function receiptColumns({ timeZone, canOpenReceipt, canOpenOrder, withOrd
   return withOrder ? [receipt, order, received, receivedBy, lines] : [receipt, received, receivedBy, lines];
 }
 
-/** The receipts lists' paging words (UX B-9): Newer · Older; the page sentence names its first and last receipt numbers. */
+/**
+ * The register's paging (UX §2; R8-1 item 3 as amended: the words follow the served order): receipt number, so Previous ·
+ * Next; the page sentence names its first and last receipt numbers. The register's only — the order page's section,
+ * served newest received first, has its own (`ORDER_RECEIPTS_PAGING` in `purchase-orders/[id]/ReceiptsSection.tsx`, A-3).
+ */
 export const RECEIPTS_PAGING: Paging<GoodsReceipt> = {
   pager: () => GOODS_RECEIPTS_PAGING.pager,
   noMore: () => GOODS_RECEIPTS_PAGING.noMore,
@@ -65,7 +69,7 @@ export const registerEmpty: EmptyState = ({ q, tenantHasRows, clearSearch }) => 
 
 /**
  * `/goods-receipts` (UX B-9; purchase-orders-plan.md §2.7; Revision 10 R10-3). Paged and searched by the server (R8-1), the
- * served order (receipt number, newest first) named by the caption above the rows. **No Archived view** — a receipt is
+ * served order (receipt number, highest first) named by the caption above the rows. **No Archived view** — a receipt is
  * never deleted (class `none`, TB-3 "absent — not disabled") — so no view control renders and no read sends `archived`;
  * no fixed filter (R10-4). Nothing is written to the address: a reload opens page 1.
  */
