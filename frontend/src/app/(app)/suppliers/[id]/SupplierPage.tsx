@@ -1,15 +1,18 @@
 'use client';
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { DeleteDialog } from '@/components/records/DeleteDialog';
 import { SupplierForm } from '@/components/suppliers/SupplierForm';
 import styles from '@/components/suppliers/Suppliers.module.css';
 import { RestoreActions } from '@/components/records/RestoreActions';
 import { RegionError } from '@/components/states/PageStates';
 import { Banner } from '@/components/ui/Banner';
+import { Button } from '@/components/ui/Button';
 import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
 import { COULD_NOT_REACH, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
-import { RESTORE_SUPPLIER, SUPPLIER_FORBIDDEN, SUPPLIER_PAGE } from '@/copy/suppliers';
+import { DELETE_SUPPLIER, RESTORE_SUPPLIER, SUPPLIER_FORBIDDEN, SUPPLIER_PAGE } from '@/copy/suppliers';
 import type { Supplier } from '@/lib/api/suppliers';
 import type { CatalogueLoad } from '@/lib/suppliers/load';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
@@ -17,7 +20,7 @@ import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { loadSupplier } from '@/lib/suppliers/load';
 import type { SupplierChange } from '@/lib/suppliers/results';
-import { supplierRestore, supplierSave } from '@/lib/suppliers/wired';
+import { supplierDelete, supplierRestore, supplierSave } from '@/lib/suppliers/wired';
 import { useArrivalMessage } from '../../arrivalMessage';
 import { useApiCaller, useViewerTimeZone } from '../../BffProvider';
 import { useCommittedState } from '../../useCommittedState';
@@ -32,6 +35,8 @@ export interface SupplierPageProps {
   canEdit: boolean;
   /** Holds RestoreSupplier's codes (from the contract): ST-4c. Without it an archived supplier shows its banner, no button. */
   canRestore: boolean;
+  /** Holds DeleteSupplier's codes (from the contract): **Delete supplier** in the header of a live supplier (S-7). */
+  canDelete?: boolean;
   /**
    * The catalogue section (S-3), or null when the viewer does not hold ListSupplierProducts' codes: then it is absent and
    * was not fetched (A-20). `canOpenItem` = GetItem's codes; `canEdit` = UpdateSupplierProduct's (S-4); `canAdd` =
@@ -44,7 +49,7 @@ type Cause = 'unreachable' | 'server-error';
 
 /**
  * The supplier page (suppliers-ux-copy.md Revision 1 — FINAL S-1 over Revision 0 B-3, B-5; IA L-4: the detail page is the
- * editor; Revision 8 R8-2; the `ItemPage` shape without Delete, which arrives at S-7). It holds the supplier in state and
+ * editor; Revision 8 R8-2; the `ItemPage` shape, its Delete from S-7). It holds the supplier in state and
  * passes the re-read one to the form without a remount. Editable (Code, Name, Country, Currency, Payment terms) for an
  * UpdateSupplier holder on a live supplier; the same values as plain text otherwise, with no hints. Currency was plain
  * text in S-1…S-5 and is editable from S-6, with one unconditional hint. An archived supplier is read-only whatever the viewer holds, under the ST-9 banner
@@ -58,8 +63,20 @@ type Cause = 'unreachable' | 'server-error';
  * actions following the supplier on screen; an entry write refused because the supplier was archived meanwhile has the
  * page re-read the supplier (`onParentStale`, final RED M-3). No History. After a save's or restore's message is on screen
  * the router cache is refreshed once.
+ *
+ * **Delete supplier** (S-7, suppliers-plan.md Revision 1 — FINAL §R1-4 S-7 = Revision 0 S-6 + M-3; UX S-7; the `ItemPage`
+ * shape, FE-D1) on a live supplier for a DeleteSupplier holder: the shared danger dialog. After a 204 the page stays and
+ * turns archived (focus h1, "After" spoken, one refresh), or stays live and says it has since been restored (S-2). The 204
+ * is a fact that outranks a stale snapshot (`deletedHere`): until a commit that is not dropped says otherwise, there is no
+ * Delete supplier, no form, and the catalogue section has no actions — in the same mount (M-3) — even when the delete's
+ * re-read failed. Any other close after an answer re-reads: an archived answer is committed (focus h1, one refresh); a
+ * live one is not committed, so the typed edits stay (ItemPage's M-5). The person's own Delete outranks their own Save
+ * (the items UX ruling M-3 / T-17 / L-1, carried here): a Save sent before the 204 neither speaks "saved", nor shows its
+ * refusal, nor commits its answer body, nor puts its failed re-read's region error over the delete (a 403 / 404 swap is
+ * still shown); a refusal banner already showing is cleared by the 204. Known limit: an own delete whose answer was lost
+ * (interrupted) raises no 204 floor, so a Save sent before it still speaks or shows as before.
  */
-export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }: SupplierPageProps) {
+export function SupplierPage({ initial, canEdit, canRestore, canDelete = false, catalogue = null }: SupplierPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -92,6 +109,13 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
   const [rereadError, setRereadError] = useState<{ gen: number; cause: Cause } | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [staleRefusal, setStaleRefusal] = useState<{ gen: number; message: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // 4.6 RED M-1 (the item and warehouse pages): a 204 here is a fact that outranks a stale snapshot. If the re-read after
+  // it failed, the supplier is still treated as archived for the actions until a commit that is not dropped says otherwise.
+  const [deletedHere, setDeletedHere] = useState(false);
+  // D-2 (lesson 5): the number of Delete supplier presses. The catalogue section's Add press reads before it opens its
+  // dialog; a Delete supplier press while that read is out supersedes it (the later press wins, suppliers-s5-red.md M-1).
+  const [deletePresses, setDeletePresses] = useState(0);
   const staleHeading = useRef<HTMLHeadingElement>(null);
   const h1 = useRef<HTMLHeadingElement>(null);
   const id = initial.id;
@@ -106,28 +130,45 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
   // failure whose stamp is older than what is on screen is dropped, so an older re-read landing late never undoes a
   // newer one. Known limit (the item page's): when a write's re-read fails, its answer body carries the re-read's stamp,
   // so it can overwrite a Retry, sent in between, that read someone else's later change; the next reading corrects it.
+  // S-7 (the item page's rule): a 204 raises what is on screen to the delete's re-read stamp, even when that re-read fails,
+  // so no reading requested before it can undo the delete; a write's own answer body, its "saved" sentence, its refusal
+  // and its failed re-read's region error are dropped when a 204 arrived after that write was sent (`sentAsOf`, compared
+  // only with the 204 floor, never with the commit stamp). Known limit: the floor is never lowered, so after a Restore a
+  // Save sent before the delete is still silenced; safe while such a Save's 200 means it was processed before the delete.
+  // Why the silence loses nothing (po-8-red.md H-1 contrast): a PATCH processed after the DELETE is refused archived, so the
+  // delete's own re-read shows the fields the server kept, read-only, and "After" names the kept code; the delete is undone by
+  // Restore supplier (supplier.delete, Delete's own code). An approval is not undone, which is why PO-8 blocks instead.
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
+  const deletedAsOf = useRef(0);
+  // The code last committed, for the "After" sentence: a Save may have renamed it after Delete was pressed.
+  const committedCode = useRef(initial.code);
   // FE-R7: whether the reading last committed is archived, for the stale-refusal rule. Decided from what was committed,
   // never from the render the Save was pressed in.
   const committedArchived = useRef(initial.archived_at !== null);
   const stamp = useCallback(() => ++stamps.current, []);
-  const failed = useCallback((f: ReadFailure, asOf?: number) => {
+  const failed = useCallback((f: ReadFailure, asOf?: number, sentAsOf?: number) => {
     if (asOf !== undefined && asOf < committedAsOf.current) return;
     if (f === 'session-ended') return;
     if (f === 'forbidden' || f === 'not-found') {
       setSwap(f);
       return;
     }
+    // po-6-red.md (spar on :384; the items UX ruling L-1): a Save sent before a 204 of the person's own Delete does not
+    // put its failed re-read over what the delete left. Swaps are kept: they say what the viewer may see now.
+    if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
     // After the form's own after-save focus, so the region error's heading takes it.
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
 
   const commit = useCallback(
-    async (s: Supplier, asOf: number) => {
+    async (s: Supplier, asOf: number, sentAsOf?: number) => {
       if (asOf < committedAsOf.current) return;
+      if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
       committedAsOf.current = asOf;
+      committedCode.current = s.code;
       committedArchived.current = s.archived_at !== null;
+      setDeletedHere(false);
       setRereadError(null);
       // Live by any path (a restore, an already-live re-read, a Retry): the stale Save's sentence describes nothing on screen.
       if (s.archived_at === null) setStaleRefusal(null);
@@ -139,8 +180,29 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
   // touched outside render (react-hooks/refs).
   const save = useCallback((changes: SupplierChange) => supplierSave({ caller, id, stamp, setSupplier: commit, onRereadFailed: failed })(changes), [caller, id, stamp, commit, failed]);
   const restore = useCallback(() => supplierRestore({ caller, id, stamp, setSupplier: commit, onRereadFailed: failed })(), [caller, id, stamp, commit, failed]);
+  // The 204 floor: raised before the delete's re-read is sent, so a reading requested earlier is dropped even when that
+  // re-read fails. Without Math (the QR-2 backstop reads app files).
+  const onDeleted = useCallback((s: number) => {
+    if (s > committedAsOf.current) committedAsOf.current = s;
+    deletedAsOf.current = s;
+    committedArchived.current = true;
+    setDeletedHere(true);
+    // T-17: the supplier is archived by the person's own act; a stale Save refusal describes an edit they can no longer make.
+    setStaleRefusal(null);
+  }, []);
+  const remove = useCallback(() => supplierDelete({ caller, id, stamp, setSupplier: commit, onRereadFailed: failed, onDeleted })(), [caller, id, stamp, commit, failed, onDeleted]);
   const onSaved = useCallback(() => router.refresh(), [router]);
-  const onRefusedArchived = useCallback((message: string) => {
+  // UX M-3: a Save's sentence is not spoken over the person's own delete when the 204 came after it was sent.
+  const announceSaved = useCallback(
+    (text: string, sentAsOf: number) => {
+      if (sentAsOf < deletedAsOf.current) return;
+      announce(text);
+    },
+    [announce],
+  );
+  const onRefusedArchived = useCallback((message: string, sentAsOf: number) => {
+    // T-17: a Save sent before a 204 of the person's own Delete shows no refusal.
+    if (sentAsOf < deletedAsOf.current) return;
     // FE-R7: the page is live (a restore committed after this Save's archived reading was asked for, so that reading was
     // dropped): the refusal describes nothing on screen and is not kept for a later archived reading.
     if (!committedArchived.current) return;
@@ -181,6 +243,34 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
     if (a === null || a === document.body || !a.isConnected) h1.current?.focus();
   }, [archived]);
 
+  // S-7 (the ItemPage.closeDelete shape, FE-D1). After a 204 `supplierDelete` has already committed (or reported) the
+  // re-read: commit the close, focus the h1 (the opener is gone with the live state), speak "After" with the code last
+  // committed — or the S-2 sentence when that re-read read the supplier live (restored in between) — refresh the router
+  // cache once. `deletedHere` was set by `onDeleted`; only a commit that is not dropped clears it. Any other close after an
+  // answer re-reads: an archived answer is committed (R5 is not it; S6, an interrupted press that committed, a delete
+  // elsewhere) and the h1 takes focus; a live one changes nothing — not committed, so the typed edits stay (D-4).
+  const closeDelete = async ({ deleted, reread }: { deleted: boolean; reread: boolean }) => {
+    flushSync(() => setDeleting(false));
+    if (deleted) {
+      h1.current?.focus();
+      announce(committedArchived.current ? DELETE_SUPPLIER.after(committedCode.current) : DELETE_SUPPLIER.afterRestored(committedCode.current));
+      router.refresh();
+      return;
+    }
+    if (!reread) return;
+    const mine = ++stamps.current;
+    const d = startDeadline(ACTION_DEADLINES_MS.reread);
+    const r = await loadSupplier(readOf(caller), id, d.signal);
+    d.cancel();
+    if (committedAsOf.current > mine) return;
+    if (r.kind === 'ok') {
+      if (r.supplier.archived_at === null) return;
+      await commit(r.supplier, mine);
+      h1.current?.focus();
+      router.refresh();
+    } else failed(r.kind, mine);
+  };
+
   const retry = async () => {
     if (retrying) return;
     setRetrying(true);
@@ -200,12 +290,25 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
   if (swap === 'forbidden') return <SuppliersDenied />;
   if (swap === 'not-found') return <SupplierNotFound />;
 
+  const actionsArchived = archived || deletedHere;
+
   return (
     <section className={listStyles.page}>
       <header className={listStyles.header}>
         <h1 ref={h1} tabIndex={-1}>
           {SUPPLIER_PAGE.title(supplier.code, supplier.name)}
         </h1>
+        {canDelete && !actionsArchived ? (
+          <Button
+            variant="destructive"
+            onClick={() => {
+              setDeletePresses((n) => n + 1);
+              setDeleting(true);
+            }}
+          >
+            {DELETE_SUPPLIER.action}
+          </Button>
+        ) : null}
       </header>
       {/* Mounted from first render, above every branch below, so it never arrives already speaking. */}
       <LiveRegion message={regionMessage} visuallyHidden />
@@ -238,8 +341,8 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
           onRestored={onRestored}
         />
       ) : null}
-      {canEdit && !archived ? (
-        <SupplierForm supplier={supplier} save={save} editCode={gateCode('UpdateSupplier')} announce={announce} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={() => announce('')} onRefusedArchived={onRefusedArchived} />
+      {canEdit && !actionsArchived ? (
+        <SupplierForm supplier={supplier} save={save} editCode={gateCode('UpdateSupplier')} announce={announceSaved} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={() => announce('')} onRefusedArchived={onRefusedArchived} />
       ) : (
         <dl className={styles.fields}>
           <dt>{SUPPLIER_PAGE.code}</dt>
@@ -258,7 +361,8 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
         <CatalogueSection
           supplierId={id}
           initial={catalogue.initial}
-          supplierArchived={archived}
+          supplierArchived={actionsArchived}
+          deletePresses={deletePresses}
           canOpenItem={catalogue.canOpenItem}
           canEdit={catalogue.canEdit}
           canAdd={catalogue.canAdd ?? false}
@@ -268,6 +372,24 @@ export function SupplierPage({ initial, canEdit, canRestore, catalogue = null }:
           announce={announce}
           replaceIfCurrent={replaceIfCurrent}
           onParentStale={() => void onParentStale()}
+        />
+      ) : null}
+      {deleting ? (
+        <DeleteDialog
+          copy={{
+            title: DELETE_SUPPLIER.title(supplier.code, supplier.name),
+            body: DELETE_SUPPLIER.body,
+            confirm: DELETE_SUPPLIER.confirm,
+            cancel: DELETE_SUPPLIER.cancel,
+            close: DELETE_SUPPLIER.close,
+            interrupted: DELETE_SUPPLIER.interrupted(supplier.code),
+            forbidden: SUPPLIER_FORBIDDEN,
+          }}
+          run={remove}
+          onDeleteStarted={() => announce('')}
+          deleteCode={gateCode('DeleteSupplier')}
+          onClose={(o) => void closeDelete(o)}
+          fallbackFocusRef={h1}
         />
       ) : null}
     </section>

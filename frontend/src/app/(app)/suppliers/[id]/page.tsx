@@ -17,7 +17,8 @@ import { SupplierPage } from './SupplierPage';
 // shape, or supplier_product.edit without .view — it is absent and not fetched; its item link follows GetItem's codes, its
 // rows' Edit (S-4) UpdateSupplierProduct's, its rows' Remove (S-6) DeleteSupplierProduct's, its Add to catalogue (S-5)
 // CreateSupplierProduct's and ListItems' together. A
-// 401 on that read → the session-ended notice; any other failure is the section's own state. No Delete supplier before S-7. 401 → the session-ended notice; 403 → ST-4b; 404 or a non-record id → ST-5
+// 401 on that read → the session-ended notice; any other failure is the section's own state. `canDelete` = DeleteSupplier's
+// codes (S-7: Delete supplier on a live supplier). 401 → the session-ended notice; 403 → ST-4b; 404 or a non-record id → ST-5
 // (`not-found.tsx`); any other failure throws to the error page.
 export const dynamic = 'force-dynamic';
 
@@ -54,5 +55,5 @@ export default async function Page({ params }: Params) {
     if (initial.kind === 'session-ended') redirect(sessionEndedPath(`/suppliers/${encodeURIComponent(id)}`));
     catalogue = { initial, canOpenItem: viewerMay('GetItem', codes), canEdit: viewerMay('UpdateSupplierProduct', codes), canAdd: viewerMay('CreateSupplierProduct', codes) && viewerMay('ListItems', codes), canRemove: viewerMay('DeleteSupplierProduct', codes) };
   }
-  return <SupplierPage initial={first.supplier} canEdit={viewerMay('UpdateSupplier', codes)} canRestore={viewerMay('RestoreSupplier', codes)} catalogue={catalogue} />;
+  return <SupplierPage initial={first.supplier} canEdit={viewerMay('UpdateSupplier', codes)} canRestore={viewerMay('RestoreSupplier', codes)} canDelete={viewerMay('DeleteSupplier', codes)} catalogue={catalogue} />;
 }

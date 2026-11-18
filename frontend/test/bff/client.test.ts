@@ -293,6 +293,7 @@ describe('T-R2 — deadline.ts', () => {
   // Suppliers S-4 (suppliers-plan.md §3 deadlines row) added entrySave (Edit a catalogue entry), pinned to its use.
   // Suppliers S-5 (suppliers-plan.md §R1-3 deadlines row) added entryCreate (Add to catalogue), pinned to its use.
   // Suppliers S-6 (the same row) added entryDelete (Remove a catalogue entry), pinned to its use.
+  // Suppliers S-7 (the same row) added supplierDelete (Delete supplier), pinned to its use.
   // Purchase orders PO-2 (purchase-orders-plan.md §3 deadlines row) added orderRestore (Restore purchase order), pinned to its use.
   // Purchase orders PO-3 (the same row) added orderCreate (Create purchase order), pinned to its use.
   // Purchase orders PO-4a (plan Revision 1 R1-4 deadlines row) added orderSave (the draft header's Save), pinned to its use.
@@ -301,7 +302,7 @@ describe('T-R2 — deadline.ts', () => {
   // Purchase orders PO-7 (the same row) added orderCancel (Cancel order), pinned to its use.
   // Purchase orders PO-8 (the same row) added orderApprove (Approve), pinned to its use.
   it('names each per-action bound once', () => {
-    expect(ACTION_DEADLINES_MS).toEqual({ personAction: 30_000, proposalAction: 30_000, checklistSave: 30_000, roleRestore: 30_000, saveRoles: 60_000, warehouseSave: 30_000, warehouseRestore: 30_000, warehouseCreate: 30_000, locationCreate: 30_000, locationSave: 30_000, locationRestore: 30_000, warehouseDelete: 30_000, locationDelete: 30_000, itemSave: 30_000, itemRestore: 30_000, itemDelete: 30_000, itemCreate: 30_000, supplierSave: 30_000, supplierRestore: 30_000, supplierCreate: 30_000, entrySave: 30_000, entryCreate: 30_000, entryDelete: 30_000, orderRestore: 30_000, orderCreate: 30_000, orderSave: 30_000, lineCreate: 30_000, lineDelete: 30_000, orderDelete: 30_000, orderCancel: 30_000, orderApprove: 30_000, bulkRun: 30_000, reread: 30_000 });
+    expect(ACTION_DEADLINES_MS).toEqual({ personAction: 30_000, proposalAction: 30_000, checklistSave: 30_000, roleRestore: 30_000, saveRoles: 60_000, warehouseSave: 30_000, warehouseRestore: 30_000, warehouseCreate: 30_000, locationCreate: 30_000, locationSave: 30_000, locationRestore: 30_000, warehouseDelete: 30_000, locationDelete: 30_000, itemSave: 30_000, itemRestore: 30_000, itemDelete: 30_000, itemCreate: 30_000, supplierSave: 30_000, supplierRestore: 30_000, supplierCreate: 30_000, supplierDelete: 30_000, entrySave: 30_000, entryCreate: 30_000, entryDelete: 30_000, orderRestore: 30_000, orderCreate: 30_000, orderSave: 30_000, lineCreate: 30_000, lineDelete: 30_000, orderDelete: 30_000, orderCancel: 30_000, orderApprove: 30_000, bulkRun: 30_000, reread: 30_000 });
   });
 
   it('a deadline aborts its signal at its bound, not before; cancel clears it', async () => {

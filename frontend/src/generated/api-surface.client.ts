@@ -193,6 +193,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['storage_location.delete'],
     },
   },
+  DeleteSupplier: {
+    method: 'DELETE',
+    template: '/api/v1/suppliers/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.delete'],
+    },
+  },
   DeleteSupplierProduct: {
     method: 'DELETE',
     template: '/api/v1/suppliers/{id}/products/{productId}',

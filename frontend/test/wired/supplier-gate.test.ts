@@ -54,7 +54,7 @@ async function render(codes: string[]): Promise<ReactElement> {
   expect(isValidElement(el)).toBe(true);
   return el as ReactElement;
 }
-const props = (el: ReactElement) => el.props as { canEdit: boolean; canRestore: boolean };
+const props = (el: ReactElement) => el.props as { canEdit: boolean; canRestore: boolean; canDelete: boolean };
 
 describe('/suppliers/[id] — Save follows UpdateSupplier, Restore supplier follows RestoreSupplier (test 11, ST-4c)', () => {
   it('supplier.view alone (the viewer shape): the page, no editor, no Restore supplier', async () => {
@@ -78,6 +78,21 @@ describe('/suppliers/[id] — Save follows UpdateSupplier, Restore supplier foll
     v.byOperation = (op) => op === 'GetSupplier' || op === operation;
     try {
       expect(props(await render([]))).toEqual(expect.objectContaining(expected));
+    } finally {
+      v.byOperation = null;
+    }
+  });
+
+  // S-7 (suppliers-plan.md Revision 1 — FINAL §R1-1, §R1-2): Delete supplier follows DeleteSupplier (supplier.delete, the
+  // code RestoreSupplier shares), on its own operation.
+  it('S-7: Delete supplier follows DeleteSupplier (supplier.delete), on its own operation', async () => {
+    expect(props(await render(['supplier.view', 'supplier.edit', 'supplier.create']))).toMatchObject({ canDelete: false });
+    expect(props(await render(['supplier.view', 'supplier.delete']))).toMatchObject({ canDelete: true });
+    v.byOperation = (op) => op === 'GetSupplier' || op === 'RestoreSupplier';
+    try {
+      expect(props(await render([]))).toMatchObject({ canRestore: true, canDelete: false });
+      v.byOperation = (op) => op === 'GetSupplier' || op === 'DeleteSupplier';
+      expect(props(await render([]))).toMatchObject({ canRestore: false, canDelete: true });
     } finally {
       v.byOperation = null;
     }

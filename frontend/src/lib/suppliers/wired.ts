@@ -6,7 +6,7 @@ import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { wholeNumberOrText } from '../forms/wholeNumberOrText';
 import { isSupplier, isSupplierProduct, loadSupplier } from './load';
-import { CREATE_ENTRY_FIELDS, CREATE_SUPPLIER_FIELDS, ENTRY_FIELDS, SUPPLIER_FIELDS, type CreateEntryAction, type CreateSupplierAction, type DeleteEntryAction, type EntryChange, type RestoreSupplierAction, type SaveEntryAction, type SaveSupplierAction, type SupplierChange } from './results';
+import { CREATE_ENTRY_FIELDS, CREATE_SUPPLIER_FIELDS, ENTRY_FIELDS, SUPPLIER_FIELDS, type CreateEntryAction, type CreateSupplierAction, type DeleteEntryAction, type DeleteSupplierAction, type EntryChange, type RestoreSupplierAction, type SaveEntryAction, type SaveSupplierAction, type SupplierChange } from './results';
 
 // The supplier page's Save and Restore, and the create page's Create (S-2, at the end), over the BFF (Revision 8 R8-2;
 // the lib/items/wired.ts shape). Neither Save nor Restore takes an
@@ -28,16 +28,29 @@ import { CREATE_ENTRY_FIELDS, CREATE_SUPPLIER_FIELDS, ENTRY_FIELDS, SUPPLIER_FIE
 // Stamps (items-i3-design.md Revision 1 — FINAL §0a, the page's rule): every action here takes its stamp from `stamp()`
 // immediately before it sends its re-read, after the write's answer has arrived, and passes it to every commit or
 // failure that follows, the fallback answer body included. The page drops anything older than what it shows.
+// S-7 (the item page's rule, `lib/items/wired.ts`): Save also takes a stamp when it sends its PATCH (`sent`). It goes back
+// with `saved` and `refused-archived` (`sentAsOf`), with the 200-body fallback commit and with BOTH failed re-reads, so the
+// page can drop what a Save sent before a 204 of the person's own Delete supplier would say, show or commit (the items UX
+// ruling M-3 / T-17; po-6-red.md "Spar on the :384 residual"). Restore and Delete pass none: they describe the present.
 
 export interface SupplierWiring {
   readonly caller: ApiCaller;
   readonly id: string;
   /** The page's next stamp: taken when a re-read is sent. */
   readonly stamp: () => number;
-  /** Sets the re-read supplier (under the stamp of the re-read) and resolves after the commit that shows it. */
-  readonly setSupplier: (supplier: Supplier, asOf: number) => Promise<void>;
-  /** A re-read after a write did not answer a supplier: the page shows its region error, or swaps (ST-4b / ST-5). */
-  readonly onRereadFailed: (failure: ReadFailure, asOf: number) => void;
+  /**
+   * Sets the re-read supplier (under the stamp of the re-read) and resolves after the commit that shows it. `sentAsOf`,
+   * given only with Save's own answer body, is the stamp taken when that PATCH was sent.
+   */
+  readonly setSupplier: (supplier: Supplier, asOf: number, sentAsOf?: number) => Promise<void>;
+  /**
+   * A re-read after a write did not answer a supplier: the page shows its region error, or swaps (ST-4b / ST-5). `sentAsOf`,
+   * given only by Save: the page drops the region error — never the swap — when a 204 of the person's own Delete arrived
+   * after it.
+   */
+  readonly onRereadFailed: (failure: ReadFailure, asOf: number, sentAsOf?: number) => void;
+  /** After a 204, before the delete's re-read: the page raises what it shows to that re-read's stamp (the 204 floor). */
+  readonly onDeleted?: (asOf: number) => void;
 }
 
 export function supplierSave(w: SupplierWiring): SaveSupplierAction {
@@ -51,6 +64,7 @@ export function supplierSave(w: SupplierWiring): SaveSupplierAction {
       };
       for (const f of SUPPLIER_FIELDS) copy(f);
       if (typeof body.payment_terms_days === 'string') body.payment_terms_days = wholeNumberOrText(body.payment_terms_days);
+      const sent = w.stamp();
       const r = await w.caller.call('UpdateSupplier', { id: w.id }, body, { signal: deadline.signal });
       if (r.kind !== 'ok') {
         switch (r.kind) {
@@ -64,9 +78,9 @@ export function supplierSave(w: SupplierWiring): SaveSupplierAction {
             if (again.kind === 'ok' && again.supplier.archived_at !== null) {
               await w.setSupplier(again.supplier, s);
               // P1 says "try again": it is never shown as the page's archived-elsewhere refusal.
-              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message };
+              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message, sentAsOf: sent };
             }
-            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s, sent);
             return r;
           }
           case 'not-found':
@@ -84,11 +98,12 @@ export function supplierSave(w: SupplierWiring): SaveSupplierAction {
       const again = await loadSupplier(readOf(w.caller), w.id, deadline.signal);
       if (again.kind === 'ok') await w.setSupplier(again.supplier, s);
       else {
-        // The 200 body is the server's new state: commit it, so the page shows what was saved (Restore's rule).
-        await w.setSupplier(r.body, s);
-        w.onRereadFailed(again.kind, s);
+        // The 200 body is the server's new state: commit it, so the page shows what was saved (Restore's rule), unless a
+        // 204 arrived after this Save was sent (the body is then the supplier before the delete).
+        await w.setSupplier(r.body, s, sent);
+        w.onRereadFailed(again.kind, s, sent);
       }
-      return { kind: 'saved', supplier: r.body };
+      return { kind: 'saved', supplier: r.body, sentAsOf: sent };
     } finally {
       deadline.cancel();
     }
@@ -134,6 +149,43 @@ export function supplierRestore(w: SupplierWiring): RestoreSupplierAction {
         w.onRereadFailed(again.kind, s);
       }
       return { kind: 'restored', supplier: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Delete supplier over the BFF (suppliers-plan.md Revision 1 — FINAL §R1-4 S-7 = Revision 0 S-6; the `itemDelete` shape).
+// `DeleteSupplier` takes no body and no key; a repeat of a committed delete is refused S6 ("already archived"). P1 is the
+// one refusal compared: it is returned as `contention`, which keeps Delete supplier (its sentence says "try again"); any
+// other 409 (R5 open purchase orders — BK-28's sentence, shown as sent; S6) is `refused`, Close only. After a 204 the stamp
+// of the re-read is taken, the page raises its 204 floor to it (`onDeleted`) BEFORE the re-read is sent, and the re-read
+// supplier is committed — archived, or live if someone restored it in between (S-2); a failed re-read is told to the page.
+export function supplierDelete(w: SupplierWiring): DeleteSupplierAction {
+  return async () => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.supplierDelete);
+    try {
+      const r = await w.caller.call('DeleteSupplier', { id: w.id }, undefined, { signal: deadline.signal });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused':
+            return r.rule === PLATFORM_REFUSAL.contention ? { kind: 'contention', message: r.message } : r;
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      const s = w.stamp();
+      w.onDeleted?.(s);
+      const again = await loadSupplier(readOf(w.caller), w.id, deadline.signal);
+      if (again.kind === 'ok') await w.setSupplier(again.supplier, s);
+      else w.onRereadFailed(again.kind, s);
+      return { kind: 'deleted' };
     } finally {
       deadline.cancel();
     }

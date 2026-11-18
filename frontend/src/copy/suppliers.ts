@@ -5,8 +5,8 @@
 // Restore supplier; S-2 adds the create page (UX S-2); S-3 the catalogue section (read-only); S-4 Edit on a catalogue
 // entry (UX S-4, as overridden by bk31-placement-confirm.md Revision 1 — FINAL); S-5 Add to catalogue (UX S-5, as
 // overridden by the same FINAL and suppliers-final-red.md M-4); S-6 Remove on a catalogue entry and Currency editable on
-// the supplier page (UX S-6, with suppliers-final-red.md M-8's Remove body). No Delete supplier (S-7) — so no sentence
-// here names one. R1-E's "With cost" unit clause shipped at S-5 without its last sentence, which names Remove; S-6, the
+// the supplier page (UX S-6, with suppliers-final-red.md M-8's Remove body); S-7 Delete supplier (UX S-7 `DELETE_SUPPLIER`,
+// after BK-28: its open-orders refusal is the server's sentence, shown as sent). R1-E's "With cost" unit clause shipped at S-5 without its last sentence, which names Remove; S-6, the
 // commit that ships Remove, appends it (ux-r1e-confirm.md).
 
 /** `{n} days` / `1 day` / `0 days` (UX S-1 "payment terms cell" and "read-only terms"). */
@@ -127,6 +127,27 @@ export const RESTORE_SUPPLIER = {
   after: (code: string) => `${code} was restored.`,
   alreadyRestored: (code: string) => `${code} was already restored.`,
   interrupted: (code: string) => `We can't tell whether ${code} was restored. Press Restore supplier to try again.`,
+} as const;
+
+/**
+ * UX S-7 `DELETE_SUPPLIER` (suppliers-ux-copy.md Revision 1 — FINAL S-7 over Revision 0 B-6; CONFIRMS the DELETE_ITEM
+ * shape): the page action on a live supplier (`supplier.delete`) and its danger dialog, heading `NOT_DELETED` on a refusal.
+ * The open-purchase-orders refusal (BK-28, `SupplierWriter::HAS_OPEN_PURCHASE_ORDERS`) is the server's and is never stored
+ * here.
+ */
+export const DELETE_SUPPLIER = {
+  action: 'Delete supplier',
+  title: (code: string, name: string) => `Delete ${code} — ${name}?`,
+  /** S-7 `.body` (REPLACES Revision 0: the reorder clause, RED L-6; PO TO CONFIRM). */
+  body: "It moves to the archived suppliers. Until it's restored, it can't be chosen for new purchase orders or as an item's preferred supplier, its catalogue can't be changed, and reorder suggestions don't name it. Its catalogue entries are kept and come back with it. Items and purchase orders that already name it keep showing it.",
+  confirm: 'Delete supplier',
+  cancel: 'Cancel',
+  /** ST-9b: after a refusal other than P1, a 403 or an interrupted press, the Delete button is removed and only this remains. */
+  close: 'Close',
+  after: (code: string) => `${code} was deleted. It's now in the archived suppliers.`,
+  /** S-2: after a 204 whose re-read commits a LIVE supplier (restored in between). REPLACES `after` for that case only. */
+  afterRestored: (code: string) => `${code} was deleted, and has since been restored.`,
+  interrupted: (code: string) => `We can't tell whether ${code} was deleted. Press Delete supplier to try again.`,
 } as const;
 
 /** UX S-1 `SUPPLIER_FORBIDDEN` (CONFIRMS R1-5): the label is read from `permissionLabels.ts` by the operation's code. */

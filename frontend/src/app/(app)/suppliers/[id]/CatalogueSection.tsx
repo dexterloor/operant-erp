@@ -58,6 +58,13 @@ export interface CatalogueSectionProps {
    * shows follows from what it reads.
    */
   onParentStale: () => void;
+  /**
+   * S-7 D-2 (lesson 5): the number of Delete supplier presses on the page so far (default 0). Add to catalogue reads its
+   * first page before it opens its dialog, so the page's Delete supplier can be pressed while that read is out: the later
+   * press wins (suppliers-s5-red.md M-1, as a row's Edit or Remove) — Add stops loading at once and the late answer opens
+   * nothing, whether the delete then goes ahead or is cancelled.
+   */
+  deletePresses?: number;
 }
 
 type Reread = { kind: 'ok'; entries: SupplierProduct[] } | { kind: 'superseded' } | { kind: ReadFailure };
@@ -110,7 +117,7 @@ const CHOICES_HEADING_ID = 'catalogue-item-choices-heading';
  * against the Retry press's own (counted) clear, so a Save or Restore answered while the Retry was in flight keeps its
  * sentence (S-3 RED L-3). When the Retry brings an empty catalogue, the sentence spoken is `empty` (S-3 RED L-2).
  */
-export function CatalogueSection({ supplierId, initial, supplierArchived, canOpenItem, canEdit, canAdd, canRemove, supplierCode, supplierCurrency, announce, replaceIfCurrent, onParentStale }: CatalogueSectionProps) {
+export function CatalogueSection({ supplierId, initial, supplierArchived, canOpenItem, canEdit, canAdd, canRemove, supplierCode, supplierCurrency, announce, replaceIfCurrent, onParentStale, deletePresses = 0 }: CatalogueSectionProps) {
   const caller = useApiCaller();
   const headingId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -146,6 +153,17 @@ export function CatalogueSection({ supplierId, initial, supplierArchived, canOpe
   // The stamp rule: every read takes a number when it is sent; `committedAsOf` is the number of the reading on screen.
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
+  // D-2: a Delete supplier press stops a loading Add at once (adjusted during render, the `loadedKey` pattern) and, through
+  // the ref read when the Add's read answers, drops that answer.
+  const [seenDeletePresses, setSeenDeletePresses] = useState(deletePresses);
+  if (seenDeletePresses !== deletePresses) {
+    setSeenDeletePresses(deletePresses);
+    setOpening(false);
+  }
+  const latestDeletePresses = useRef(deletePresses);
+  useLayoutEffect(() => {
+    latestDeletePresses.current = deletePresses;
+  }, [deletePresses]);
 
   useLayoutEffect(() => {
     if (focusGen === 0) return;
@@ -235,9 +253,12 @@ export function CatalogueSection({ supplierId, initial, supplierArchived, canOpe
     opener.current = ev.currentTarget;
     setOpening(true);
     const mine = ++choiceReads.current;
+    const pressesAtOpen = latestDeletePresses.current;
     const r = await readChoices();
     // Superseded (a row's Edit): whoever superseded this read owns `opening` now.
     if (mine !== choiceReads.current) return;
+    // Superseded by the page's Delete supplier (D-2): it already stopped the loading; the answer opens nothing.
+    if (latestDeletePresses.current !== pressesAtOpen) return;
     setOpening(false);
     // A 401 is the caller's (the session-ended notice): no dialog.
     if (r.kind === 'session-ended') return;

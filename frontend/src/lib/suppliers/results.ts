@@ -21,12 +21,14 @@ export type SupplierChange = Partial<Pick<UpdateSupplierInput, SupplierField>>;
  * `PATCH /suppliers/{id}`. `saved` carries the 200 body. `invalid` is a 422 mapped onto the form. `refused` is a 409 (S2
  * code taken, S4 name taken, P1 contention), shown at form level as sent. `refused-archived`: a 409 after which the
  * re-read found the supplier archived (S5 on a stale live page, 4.4 RED M-1): the re-read supplier is already committed
- * (the page is now archived and read-only), and the page shows the server's sentence under **Not saved**.
+ * (the page is now archived and read-only), and the page shows the server's sentence under **Not saved**. `sentAsOf`
+ * (S-7) is the page stamp taken when the PATCH was sent: the page drops the "saved" sentence and the refusal when a 204
+ * of the person's own Delete supplier arrived after it (the items UX ruling M-3 / T-17).
  */
 export type SaveSupplierResult =
-  | { kind: 'saved'; supplier: Supplier }
+  | { kind: 'saved'; supplier: Supplier; sentAsOf: number }
   | { kind: 'invalid'; fieldErrors: FieldErrors<SupplierField>; formErrors: string[] }
-  | { kind: 'refused-archived'; message: string }
+  | { kind: 'refused-archived'; message: string; sentAsOf: number }
   | Refused
   | Forbidden
   | NotFound
@@ -146,3 +148,11 @@ export type DeleteEntryResult = DeleteResult | { kind: 'refused-archived'; rule:
 
 /** The row's Remove for one entry. */
 export type DeleteEntryAction = (entryId: string) => Promise<DeleteEntryResult>;
+
+/**
+ * Suppliers S-7 (suppliers-plan.md Revision 1 — FINAL §R1-4 S-7): `DELETE /suppliers/{id}` (204, no body, no key). The
+ * shared kinds: `contention` (P1) keeps Delete supplier; any other 409 (R5 open purchase orders, BK-28; S6 already
+ * archived) is `refused`, Close only. Caller contract: `deleted` resolves after the re-read supplier is committed (or its
+ * failure reported).
+ */
+export type DeleteSupplierAction = () => Promise<DeleteResult>;

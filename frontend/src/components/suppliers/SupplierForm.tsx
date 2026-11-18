@@ -20,8 +20,11 @@ export interface SupplierFormProps {
   save: SaveSupplierAction;
   /** `gateCode('UpdateSupplier')`, for the lost-permission sentence's label (B-10). */
   editCode: string | null;
-  /** Writes the page's status region (B-3 "After save"). */
-  announce: (text: string) => void;
+  /**
+   * Writes the page's status region (B-3 "After save"). `sentAsOf` is the Save's send stamp (S-7): the page drops the
+   * sentence when a 204 of the person's own Delete supplier arrived after it (the items UX ruling M-3).
+   */
+  announce: (text: string, sentAsOf: number) => void;
   /** The page's `<h1>`: focus goes there after a save. */
   fallbackFocusRef: RefObject<HTMLElement | null>;
   /** Called once per Save answered `saved`, after the message is written. */
@@ -34,9 +37,10 @@ export interface SupplierFormProps {
   onSaveStarted?: () => void;
   /**
    * A refused Save whose re-read found the supplier archived (`refused-archived`): the page is already archived and
-   * read-only (this form is gone), so the page shows the server's sentence under **Not saved**.
+   * read-only (this form is gone), so the page shows the server's sentence under **Not saved** — unless a 204 of the
+   * person's own Delete supplier arrived after this Save was sent (`sentAsOf`, the T-17 ruling).
    */
-  onRefusedArchived: (message: string) => void;
+  onRefusedArchived: (message: string, sentAsOf: number) => void;
 }
 
 /** Every field as the person types it: Payment terms is text here and becomes a number only in `supplierSave` (R9-2). */
@@ -118,7 +122,7 @@ export function SupplierForm({ supplier, save, editCode, announce, fallbackFocus
       case 'saved':
         setFieldErrors({});
         setNotice(null);
-        announce(SUPPLIER_PAGE.saved(r.supplier.code));
+        announce(SUPPLIER_PAGE.saved(r.supplier.code), r.sentAsOf);
         gen.current += 1;
         setFocusTarget({ gen: gen.current, to: 'h1' });
         onSaved?.();
@@ -142,7 +146,7 @@ export function SupplierForm({ supplier, save, editCode, announce, fallbackFocus
         return;
       }
       case 'refused-archived':
-        onRefusedArchived(r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE);
+        onRefusedArchived(r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE, r.sentAsOf);
         return;
       case 'refused':
         show(NOT_SAVED, r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE);

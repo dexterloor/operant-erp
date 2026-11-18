@@ -59,7 +59,7 @@ describe('/suppliers/[id] — the editor (UX S-1 SUPPLIER_PAGE)', () => {
     expect(field('Payment terms (days)')).toHaveAttribute('type', 'text');
     expect(field('Payment terms (days)')).toHaveAttribute('inputmode', 'numeric');
     expect(field('Country')).toHaveAttribute('maxlength', '2');
-    // No sort control, no create link, no catalogue, no Delete supplier before S-7.
+    // No sort control, no create link, no catalogue, and no Delete supplier without DeleteSupplier (S-7: `canDelete` false here).
     expect(screen.queryAllByRole('link')).toEqual([]);
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();
   });
