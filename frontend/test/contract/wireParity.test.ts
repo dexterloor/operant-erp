@@ -6,7 +6,7 @@ import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
-import type { ActorReference, CancelPurchaseOrderInput, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, GoodsReceipt, GoodsReceiptLine, GoodsReceiptLocationReference, GoodsReceiptOrderLineReference, GoodsReceiptOrderReference, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput } from '@/lib/api/purchasing';
+import type { ActorReference, ApprovePurchaseOrderInput, CancelPurchaseOrderInput, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, GoodsReceipt, GoodsReceiptLine, GoodsReceiptLocationReference, GoodsReceiptOrderLineReference, GoodsReceiptOrderReference, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
@@ -104,6 +104,8 @@ const MIRRORED: Record<string, string[]> = {
   ActorReference: keysOf<ActorReference>()({ id: true, display_name: true }),
   // Purchase orders PO-7: Cancel order's body (the dialog sends the reason as typed, or nothing).
   'PurchaseOrder.CancelPurchaseOrderInput': keysOf<CancelPurchaseOrderInput>()({ reason: true }),
+  // Purchase orders PO-8: Approve's body (the dialog always sends `{}`: no expected date while D-4 is unruled).
+  'PurchaseOrder.ApprovePurchaseOrderInput': keysOf<ApprovePurchaseOrderInput>()({ expected_at: true }),
   // Goods receipts GR-1: the receipt (register, receipt page, the order page's section) and its inline references.
   GoodsReceipt: keysOf<GoodsReceipt>()({ id: true, receipt_number: true, received_at: true, purchase_order: true, received_by: true, lines: true }),
   'GoodsReceipt.purchase_order': keysOf<GoodsReceiptOrderReference>()({ id: true, order_number: true }),

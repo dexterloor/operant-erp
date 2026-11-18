@@ -1,4 +1,4 @@
-import { ITEM_UNAVAILABLE, PURCHASE_ORDER_REFUSAL, type CancelPurchaseOrderInput, type CreatePurchaseOrderInput, type CreatePurchaseOrderLineInput, type PurchaseOrder } from '../api/purchasing';
+import { ITEM_UNAVAILABLE, PURCHASE_ORDER_REFUSAL, type ApprovePurchaseOrderInput, type CancelPurchaseOrderInput, type CreatePurchaseOrderInput, type CreatePurchaseOrderLineInput, type PurchaseOrder } from '../api/purchasing';
 import { PLATFORM_REFUSAL } from '../api/problems';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
@@ -6,11 +6,11 @@ import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import type { Refused } from '../results';
 import { isPurchaseOrder, isPurchaseOrderLine, loadLines, loadPurchaseOrder, type LinesLoad } from './load';
-import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, ORDER_FIELDS, type AddLineAction, type AddLineResult, type CancelOrderAction, type CancelOrderResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type DeleteOrderAction, type DeleteOrderResult, type OrderChange, type RestoreOrderAction, type SaveOrderAction } from './results';
+import { ADD_LINE_FIELDS, CREATE_ORDER_FIELDS, ORDER_FIELDS, type AddLineAction, type ApproveOrderAction, type ApproveOrderResult, type AddLineResult, type CancelOrderAction, type CancelOrderResult, type CreateOrderAction, type DeleteLineAction, type DeleteLineResult, type DeleteOrderAction, type DeleteOrderResult, type OrderChange, type RestoreOrderAction, type SaveOrderAction } from './results';
 
 // The purchasing family's actions over the BFF (Revision 8 R8-2; the lib/suppliers/wired.ts shape). PO-2 shipped
 // Restore purchase order; PO-3 Create purchase order; PO-4a Save (the draft's header); PO-5 adds Add line and Delete line;
-// PO-6 Delete purchase order; PO-7 Cancel order (all three at the end of this file).
+// PO-6 Delete purchase order; PO-7 Cancel order; PO-8 Approve (all four at the end of this file).
 // Restore takes no Idempotency-Key: it is guarded by `deleted_at` (a repeat is refused P12).
 // One deadline covers the request, its GetPurchaseOrder re-read and, for a ListPurchaseOrderLines holder, the order's live
 // lines. Restore compares no refusal code: a refusal is followed by a re-read, and what the re-read shows decides (live →
@@ -55,6 +55,11 @@ export interface OrderWiring {
    * a Save sent before it is silenced as before a 204 (the cancel floor, po-7-progress.md).
    */
   readonly onCancelled?: (asOf: number) => void;
+  /**
+   * PO-8: after a 200 of Approve, before its re-read is sent: the page raises what it shows to that re-read's stamp (the
+   * approve floor, po-8-progress.md; the page never lets a Save of its own overlap an approval, po-8-red.md H-1).
+   */
+  readonly onApproved?: (asOf: number) => void;
 }
 
 /** A live order's lines, read under the action's deadline; `null` for a deleted order or a viewer without the read. */
@@ -422,6 +427,72 @@ export function orderCancel(w: OrderWiring): CancelOrderAction {
           await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
           if (again.order.status === 'cancelled') return { kind: 'already-cancelled', order: again.order };
           if (again.order.status === 'received') return { kind: 'already-received', order: again.order };
+          return r;
+        }
+        case 'not-found':
+        case 'forbidden':
+        case 'session-ended':
+        case 'unreachable':
+        case 'server-error':
+          return r;
+        default:
+          return { kind: 'server-error' };
+      }
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// Approve (PO-8; the `orderCancel` shape over this family's stale rule). Body always `{}`: the dialog has no expected date
+// while D-4 is unruled, so the order's date is kept (absent = keep, `ApprovePurchaseOrderInput.php`). No Idempotency-Key:
+// `guard:purchase_order.status` (a repeat is refused A2). One deadline covers the request and its re-read. After a 200,
+// `onApproved` raises what the page shows to the re-read's stamp before that re-read is sent (the approve floor), then the
+// order and its live lines are read and committed in one commit; if that re-read fails, the 200 body (the server's new state)
+// is committed with its lines under the same stamp, so the page never says "approved" over a draft, and the page is told.
+// Refusals: P1 is `contention`; A2's rule (`PurchaseOrder::place()`'s status guard: approved, or cancelled, elsewhere) is
+// followed by a stamped re-read under the same deadline whose reading is committed whatever it is (the dialog is final after
+// A2: nothing typed to keep), and named — ordered / partly received / received → `already-approved`, cancelled →
+// `no-longer-draft` (UX D-2's sentences), anything else the refusal as sent; a failed re-read is the page's region error and
+// `changed-since-loaded`. A1's rule (DSoD-1, which the server checks before the status guard) gets the same re-read and the
+// same two names; a draft reading, or a failed re-read, leaves A1 as sent (po-8-red.md L-1). Any other refusal (A3, A4, A5,
+// A6) is returned as sent: the page re-reads once the dialog closes (FE-D1).
+export function orderApprove(w: OrderWiring): ApproveOrderAction {
+  return async (): Promise<ApproveOrderResult> => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.orderApprove);
+    try {
+      const body: ApprovePurchaseOrderInput = {};
+      const r = await w.caller.call('ApprovePurchaseOrder', { id: w.id }, body, { signal: deadline.signal });
+      if (r.kind === 'ok') {
+        if (!isPurchaseOrder(r.body)) return { kind: 'server-error' };
+        const s = w.stamp();
+        w.onApproved?.(s);
+        const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
+        if (again.kind === 'ok') await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
+        else {
+          await w.setOrder(r.body, await linesFor(w, r.body, deadline.signal), s);
+          w.onRereadFailed(again.kind, s);
+        }
+        return { kind: 'approved', order: r.body };
+      }
+      switch (r.kind) {
+        case 'refused': {
+          if (r.rule === PLATFORM_REFUSAL.contention) return { kind: 'contention', message: r.message };
+          const stale = r.rule === PURCHASE_ORDER_REFUSAL.illegalTransition;
+          // A1 (DSoD-1) is checked before the status guard, so it is also what a creator on a stale page is told about an
+          // order approved elsewhere (po-8-red.md L-1): it gets the same re-read. Its own sentence stays true when the reading
+          // is still a draft, or when the re-read fails.
+          if (!stale && r.rule !== PURCHASE_ORDER_REFUSAL.approverIsCreator) return r;
+          const s = w.stamp();
+          const again = await loadPurchaseOrder(readOf(w.caller), w.id, deadline.signal);
+          if (again.kind !== 'ok') {
+            w.onRereadFailed(again.kind, s);
+            return stale ? { kind: 'changed-since-loaded' } : r;
+          }
+          await w.setOrder(again.order, await linesFor(w, again.order, deadline.signal), s);
+          const st = again.order.status;
+          if (again.order.archived_at === null && (st === 'ordered' || st === 'partially_received' || st === 'received')) return { kind: 'already-approved', order: again.order };
+          if (again.order.archived_at === null && st === 'cancelled') return { kind: 'no-longer-draft', order: again.order };
           return r;
         }
         case 'not-found':

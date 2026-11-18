@@ -86,6 +86,11 @@ export const ACTION_DEADLINES_MS = {
    * under `reread`.
    */
   orderCancel: 30_000,
+  /**
+   * Approve a draft purchase order (PO-8): the request + the GetPurchaseOrder and lines re-read; also the re-read after A2's
+   * status refusal, to say what the order is now. The page's re-read after the dialog closes runs under `reread`.
+   */
+  orderApprove: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

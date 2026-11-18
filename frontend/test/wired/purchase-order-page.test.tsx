@@ -103,10 +103,11 @@ describe('/purchase-orders/[id] — the header (UX B-3)', () => {
 
   // Moved at PO-4a (R1a-1 row 4): the draft note names changing, which ships there (Save). Moved again at PO-6 (row 6): it
   // names deleting too (Delete purchase order ships there). Moved at PO-7 (row 7): `orderedNote` in its final form names
-  // cancelling (Cancel order ships there); no note names a later action (approving, PO-8).
-  it('the status notes, in their PO-7 forms (R1a-1 rows 1, 6 and 7): none names an action the app lacks', () => {
+  // cancelling (Cancel order ships there). Moved at PO-8 (row 9): the draft note names approving (Approve ships there),
+  // without its owner sentence, which SEC has not confirmed (final RED L-6); no note names receiving (GR-2).
+  it('the status notes, in their PO-8 forms (R1a-1 rows 1, 7 and 9): none names an action the app lacks', () => {
     const notes: Record<string, string[]> = {
-      draft: ['This is a draft. It can be changed or deleted.'],
+      draft: ["This is a draft. It can be changed or deleted until it's approved."],
       ordered: ["This order has been approved, so it can't be changed. It can still be cancelled.", "The app doesn't send purchase orders to suppliers."],
       partially_received: ["This order has been approved, so it can't be changed. It can still be cancelled.", "The app doesn't send purchase orders to suppliers."],
       received: ['This order is closed: it was received in full.'],
@@ -115,7 +116,7 @@ describe('/purchase-orders/[id] — the header (UX B-3)', () => {
     for (const [status, expected] of Object.entries(notes)) {
       const { container, unmount } = show({ order: order(status), lines: lines([line(1)]) });
       for (const t of expected) expect(screen.getByText(t, { selector: 'p' })).toBeInTheDocument();
-      for (const later of ["until it's approved", 'approved by someone other']) expect(container.textContent).not.toContain(later);
+      for (const later of ['approved by someone other', 'received against']) expect(container.textContent).not.toContain(later);
       unmount();
     }
   });

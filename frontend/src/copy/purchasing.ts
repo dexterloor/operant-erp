@@ -21,6 +21,9 @@
 // (`GOODS_RECEIPTS_FOR_ORDER_PAGING`, Newer · Older), `forOrderCaption` and `forOrderEmptyCancelled`; both `noMore` bodies
 // say only what happened; `GOODS_RECEIPT_PAGE.linesHeading` is the receipt page's own key. `receiptsLink` is struck (§3) and
 // `GOODS_RECEIPT_PAGE.loadFailed` withdrawn (D-8): neither is here.
+// PO-8 (row 9) adds Approve on a live draft: `APPROVE_ORDER.*` (B-6 / Rev 1a `summary`; `body` and `after` WITHOUT the
+// receive clause: Receive ships at GR-2, which adds it), `emptyDraft` in its final form, and `draftNote` in its final form
+// WITHOUT its third sentence (the owner clause SEC has not confirmed: final RED L-6; the commit that lands SEC's word adds it).
 // The commit that ships each action replaces its key with the next form (R1a-1 rows 7–12).
 
 import type { PurchaseOrderSegment } from '@/lib/api/purchasing';
@@ -109,8 +112,8 @@ export const PURCHASE_ORDERS_LIST = {
   createOrder: 'Create purchase order',
   /** `emptyOpen` (final; a state, names no action). */
   emptyOpen: "No open purchase orders. Open orders are approved orders that haven't been received in full or cancelled.",
-  /** `emptyDraft`, PO-3 form (R1a-1 row 3; final RED L-3): names creating, not approving (PO-8 ships the final form). */
-  emptyDraft: 'No drafts. A new purchase order starts as a draft.',
+  /** `emptyDraft`, final form from PO-8 (R1a-1 row 9; R1-B): Approve ships here, so it says a draft stays one until approved. */
+  emptyDraft: "No drafts. A new purchase order stays a draft until it's approved.",
   /** `emptyReceived` · `emptyCancelled`. */
   emptyReceived: 'No orders have been received in full yet.',
   emptyCancelled: 'No cancelled orders.',
@@ -172,11 +175,12 @@ export const PURCHASE_ORDER_PAGE = {
   raisedByYou: (name: string) => `${name} (you)`,
   raisedByUnknown: 'Not recorded',
   /**
-   * `draftNote`, PO-6 form (R1a-1 row 6; final RED apply list PO-6): Save (PO-4a) and Delete purchase order (PO-6) have
-   * shipped, so it names changing and deleting (passive, R-3: true for every viewer of a draft). The final form names
-   * approving (PO-8).
+   * `draftNote`, final form from PO-8 (R1a-1 row 9; R1-B) WITHOUT its third sentence: Save (PO-4a), Delete purchase order
+   * (PO-6) and Approve (PO-8) have shipped (passive, R-3: true for every viewer of a draft). The third sentence (*"It has to
+   * be approved by someone other than the person who raised it, unless that person is an owner."*) waits for SEC's word on
+   * its owner clause (final RED L-6); the commit that lands it adds the sentence.
    */
-  draftNote: 'This is a draft. It can be changed or deleted.',
+  draftNote: "This is a draft. It can be changed or deleted until it's approved.",
   /** `orderedNote`, final form from PO-7 (R1a-1 row 7; R1-B): Cancel order has shipped (passive, R-3: true for every viewer). */
   orderedNote: "This order has been approved, so it can't be changed. It can still be cancelled.",
   /** `closedNote` (received / cancelled). */
@@ -264,6 +268,37 @@ export const CANCEL_ORDER = {
   alreadyCancelled: (number: string) => `${number} was already cancelled.`,
   alreadyReceived: (number: string) => `${number} was received in full meanwhile, so it can't be cancelled.`,
   interrupted: (number: string) => `We can't tell whether ${number} was cancelled. Press Cancel order to try again.`,
+} as const;
+
+/**
+ * UX B-6 `APPROVE_ORDER` (PO-8; Rev 1a with `summary`; R1a-1 row 9): **Approve** on a live draft's page, through its confirm
+ * dialog (the plan's "Place order" is a step name, never a label). No expected date while D-4 is unruled. The dismiss is this
+ * area's **Go back** (B-0); after a final refusal the dialog shows **Go back** only (B-6: ST-9b's Close shape). Heading
+ * `NOT_APPROVED` on a refusal. `body` and `after` are their PO-8 forms, WITHOUT the receive clause (*"…and deliveries can be
+ * received against it."* / *"Deliveries can be received against it."*): Receive ships at GR-2, which adds both. `after` and
+ * `afterSupplier` (its second sentence, always; strike-able with C-1) are spoken together in the page's region.
+ * `alreadyApproved` is UX D-2's, said from the re-read after A2. PO TO CONFIRM `body`'s last sentence (B-6).
+ * `summaryWarehouse`, `unsavedHeader`, `totalChanged` and `warehouseChanged` are PLACEHOLDERS (po-8-m1-m2-recommendation.md
+ * Revision 1 — FINAL, M-1 / M-2; UX TO CONFIRM): the dialog shows where the order goes; Approve says why it is unavailable
+ * while Deliver to holds an unsaved change; after a 200 whose total or warehouse differs from what the dialog opened with,
+ * the region message is `after` + `totalChanged` / `warehouseChanged` + `afterSupplier`.
+ */
+export const APPROVE_ORDER = {
+  action: 'Approve',
+  confirm: 'Approve',
+  dismiss: 'Go back',
+  title: (number: string) => `Approve ${number}?`,
+  summarySupplier: (supplier: string) => `Supplier: ${supplier}`,
+  summaryTotal: (total: string) => `Total: ${total}`,
+  summaryWarehouse: (name: string) => `Deliver to: ${name}`,
+  unsavedHeader: 'Save or undo your change to Deliver to before approving.',
+  body: (supplier: string) => `Once it's approved it can't be changed or deleted, only cancelled. You're recorded as the person who approved it. The app doesn't send it to ${supplier}: send it to them yourself.`,
+  after: (number: string) => `${number} is approved and now ordered.`,
+  afterSupplier: (supplier: string) => `Remember to send the order to ${supplier}: the app doesn't.`,
+  totalChanged: (total: string) => `It was approved with a total of ${total}: its lines changed after this page last read them.`,
+  warehouseChanged: (name: string) => `It was approved for delivery to ${name}: its delivery warehouse changed after this page last read it.`,
+  alreadyApproved: (number: string) => `${number} was already approved.`,
+  interrupted: (number: string) => `We can't tell whether ${number} was approved. Press Approve to try again.`,
 } as const;
 
 /** UX B-4 / R1-B `ORDER_LINES`: the lines on the order page, read-only at PO-1. */

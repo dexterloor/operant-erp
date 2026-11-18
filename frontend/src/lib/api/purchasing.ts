@@ -172,15 +172,26 @@ export interface CancelPurchaseOrderInput {
 }
 
 /**
+ * `ApprovePurchaseOrder`'s body (served `PurchaseOrder.ApprovePurchaseOrderInput`; PO-8; the body is required, `{}` allowed).
+ * Absent `expected_at` keeps the order's date; a value sets it; `null` clears it (`ApprovePurchaseOrderInput.php`). The confirm
+ * dialog always sends `{}`: it has no date field while D-4 (which instant a chosen day sends) is unruled.
+ */
+export interface ApprovePurchaseOrderInput {
+  expected_at?: string | null;
+}
+
+/**
  * The purchase-order refusal rules the family branches on (UX D-2: a status refusal is matched by rule code, the page
  * re-reads and says what it found). `notDraft` (`PurchaseOrderWriter::refuseUnlessDraft`, P9): an edit of an order that
  * is no longer a draft. `notListed` (PO-5, plan L1, `PurchaseOrderWriter::insertLineInside`): the order's supplier has no
  * catalogue entry for the item any more, so the new line row reads the catalogue again. `illegalTransition` (PO-7, plan
  * C2): `PurchaseOrder::cancel()`'s status guard (`IllegalTransition::RULE` on the `purchase_order` table) — cancelled or
- * received in full elsewhere. Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent;
+ * received in full elsewhere; from PO-8 also `place()`'s (plan A2: approved, or cancelled, elsewhere). `approverIsCreator`
+ * (PO-8, plan A1, `PurchaseOrderDutySeparation`): DSoD-1 on Approve, checked by the server before the status guard, so the
+ * page re-reads after it too (po-8-red.md L-1). Compared in `lib/purchasing/wired.ts` (convention; not pinned — the roles precedent;
  * po-4a-red.md L-4).
  */
-export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item', illegalTransition: 'purchase_order.status_transition_is_legal' } as const;
+export const PURCHASE_ORDER_REFUSAL = { notDraft: 'purchase_order.is_editable_only_while_draft', notListed: 'purchase_order_line.supplier_lists_the_item', illegalTransition: 'purchase_order.status_transition_is_legal', approverIsCreator: 'purchase_order.approver_is_not_the_creator' } as const;
 
 /**
  * PO-5 (purchase-orders-final-red.md H-2): the one 422 violation the new line row does not render as served — an item that

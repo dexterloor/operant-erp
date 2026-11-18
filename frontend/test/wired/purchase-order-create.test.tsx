@@ -637,11 +637,12 @@ describe('/purchase-orders — New purchase order and Create purchase order (UX 
     expect(screen.queryByRole('link', { name: 'Create purchase order' })).toBeNull();
   });
 
-  it('emptyDraft in its PO-3 form (no "approved" before PO-8), with Create purchase order for a creator only', () => {
+  // Moved at PO-8 (R1a-1 row 9): emptyDraft's final form names approving, which ships there.
+  it('emptyDraft in its PO-8 (final) form, with Create purchase order for a creator only', () => {
     const { unmount } = renderWired(<PurchaseOrdersList initial={EMPTY(true)} initialSegment="draft" canCreate />);
-    expect(screen.getByText('No drafts. A new purchase order starts as a draft.')).toBeInTheDocument();
+    expect(screen.getByText("No drafts. A new purchase order stays a draft until it's approved.")).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Create purchase order' })).toHaveAttribute('href', '/purchase-orders/new');
-    expect(document.body.textContent).not.toContain('approved');
+    expect(document.body.textContent).not.toContain('starts as a draft');
     unmount();
     renderWired(<PurchaseOrdersList initial={EMPTY(true)} initialSegment="draft" />);
     expect(screen.queryByRole('link', { name: 'Create purchase order' })).toBeNull();

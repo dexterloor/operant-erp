@@ -56,6 +56,13 @@ export interface OrderHeaderFormProps {
    * the items UX ruling T-17).
    */
   onRefusedStale: (message: string, sentAsOf: number) => void;
+  /**
+   * PO-8 (po-8-m1-m2-recommendation.md Revision 1 — FINAL, M-1 (b)): whether the header holds a change not yet saved — Save's
+   * own `changedFields` against the committed `order.warehouse.id` — and no Save of it is in flight (a Save in flight is the
+   * page's silent one-request block, po-8-red.md H-1). Reported from the select's change and after every commit (a revert, a
+   * Save that commits the change, a new served order); `false` when the form unmounts. The page puts Approve's reason on it.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 interface Notice {
@@ -83,7 +90,7 @@ type Target = 'banner' | 'h1' | OrderField;
  * failure show in the banner under **Not saved**, focused, the choice kept. A refusal whose re-read found the order no
  * longer an editable draft goes to the page (`onRefusedStale`). A 401 renders nothing.
  */
-export function OrderHeaderForm({ order, warehouses: firstWarehouses, reloadWarehouses, save, editCode, warehousesViewCode, supplier, deliverTo, announce, fallbackFocusRef, onSaved, onSaveStarted, onRefusedStale }: OrderHeaderFormProps) {
+export function OrderHeaderForm({ order, warehouses: firstWarehouses, reloadWarehouses, save, editCode, warehousesViewCode, supplier, deliverTo, announce, fallbackFocusRef, onSaved, onSaveStarted, onRefusedStale, onDirtyChange }: OrderHeaderFormProps) {
   const [loadedKey, setLoadedKey] = useState(order);
   const [warehouseId, setWarehouseId] = useState(order.warehouse.id);
   const [warehouses, setWarehouses] = useState<{ gen: number; value: WarehouseChoicesLoad }>({ gen: 0, value: firstWarehouses });
@@ -128,6 +135,12 @@ export function OrderHeaderForm({ order, warehouses: firstWarehouses, reloadWare
 
   const changes = changedFields<UpdatePurchaseOrderInput, OrderField>(ORDER_FIELDS, { warehouse_id: order.warehouse.id }, { warehouse_id: warehouseId });
   const nothing = Object.keys(changes).length === 0;
+  // PO-8 M-1 (b): the unsaved-change fact the page's Approve reads, after the commit that shows it.
+  const dirty = !nothing && !busy;
+  useLayoutEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useLayoutEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   const retryWarehouses = async () => {
     setRetryingWarehouses(true);
@@ -284,6 +297,7 @@ export function OrderHeaderForm({ order, warehouses: firstWarehouses, reloadWare
           value={warehouseId}
           onChange={(v) => {
             setWarehouseId(v);
+            onDirtyChange?.(!busy && v !== order.warehouse.id);
             setFieldErrors((cur) => {
               const next = { ...cur };
               delete next.warehouse_id;

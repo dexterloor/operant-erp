@@ -74,7 +74,8 @@ const AFTER = "PO-000001 was deleted. It's now in the archived purchase orders."
 const AFTER_RESTORED = 'PO-000001 was deleted, and has since been restored.';
 const INTERRUPTED = "We can't tell whether PO-000001 was deleted. Press Delete purchase order to try again.";
 const REREAD_FAILED = "We couldn't load this purchase order again, so what's shown may be out of date.";
-const DRAFT_NOTE = 'This is a draft. It can be changed or deleted.';
+// Moved at PO-8 (R1a-1 row 9; final RED L-6): the final form names approving, without its unconfirmed owner sentence.
+const DRAFT_NOTE = "This is a draft. It can be changed or deleted until it's approved.";
 const SUPPLIER_FIXED = "The supplier can't be changed. To order from another supplier, this draft can be deleted and a new one created.";
 /** P10 (`PurchaseOrderWriter::archive()`, `purchase_order.is_archived`) and P9's rule (`refuseUnlessDraft()`; plan Response L-1: P11 is P9). */
 const P10 = 'This purchase order is already archived.';
@@ -654,11 +655,12 @@ describe('/purchase-orders/[id] — Delete purchase order (PO-6; UX B-14; ST-9b)
 });
 
 describe('/purchase-orders/[id] — the PO-6 copy forms (UX R1a-1 row 6)', () => {
-  it('a live draft: "This is a draft. It can be changed or deleted."; the editor: supplierFixed in its final form; nothing names approving', () => {
+  // Moved at PO-8 (R1a-1 row 9): the draft note names approving (Approve ships there); its owner sentence is not shown (L-6).
+  it('a live draft: the draft note in its PO-8 form; the editor: supplierFixed in its final form; no owner sentence', () => {
     const { container } = showEditor();
     expect(screen.getByText(DRAFT_NOTE, { selector: 'p' })).toBeInTheDocument();
     expect(screen.getByText(SUPPLIER_FIXED, { selector: 'p' })).toBeInTheDocument();
-    expect(container.textContent).not.toMatch(/approv|until it's/i);
+    expect(container.textContent).not.toContain('someone other than');
   });
 
   it('the draft note is the same for a viewer who cannot delete (passive, R-3)', () => {

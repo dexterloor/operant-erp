@@ -77,7 +77,7 @@ async function render(codes: string[]): Promise<ReactElement> {
   expect(isValidElement(el)).toBe(true);
   return el as ReactElement;
 }
-type Props = { viewerId: string; canRestore: boolean; canReadLines: boolean; canOpenSupplier: boolean; canOpenWarehouse: boolean; canOpenItem: boolean; canDelete: boolean; canCancel: boolean; lines: unknown };
+type Props = { viewerId: string; canRestore: boolean; canReadLines: boolean; canOpenSupplier: boolean; canOpenWarehouse: boolean; canOpenItem: boolean; canDelete: boolean; canCancel: boolean; canApprove: boolean; lines: unknown };
 const props = (el: ReactElement) => el.props as Props;
 
 describe('/purchase-orders — the list page', () => {
@@ -199,6 +199,25 @@ describe('/purchase-orders/[id] — the order page', () => {
       v.byOperation = (op) => op === 'GetPurchaseOrder' || op === operation;
       try {
         expect(props(await render([])).canCancel).toBe(expected);
+      } finally {
+        v.byOperation = null;
+      }
+    }
+  });
+
+  // PO-8: Approve follows ApprovePurchaseOrder alone (purchase_order.approve), on its own operation; the page offers it only on
+  // a live draft (purchase-order-approve.test.tsx).
+  it('PO-8 — canApprove follows ApprovePurchaseOrder, on its own operation', async () => {
+    expect(props(await render(['purchase_order.view'])).canApprove).toBe(false);
+    expect(props(await render(['purchase_order.view', 'purchase_order.approve'])).canApprove).toBe(true);
+    for (const [operation, expected] of [
+      ['ApprovePurchaseOrder', true],
+      ['CancelPurchaseOrder', false],
+      ['UpdatePurchaseOrder', false],
+    ] as const) {
+      v.byOperation = (op) => op === 'GetPurchaseOrder' || op === operation;
+      try {
+        expect(props(await render([])).canApprove).toBe(expected);
       } finally {
         v.byOperation = null;
       }

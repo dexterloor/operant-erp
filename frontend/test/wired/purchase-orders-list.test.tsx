@@ -327,7 +327,8 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the per-commit co
   it.each([
     ['open', 'No open purchase orders. Open orders are approved orders that haven\'t been received in full or cancelled.'],
     // Moved at PO-3 (R1a-1 row 3; final RED L-3): Create purchase order ships, so the Draft segment says how a draft starts.
-    ['draft', 'No drafts. A new purchase order starts as a draft.'],
+    // Moved at PO-8 (row 9): the final form, which names approving (Approve ships there).
+    ['draft', "No drafts. A new purchase order stays a draft until it's approved."],
     ['received', 'No orders have been received in full yet.'],
     ['cancelled', 'No cancelled orders.'],
   ] as const)('test 5 — %s, no search, orders elsewhere (tenant_has_rows true): "%s"', (segment, sentence) => {
@@ -413,8 +414,9 @@ describe('/purchase-orders — ST-9a empty states (test 5) and the per-commit co
     }
     const all = shown.join(' ');
     expect(all).toContain(NONE_YET);
-    expect(all).toContain('No drafts. A new purchase order starts as a draft.');
+    expect(all).toContain("No drafts. A new purchase order stays a draft until it's approved.");
     expect(all).toContain('No archived purchase orders. Drafts that are deleted appear here and can be restored from here.');
-    for (const later of ["until it's approved", 'approved']) expect(all).not.toContain(later);
+    // Moved at PO-8: approving ships; receiving (GR-2) is still a later action.
+    for (const later of ['received against', 'starts as a draft']) expect(all).not.toContain(later);
   });
 });

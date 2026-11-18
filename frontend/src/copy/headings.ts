@@ -14,6 +14,8 @@ export const NOT_ADDED = 'Not added';
 export const NOT_REMOVED = 'Not removed';
 /** purchase-orders-ux-copy.md B-7 / `:166` (CONFIRMS the heading rule, `ux-copy-frontend.md` §3: Cancel → Not cancelled): Cancel order's refusal heading (PO-7). */
 export const NOT_CANCELLED = 'Not cancelled';
+/** purchase-orders-ux-copy.md B-6 (the heading rule, `ux-copy-frontend.md` §3: the button says Approve → Not approved): Approve's refusal heading (PO-8). */
+export const NOT_APPROVED = 'Not approved';
 
 /**
  * b4-owed-copy.md Rev 2 R1-1; the B-3a fallback phrasing, F16, confirmed by ux-confirm-b4.md: where the client cannot know whether the

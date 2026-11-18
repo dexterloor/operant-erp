@@ -164,3 +164,36 @@ export type CancelOrderAction = (reason: string) => Promise<CancelOrderResult>;
  * request keep Cancel order.
  */
 export type CancelDialogResult = { kind: 'cancelled' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/**
+ * `POST /purchase-orders/{id}/approval` (PO-8; body `{}` — no expected date while D-4 is unruled; no key: a repeat is refused
+ * A2). `approved` carries the 200 body and resolves after the stamped re-read (the order and its lines) is committed — or,
+ * when it failed, after the 200 body was committed and the page told. The stale kinds follow A2's rule and its re-read
+ * (committed whatever it read): `already-approved` (ordered, partly received or received: UX D-2's sentence),
+ * `no-longer-draft` (cancelled elsewhere: UX D-2's edit sentence, built from it) or `changed-since-loaded` (the re-read
+ * failed). A1's rule (DSoD-1) gets the same re-read and names (po-8-red.md L-1), but a draft reading or a failed re-read
+ * leaves A1 as sent. `contention` is P1 (Approve kept); `refused` any other 409 as sent (A1 on a draft, A3 no live line,
+ * A4 / A5, A6 archived), final.
+ */
+export type ApproveOrderResult =
+  | { kind: 'approved'; order: PurchaseOrder }
+  | { kind: 'already-approved'; order: PurchaseOrder }
+  | { kind: 'no-longer-draft'; order: PurchaseOrder }
+  | { kind: 'changed-since-loaded' }
+  | Contention
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/** Approve (no input: the body is always `{}`). */
+export type ApproveOrderAction = () => Promise<ApproveOrderResult>;
+
+/**
+ * What `components/purchasing/PlaceOrderDialog` branches on (kinds only, never a code): the page maps the stale kinds onto
+ * `refused` with UX D-2's sentence. `refused` and `not-found` leave Go back only; `contention`, `forbidden` and an interrupted
+ * request keep Approve.
+ */
+export type ApproveDialogResult = { kind: 'approved'; order: PurchaseOrder } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;

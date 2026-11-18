@@ -1,4 +1,5 @@
 [
+  "ApprovePurchaseOrder",
   "AssignRole",
   "CancelPurchaseOrder",
   "CancelRoleGrantProposal",
