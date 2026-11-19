@@ -101,11 +101,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/me/password',
             name: 'ChangePassword',
             status: 200,
-            // BK-18 R18-h C1: this operation's own refusals beyond the derived set (its `Errors` cell). The decorator
-            // keeps each description and gives it the house problem shape (`App\Platform\Http\ProblemResponses`).
+            // BK-18 R18-h: this operation's own success description (no template is true of it) and its own refusals
+            // beyond the derived set (its `Errors` cell). The decorator keeps each description; it gives the refusals the
+            // house problem shape (`App\Platform\Http\ProblemResponses`).
             openapi: new OpenApiOperation(
                 operationId: 'ChangePassword',
                 responses: [
+                    '200' => new OpenApiResponse(description: 'The password was changed at `changed_at`. Every session of this account has ended, this one included, so the token that made this request no longer works. Sign in again with the new password, no sooner than one second after `changed_at`: a token issued in that same second is not accepted.'),
                     '429' => new OpenApiResponse(description: 'This account\'s password was changed too many times recently. Wait before changing it again; no wait time is given.'),
                 ],
             ),

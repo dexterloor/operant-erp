@@ -10,6 +10,7 @@ use ApiPlatform\Metadata\Resource\Factory\ResourceNameCollectionFactoryInterface
 use ApiPlatform\OpenApi\Factory\OpenApiFactoryInterface;
 use ApiPlatform\OpenApi\Model\MediaType;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Parameter;
 use ApiPlatform\OpenApi\Model\PathItem;
 use ApiPlatform\OpenApi\Model\Paths;
 use ApiPlatform\OpenApi\Model\Response;
@@ -44,6 +45,15 @@ use Symfony\Component\Serializer\NameConverter\NameConverterInterface;
  * - Anything else (401 on an `/auth/` operation, 429) — only where the operation's own `openapi` attribute declares it,
  *   read from the metadata, never from the merged spec. Its description is kept; its shape is replaced by `Problem`.
  *
+ * ---------------------------------------------------------------------------
+ * Success answers (BK-18 R18-h C2)
+ * ---------------------------------------------------------------------------
+ * Each 2xx entry keeps the description the operation's own `openapi` attribute gives it. Otherwise it gets the one
+ * {@see self::SUCCESS} template its facts select: method, status, whether the served component pages (`next_cursor`,
+ * plus an `after` parameter) and whether it has an `id` (wording owner: UX). An entry no template is true of — a `POST`
+ * 200 whose body has no `id`, a 202, a body that is not one component — must describe itself on its attribute, or the
+ * spec is not built. Every 201 also declares its `Location` header.
+ *
  * 405, 406 and 415 answer how a request was sent, not what it asked, and are stated once in the API's description
  * (`config/packages/api_platform.yaml`), not per operation. 500 is a fault, not a refusal, and is never listed.
  *
@@ -73,6 +83,9 @@ final readonly class ProblemResponses implements OpenApiFactoryInterface
     public const FIELD_ERROR_SCHEMA = 'ProblemFieldError';
 
     public const MEDIA_TYPE = 'application/problem+json';
+
+    /** The serializer format and group a refusal is sent in. */
+    public const GROUP = 'jsonproblem';
 
     /** The vendor's error schemas, dropped once nothing references them. */
     private const VENDOR_SCHEMAS = ['Error', 'ConstraintViolation'];
@@ -116,6 +129,27 @@ final readonly class ProblemResponses implements OpenApiFactoryInterface
         'allow' => ['type' => 'string', 'description' => 'On 405: the methods this address serves.'],
     ];
 
+    /**
+     * The success templates (wording owner: UX); `{words}` is the served component's name in words
+     * ({@see self::words()}). Keyed by what selects each ({@see self::successKind()}).
+     *
+     * @var array<string, string>
+     */
+    public const SUCCESS = [
+        'paged list' => 'One page of the {words} list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page.',
+        'bounded list' => 'The {words} list. It is not paged: `next_cursor` and `previous_cursor` are always null.',
+        'read' => 'The {words}.',
+        'edit' => 'The {words}, as saved.',
+        'action' => 'The {words}, as saved.',
+        'create' => 'The {words} this request created. `Location` gives its address.',
+        'delete' => 'Done. The answer has no body.',
+    ];
+
+    /** The description of the `Location` header every 201 declares (wording owner: UX). */
+    public const LOCATION = 'The address of what this request created.';
+
+    private const COMPONENT_REF = '#/components/schemas/';
+
     /** The `ApiProblem` member that is never set, so never sent, and so never published. */
     private const NEVER_SENT = 'instance';
 
@@ -134,12 +168,13 @@ final readonly class ProblemResponses implements OpenApiFactoryInterface
         $openApi = ($this->inner)($context);
         $operations = $this->operationsByName();
 
+        $schemas = new \ArrayObject((array) ($openApi->getComponents()->getSchemas() ?? new \ArrayObject()));
+
         $paths = new Paths();
         foreach ($openApi->getPaths()->getPaths() as $path => $pathItem) {
-            $paths->addPath($path, $this->withRefusals($pathItem, $operations));
+            $paths->addPath($path, $this->withRefusals($pathItem, $operations, $schemas));
         }
 
-        $schemas = new \ArrayObject((array) ($openApi->getComponents()->getSchemas() ?? new \ArrayObject()));
         foreach (self::VENDOR_SCHEMAS as $vendor) {
             unset($schemas[$vendor]);
         }
@@ -198,8 +233,9 @@ final readonly class ProblemResponses implements OpenApiFactoryInterface
 
     /**
      * @param array<string, HttpOperation> $operations
+     * @param \ArrayObject<string, mixed>  $schemas
      */
-    private function withRefusals(PathItem $pathItem, array $operations): PathItem
+    private function withRefusals(PathItem $pathItem, array $operations, \ArrayObject $schemas): PathItem
     {
         foreach (['Get', 'Post', 'Patch', 'Put', 'Delete'] as $method) {
             $openapiOperation = $pathItem->{'get'.$method}();
@@ -214,8 +250,8 @@ final readonly class ProblemResponses implements OpenApiFactoryInterface
 
             $responses = [];
             foreach ($openapiOperation->getResponses() ?? [] as $status => $response) {
-                if (str_starts_with((string) $status, '2')) {
-                    $responses[(string) $status] = $response;
+                if (str_starts_with((string) $status, '2') && $response instanceof Response) {
+                    $responses[(string) $status] = self::success($operation, $openapiOperation, (string) $status, $response, $schemas);
                 }
             }
             foreach (self::refusalsOf($operation) as $status => $description) {
@@ -226,6 +262,84 @@ final readonly class ProblemResponses implements OpenApiFactoryInterface
         }
 
         return $pathItem;
+    }
+
+    /**
+     * One success entry: the attribute's own description if it gives one, else the template its facts select; a 201
+     * declares `Location`.
+     *
+     * @param \ArrayObject<string, mixed> $schemas
+     */
+    private static function success(HttpOperation $operation, OpenApiOperation $openapiOperation, string $status, Response $response, \ArrayObject $schemas): Response
+    {
+        $own = $operation->getOpenapi() instanceof OpenApiOperation ? ($operation->getOpenapi()->getResponses()[$status] ?? null) : null;
+        if (!$own instanceof Response || null === $own->getDescription()) {
+            $component = self::successComponent($response);
+            $kind = self::successKind((string) $operation->getMethod(), $status, $component, $openapiOperation, $schemas)
+                ?? throw new \LogicException(\sprintf('Operation "%s" answers %s, and no success template is true of it: give that answer a description on the operation\'s own openapi attribute.', (string) $operation->getName(), $status));
+            $response = $response->withDescription(str_replace('{words}', self::words((string) $component), self::SUCCESS[$kind]));
+        }
+
+        if ('201' === $status) {
+            $headers = new \ArrayObject((array) ($response->getHeaders() ?? []));
+            $headers['Location'] ??= new \ArrayObject([
+                'description' => self::LOCATION,
+                'schema' => new \ArrayObject(['type' => 'string']),
+            ]);
+            $response = $response->withHeaders($headers);
+        }
+
+        return $response;
+    }
+
+    /**
+     * The template a success entry's facts select, or null when none is true of it.
+     *
+     * @param \ArrayObject<string, mixed> $schemas
+     */
+    private static function successKind(string $method, string $status, ?string $component, OpenApiOperation $openapiOperation, \ArrayObject $schemas): ?string
+    {
+        $properties = null === $component ? [] : self::propertiesOf($schemas[$component] ?? null);
+        $after = false;
+        foreach ($openapiOperation->getParameters() ?? [] as $parameter) {
+            $after = $after || ($parameter instanceof Parameter && 'after' === $parameter->getName());
+        }
+
+        return match (true) {
+            'GET' === $method && '200' === $status && \array_key_exists('next_cursor', $properties) => $after ? 'paged list' : 'bounded list',
+            'GET' === $method && '200' === $status && null !== $component => 'read',
+            'PATCH' === $method && '200' === $status && null !== $component => 'edit',
+            'POST' === $method && '200' === $status && \array_key_exists('id', $properties) => 'action',
+            'POST' === $method && '201' === $status && null !== $component => 'create',
+            'DELETE' === $method && '204' === $status => 'delete',
+            default => null,
+        };
+    }
+
+    /** The component a JSON success body references, or null when it references none. */
+    private static function successComponent(Response $response): ?string
+    {
+        $media = $response->getContent()['application/json'] ?? null;
+        $ref = $media instanceof MediaType ? ($media->getSchema()['$ref'] ?? null) : null;
+
+        return \is_string($ref) && str_starts_with($ref, self::COMPONENT_REF) ? substr($ref, \strlen(self::COMPONENT_REF)) : null;
+    }
+
+    /** @return array<string, mixed> */
+    private static function propertiesOf(mixed $schema): array
+    {
+        $schema = $schema instanceof \ArrayObject ? $schema->getArrayCopy() : (array) $schema;
+        $properties = $schema['properties'] ?? [];
+
+        return $properties instanceof \ArrayObject ? $properties->getArrayCopy() : (array) $properties;
+    }
+
+    /** A component name in words: `SalesOrder` → "sales order", `PickQueueEntryCollection` → "pick queue entry". */
+    private static function words(string $component): string
+    {
+        $noun = str_ends_with($component, 'Collection') ? substr($component, 0, -\strlen('Collection')) : $component;
+
+        return strtolower(trim((string) preg_replace('/(?<!^)([A-Z])/', ' $1', $noun)));
     }
 
     private static function refusal(int $status, string $description): Response
@@ -291,9 +405,14 @@ final readonly class ProblemResponses implements OpenApiFactoryInterface
     {
         $serialized = [];
         foreach ($this->serializerMetadata->getMetadataFor(ApiProblem::class)->getAttributesMetadata() as $name => $attribute) {
-            if (\in_array('jsonproblem', $attribute->getGroups(), true) && self::NEVER_SENT !== $name) {
-                $serialized[$name] = $attribute->getSerializedName() ?? $this->nameConverter->normalize($name, ApiProblem::class, 'json');
+            if (!\in_array(self::GROUP, $attribute->getGroups(), true) || $attribute->isIgnored() || self::NEVER_SENT === $name) {
+                continue;
             }
+            if (null !== $attribute->getSerializedPath()) {
+                throw new \LogicException(\sprintf('ApiProblem serializes "%s" under a nested path, which this flat schema cannot describe.', $name));
+            }
+            // Asked as the server serializes a refusal: format and group as `api_platform.yaml` sends them.
+            $serialized[$name] = $attribute->getSerializedName() ?? $this->nameConverter->normalize($name, ApiProblem::class, self::GROUP, ['groups' => [self::GROUP]]);
         }
         $unmatched = array_merge(array_diff(array_keys($serialized), array_keys(self::MEMBERS)), array_diff(array_keys(self::MEMBERS), array_keys($serialized)));
         if ([] !== $unmatched) {

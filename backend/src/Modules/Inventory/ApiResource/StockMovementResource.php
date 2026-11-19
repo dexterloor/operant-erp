@@ -9,6 +9,7 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\Inventory\ApiResource\State\CreateStockAdjustmentProcessor;
 use App\Modules\Inventory\ApiResource\State\CreateStockTransferProcessor;
 use App\Modules\Inventory\ApiResource\State\StockMovementProvider;
@@ -84,7 +85,12 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/stock-movements/transfers',
             name: 'CreateStockTransfer',
             status: 201,
-            openapi: new OpenApiOperation(operationId: 'CreateStockTransfer'),
+            // BK-18 R18-h: its own success description; the create template would be false (it creates two movements
+            // and answers one).
+            openapi: new OpenApiOperation(
+                operationId: 'CreateStockTransfer',
+                responses: ['201' => new OpenApiResponse(description: 'The movement that took the stock out of the source location. The matching movement into the destination location was recorded with it. `Location` gives the outgoing movement\'s address.')],
+            ),
             input: CreateStockTransferInput::class,
             denormalizationContext: [
                 'allow_extra_attributes' => false,

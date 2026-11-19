@@ -30,11 +30,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/auth/password-resets/redemption',
             name: 'CreatePasswordResetRedemption',
             status: 200,
-            // BK-18 R18-h C1: this operation's own refusals beyond the derived set (its `Errors` cell). The decorator
-            // keeps each description and gives it the house problem shape (`App\Platform\Http\ProblemResponses`).
+            // BK-18 R18-h: this operation's own success description (no template is true of it) and its own refusals
+            // beyond the derived set (its `Errors` cell). The decorator keeps each description; it gives the refusals the
+            // house problem shape (`App\Platform\Http\ProblemResponses`).
             openapi: new OpenApiOperation(
                 operationId: 'CreatePasswordResetRedemption',
                 responses: [
+                    '200' => new OpenApiResponse(description: 'The new password is saved; `changed_at` is when. Every session of this account has ended, this link and every other unused link for the account no longer work, and any pause on signing in is lifted. Sign in with the new password, no sooner than one second after `changed_at`: a token issued in that same second is not accepted.'),
                     '401' => new OpenApiResponse(description: 'This link can\'t be used. The same answer is given for every reason (for example a link that is wrong, expired or already used, or an account or workspace that can no longer sign in), so it does not say which.'),
                     '429' => new OpenApiResponse(description: 'Too many attempts from this network. This limit is shared with signing in. Wait before trying again; no wait time is given.'),
                 ],

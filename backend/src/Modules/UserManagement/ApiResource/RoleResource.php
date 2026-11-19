@@ -12,6 +12,7 @@ use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\UserManagement\ApiResource\State\AssignRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\CreateRoleProcessor;
 use App\Modules\UserManagement\ApiResource\State\DeleteRoleProcessor;
@@ -103,7 +104,12 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             ],
             name: 'AssignRole',
             status: 201,
-            openapi: new OpenApiOperation(operationId: 'AssignRole'),
+            // BK-18 R18-h: its own success description; the create template would be false (the body is the role, not
+            // what this request created).
+            openapi: new OpenApiOperation(
+                operationId: 'AssignRole',
+                responses: ['201' => new OpenApiResponse(description: 'The role, now held by this person. `Location` gives the address of the grant; it is the address `DELETE` uses to take the role away.')],
+            ),
             input: AssignRoleInput::class,
             denormalizationContext: [
                 'allow_extra_attributes' => false,

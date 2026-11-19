@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
+use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\ProblemResponses;
 use App\Platform\Http\Problem\ApiProblem;
@@ -53,6 +55,32 @@ final class ErrorResponsesTest extends ApiTestCase
 
     /** The catalogue types that answer how a request was sent; stated once for the whole API, never per operation. */
     private const TRANSPORT = [ProblemType::UnsupportedMediaType, ProblemType::NotAcceptable, ProblemType::MethodNotAllowed];
+
+    /** API Platform's own success description, which says nothing about the answer. */
+    private const VENDOR_SUCCESS = '/^[A-Z][A-Za-z]* (resource|collection)( created| updated| deleted)?$/';
+
+    /**
+     * The success templates, word for word as `UX` wrote them (`{words}` = the served component's name, a trailing
+     * `Collection` dropped, split at each capital, lowercased). Copied here on purpose: this test holds the published
+     * wording to that text, so a change to the decorator's copy alone is red.
+     *
+     * @var array<string, string>
+     */
+    private const SUCCESS_TEMPLATES = [
+        'paged list' => 'One page of the {words} list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page.',
+        'bounded list' => 'The {words} list. It is not paged: `next_cursor` and `previous_cursor` are always null.',
+        'read' => 'The {words}.',
+        'edit' => 'The {words}, as saved.',
+        'action' => 'The {words}, as saved.',
+        'create' => 'The {words} this request created. `Location` gives its address.',
+        'delete' => 'Done. The answer has no body.',
+    ];
+
+    /**
+     * The hand-written descriptions that still end in a review id, kept until `PO` rules where it is dropped; the id is
+     * the only one each may carry.
+     */
+    private const SUCCESS_ID_PENDING = ['CreateBulkArchival' => '(E-14)', 'CreateBulkRestoration' => '(E-14)', 'CreateBulkRoleAssignment' => '(E-14)'];
 
     /**
      * *fails if:* an operation declares a refusal status the contract does not give it, or omits one it does.
@@ -163,8 +191,88 @@ final class ErrorResponsesTest extends ApiTestCase
         $planted = $spec;
         unset($planted['paths']['/api/v1/items']['get']['responses']['401']['headers']);
         self::assertContains('GET /api/v1/items: its 401 does not declare WWW-Authenticate', self::shapeFaults($planted, $members));
+        $planted = $spec;
+        unset($planted['components']['schemas']['Problem']['additionalProperties']);
+        self::assertContains('Problem\'s required members are not type, title and status, or it admits others', self::shapeFaults($planted, $members));
+        $planted = $spec;
+        $planted['components']['schemas']['ProblemFieldError']['properties']['hint'] = ['type' => 'string'];
+        self::assertContains('ProblemFieldError is not {pointer, code, message}, all required', self::shapeFaults($planted, $members));
+        $planted = $spec;
+        $planted['paths']['/api/v1/items']['get']['responses']['default'] = $planted['paths']['/api/v1/items']['get']['responses']['422'];
+        self::assertContains('GET /api/v1/items declares default', self::shapeFaults($planted, $members));
+
+        // The 403 sentence names the member the server really sends, read from the serializer, not typed here.
+        $named = '`'.$byProperty['requiredPermission'].'`';
+        $without = [];
+        foreach (GeneratedSpec::operations($spec) as $key => $entry) {
+            $sentence = $entry['operation']['responses']['403']['description'] ?? null;
+            if (null !== $sentence && !str_contains($sentence, $named)) {
+                $without[] = $key;
+            }
+        }
+        self::assertSame([], $without, 'A 403 description does not name the member that carries the permission.');
 
         self::assertSame([], self::shapeFaults($spec, $members));
+    }
+
+    /**
+     * *fails if:* a success answer keeps API Platform's own description, or says something its status or body cannot back.
+     *
+     * Each 2xx description is either the operation's own (from its `openapi` attribute, read from the metadata) or the
+     * one template its facts select: method, status, whether the served component pages (`next_cursor`, plus an `after`
+     * parameter) and whether it has an `id`. Independently of that: "created" only on a 201; every 201 mentions and
+     * declares `Location`; every 202 and 204 says it has no body; a `POST` 200 whose body has no `id` is never called
+     * "as saved"; no description carries a review id.
+     */
+    #[Test]
+    public function everySuccessDescriptionSaysWhatComesBack(): void
+    {
+        $spec = $this->spec();
+        $own = self::ownSuccessDescriptions();
+        self::assertGreaterThanOrEqual(6, \count($own), 'Almost no operation describes its own success answer, so that half is untested.');
+
+        // Anti-vacuity: every template lands somewhere, and every success entry is compared.
+        $counts = array_fill_keys(array_keys(self::SUCCESS_TEMPLATES), 0);
+        $entries = 0;
+        foreach (GeneratedSpec::operations($spec) as $entry) {
+            foreach ($entry['operation']['responses'] ?? [] as $status => $response) {
+                if (str_starts_with((string) $status, '2')) {
+                    ++$entries;
+                    $kind = self::successKind($spec, $entry, (string) $status);
+                    if (null !== $kind && !isset($own[$entry['operation']['operationId']][(string) $status])) {
+                        ++$counts[$kind];
+                    }
+                }
+            }
+        }
+        self::assertSame(\count(GeneratedSpec::operations($spec)), $entries, 'An operation does not have exactly one success answer, so the comparison is not one per operation.');
+        foreach ($counts as $kind => $count) {
+            self::assertGreaterThan(0, $count, 'No operation takes the '.$kind.' template, so it is untested.');
+        }
+
+        // Controls: each planted defect is named.
+        $with = static function (array $spec, string $path, string $method, string $status, ?string $description, bool $dropLocation = false): array {
+            if (null !== $description) {
+                $spec['paths'][$path][$method]['responses'][$status]['description'] = $description;
+            }
+            if ($dropLocation) {
+                unset($spec['paths'][$path][$method]['responses'][$status]['headers']['Location']);
+            }
+
+            return $spec;
+        };
+        self::assertContains('GET /api/v1/items/{id} 200 keeps the vendor description', self::successFaults($with($spec, '/api/v1/items/{id}', 'get', '200', 'Item resource'), $own));
+        self::assertContains('GET /api/v1/items/{id} 200 says "created" but is not a 201', self::successFaults($with($spec, '/api/v1/items/{id}', 'get', '200', 'The item you created.'), $own));
+        self::assertContains('POST /api/v1/auth/token 200 calls a body with no id the record as saved', self::successFaults($with($spec, '/api/v1/auth/token', 'post', '200', 'The token, as saved.'), $own));
+        self::assertContains('POST /api/v1/items 201 does not mention `Location`', self::successFaults($with($spec, '/api/v1/items', 'post', '201', 'The item this request created.'), $own));
+        self::assertContains('POST /api/v1/items 201 does not declare a Location header', self::successFaults($with($spec, '/api/v1/items', 'post', '201', null, true), $own));
+        self::assertContains('GET /api/v1/roles 200 says the list is paged, but the operation declares no `after`', self::successFaults($with($spec, '/api/v1/roles', 'get', '200', str_replace('{words}', 'role', self::SUCCESS_TEMPLATES['paged list'])), $own));
+        self::assertContains('GET /api/v1/items 200 says the list is not paged, but the operation declares `after`', self::successFaults($with($spec, '/api/v1/items', 'get', '200', str_replace('{words}', 'item', self::SUCCESS_TEMPLATES['bounded list'])), $own));
+        self::assertContains('DELETE /api/v1/items/{id} 204 does not say it has no body', self::successFaults($with($spec, '/api/v1/items/{id}', 'delete', '204', 'Done.'), $own));
+        self::assertContains('GET /api/v1/items/{id} 200 carries a review id', self::successFaults($with($spec, '/api/v1/items/{id}', 'get', '200', 'The item (G-12).'), $own));
+        self::assertContains('GET /api/v1/items/{id} 200 is not the read template', self::successFaults($with($spec, '/api/v1/items/{id}', 'get', '200', 'The Item.'), $own));
+
+        self::assertSame([], self::successFaults($spec, $own), 'A success answer does not say what comes back.');
     }
 
     /**
@@ -396,6 +504,155 @@ final class ErrorResponsesTest extends ApiTestCase
     }
 
     /**
+     * @param array<string, mixed>                $spec
+     * @param array<string, array<string, string>> $own  operationId => status => the description its attribute gives
+     *
+     * @return list<string>
+     */
+    private static function successFaults(array $spec, array $own): array
+    {
+        $faults = [];
+        foreach (GeneratedSpec::operations($spec) as $key => $entry) {
+            $name = (string) ($entry['operation']['operationId'] ?? '');
+            foreach ($entry['operation']['responses'] ?? [] as $status => $response) {
+                $status = (string) $status;
+                if (!str_starts_with($status, '2')) {
+                    continue;
+                }
+                $label = $key.' '.$status;
+                $description = (string) ($response['description'] ?? '');
+                $component = self::successComponent($spec, $response);
+
+                if (1 === preg_match(self::VENDOR_SUCCESS, $description)) {
+                    $faults[] = $label.' keeps the vendor description';
+                }
+                $kind = self::successKind($spec, $entry, $status);
+                if (isset($own[$name][$status])) {
+                    if ($own[$name][$status] !== $description) {
+                        $faults[] = $label.' is not the description its own attribute gives';
+                    }
+                } elseif (null === $kind) {
+                    $faults[] = $label.' takes no template and gives no description of its own';
+                } elseif (str_replace('{words}', self::words((string) $component), self::SUCCESS_TEMPLATES[$kind]) !== $description) {
+                    $faults[] = $label.' is not the '.$kind.' template';
+                }
+
+                if ('201' !== $status && str_contains(strtolower($description), 'created')) {
+                    $faults[] = $label.' says "created" but is not a 201';
+                }
+                if ('201' === $status) {
+                    if (!str_contains($description, '`Location`')) {
+                        $faults[] = $label.' does not mention `Location`';
+                    }
+                    $header = $response['headers']['Location'] ?? [];
+                    if ('string' !== ($header['schema']['type'] ?? null) || '' === (string) ($header['description'] ?? '')) {
+                        $faults[] = $label.' does not declare a Location header';
+                    }
+                }
+                if (\in_array($status, ['202', '204'], true) && !str_contains(strtolower($description), 'no body')) {
+                    $faults[] = $label.' does not say it has no body';
+                }
+                if ('post' === $entry['method'] && '200' === $status && !self::componentHas($spec, $component, 'id')
+                    && (str_contains($description, 'as saved') || str_contains($description, 'as it is after'))) {
+                    $faults[] = $label.' calls a body with no id the record as saved';
+                }
+                $pages = str_contains($description, 'next page');
+                $notPaged = str_contains($description, 'not paged');
+                $after = self::declaresParameter($entry['operation'], 'after');
+                if ($pages && !$after) {
+                    $faults[] = $label.' says the list is paged, but the operation declares no `after`';
+                }
+                if ($notPaged && $after) {
+                    $faults[] = $label.' says the list is not paged, but the operation declares `after`';
+                }
+                $withoutPending = str_replace(self::SUCCESS_ID_PENDING[$name] ?? "\0", '', $description);
+                if (1 === preg_match('/\b(?:E|G|BK)-\d|\bRED\b|\bO[R]CH\b|docs\//', $withoutPending)) {
+                    $faults[] = $label.' carries a review id';
+                }
+            }
+        }
+
+        return $faults;
+    }
+
+    /**
+     * The template a success entry's facts select, or null when none is true of it (a `POST` 200 whose body has no
+     * `id`, a 202, a body that is not one component).
+     *
+     * @param array<string, mixed>                                                       $spec
+     * @param array{method: string, path: string, operation: array<string, mixed>} $entry
+     */
+    private static function successKind(array $spec, array $entry, string $status): ?string
+    {
+        $component = self::successComponent($spec, $entry['operation']['responses'][$status] ?? []);
+
+        return match (true) {
+            'get' === $entry['method'] && '200' === $status && self::componentHas($spec, $component, 'next_cursor') => self::declaresParameter($entry['operation'], 'after') ? 'paged list' : 'bounded list',
+            'get' === $entry['method'] && '200' === $status && null !== $component => 'read',
+            'patch' === $entry['method'] && '200' === $status && null !== $component => 'edit',
+            'post' === $entry['method'] && '200' === $status && self::componentHas($spec, $component, 'id') => 'action',
+            'post' === $entry['method'] && '201' === $status && null !== $component => 'create',
+            'delete' === $entry['method'] && '204' === $status => 'delete',
+            default => null,
+        };
+    }
+
+    /** @param array<string, mixed> $response */
+    private static function successComponent(array $spec, array $response): ?string
+    {
+        $ref = $response['content']['application/json']['schema']['$ref'] ?? null;
+
+        return \is_string($ref) && str_starts_with($ref, '#/components/schemas/') ? substr($ref, \strlen('#/components/schemas/')) : null;
+    }
+
+    /** @param array<string, mixed> $spec */
+    private static function componentHas(array $spec, ?string $component, string $member): bool
+    {
+        return null !== $component && \array_key_exists($member, $spec['components']['schemas'][$component]['properties'] ?? []);
+    }
+
+    /** @param array<string, mixed> $operation */
+    private static function declaresParameter(array $operation, string $name): bool
+    {
+        foreach ($operation['parameters'] ?? [] as $parameter) {
+            if ($name === ($parameter['name'] ?? null)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** `SalesOrder` → "sales order", `PickQueueEntryCollection` → "pick queue entry". */
+    private static function words(string $component): string
+    {
+        $noun = str_ends_with($component, 'Collection') ? substr($component, 0, -\strlen('Collection')) : $component;
+
+        return strtolower(trim((string) preg_replace('/(?<!^)([A-Z])/', ' $1', $noun)));
+    }
+
+    /**
+     * The 2xx descriptions operations give on their own `openapi` attribute, read from the metadata (never from the
+     * spec, which is what is under test).
+     *
+     * @return array<string, array<string, string>> operationId => status => description
+     */
+    private static function ownSuccessDescriptions(): array
+    {
+        $own = [];
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            $openapi = $operation->getOpenapi();
+            foreach (($openapi instanceof OpenApiOperation ? $openapi->getResponses() : null) ?? [] as $status => $response) {
+                if (str_starts_with((string) $status, '2') && $response instanceof OpenApiResponse && null !== $response->getDescription()) {
+                    $own[(string) $name][(string) $status] = $response->getDescription();
+                }
+            }
+        }
+
+        return $own;
+    }
+
+    /**
      * `ApiProblem`'s serialized member names in the `jsonproblem` group, from the serializer's own metadata and name
      * converter — never listed here — less `instance`, which is never set and so never sent.
      *
@@ -410,8 +667,9 @@ final class ErrorResponsesTest extends ApiTestCase
 
         $members = [];
         foreach ($metadata->getMetadataFor(ApiProblem::class)->getAttributesMetadata() as $name => $attribute) {
-            if (\in_array('jsonproblem', $attribute->getGroups(), true)) {
-                $members[(string) $name] = $attribute->getSerializedName() ?? $converter->normalize($name, ApiProblem::class, 'json');
+            if (\in_array(ProblemResponses::GROUP, $attribute->getGroups(), true) && !$attribute->isIgnored()) {
+                self::assertNull($attribute->getSerializedPath(), 'ApiProblem serializes '.$name.' under a nested path; the flat schema cannot describe it.');
+                $members[(string) $name] = $attribute->getSerializedName() ?? $converter->normalize($name, ApiProblem::class, ProblemResponses::GROUP, ['groups' => [ProblemResponses::GROUP]]);
             }
         }
         unset($members['instance']);

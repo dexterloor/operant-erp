@@ -27,11 +27,13 @@ use App\Platform\Security\PermissionGate;
             uriTemplate: '/auth/password-resets',
             name: 'CreatePasswordReset',
             status: 202,
-            // BK-18 R18-h C1: this operation's own refusals beyond the derived set (its `Errors` cell). The decorator
-            // keeps each description and gives it the house problem shape (`App\Platform\Http\ProblemResponses`).
+            // BK-18 R18-h: this operation's own success description (no template is true of it) and its own refusals
+            // beyond the derived set (its `Errors` cell). The decorator keeps each description; it gives the refusals the
+            // house problem shape (`App\Platform\Http\ProblemResponses`).
             openapi: new OpenApiOperation(
                 operationId: 'CreatePasswordReset',
                 responses: [
+                    '202' => new OpenApiResponse(description: 'Accepted. If that email belongs to an active account in that workspace, a link to set a new password is sent to it, subject to a limit on how many links one account is sent in 24 hours. The answer is the same either way, so it does not say whether the account exists. The answer has no body.'),
                     '429' => new OpenApiResponse(description: 'Too many attempts from this network. This limit is shared with signing in. Wait before trying again; no wait time is given.'),
                 ],
             ),

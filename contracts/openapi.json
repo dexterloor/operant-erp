@@ -5307,7 +5307,7 @@
         "securitySchemes": {}
     },
     "info": {
-        "description": "Contract: docs/API.md. Paths in its §4.2 table omit the /api/v1 prefix.\n\nAny request can also be refused for how it was sent rather than what it asks, in the same refusal shape: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation's format (JSON for every operation except the export, which is CSV), and 415 when a body is sent with a `Content-Type` other than `application/json`. A request whose `Host` header is malformed is refused 400 before any operation runs, outside that shape. None of these is listed on each operation.",
+        "description": "Contract: docs/API.md. Paths in its §4.2 table omit the /api/v1 prefix.\n\nAny request can also be refused for how it was sent rather than what it asks, in the same refusal shape: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation's format (`application/json` for every operation except the export, which is `text/csv`; a refusal is always sent as `application/problem+json`, yet an `Accept` that names only that is answered 406, so name both, for example `Accept: application/json, application/problem+json`), and 415 when a body is sent with a `Content-Type` other than `application/json`. A request whose `Host` header is malformed is refused 400 before any operation runs, outside that shape. None of these is listed on each operation.",
         "title": "ERP API",
         "version": "1.0.0"
     },
@@ -5467,7 +5467,7 @@
                                 }
                             }
                         },
-                        "description": "AuditLogEntryCollection resource"
+                        "description": "One page of the audit log entry list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -5614,7 +5614,7 @@
                                 }
                             }
                         },
-                        "description": "AuditRecordCollection resource"
+                        "description": "One page of the audit record list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -5679,7 +5679,7 @@
                 },
                 "responses": {
                     "202": {
-                        "description": "PasswordReset resource created",
+                        "description": "Accepted. If that email belongs to an active account in that workspace, a link to set a new password is sent to it, subject to a limit on how many links one account is sent in 24 hours. The answer is the same either way, so it does not say whether the account exists. The answer has no body.",
                         "links": {}
                     },
                     "422": {
@@ -5734,7 +5734,7 @@
                                 }
                             }
                         },
-                        "description": "PasswordResetRedemption resource created",
+                        "description": "The new password is saved; `changed_at` is when. Every session of this account has ended, this link and every other unused link for the account no longer work, and any pause on signing in is lifted. Sign in with the new password, no sooner than one second after `changed_at`: a token issued in that same second is not accepted.",
                         "links": {}
                     },
                     "401": {
@@ -5817,7 +5817,7 @@
                                 }
                             }
                         },
-                        "description": "Token resource created",
+                        "description": "Signed in. Send `access_token` in an `Authorization: Bearer` header on every request outside `/api/v1/auth/`. It stops working at `expires_at`, or sooner, for example if the account is deactivated or its password is changed or reset.",
                         "links": {}
                     },
                     "401": {
@@ -6314,7 +6314,7 @@
                                 }
                             }
                         },
-                        "description": "CreditNoteCollection resource"
+                        "description": "One page of the credit note list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -6389,7 +6389,7 @@
                                 }
                             }
                         },
-                        "description": "CreditNote resource"
+                        "description": "The credit note."
                     },
                     "401": {
                         "content": {
@@ -6542,7 +6542,7 @@
                                 }
                             }
                         },
-                        "description": "CustomerCollection resource"
+                        "description": "One page of the customer list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -6612,7 +6612,15 @@
                                 }
                             }
                         },
-                        "description": "Customer resource created",
+                        "description": "The customer this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -6701,7 +6709,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Customer resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -6794,7 +6802,7 @@
                                 }
                             }
                         },
-                        "description": "Customer resource"
+                        "description": "The customer."
                     },
                     "401": {
                         "content": {
@@ -6888,7 +6896,7 @@
                                 }
                             }
                         },
-                        "description": "Customer resource updated",
+                        "description": "The customer, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -6984,7 +6992,7 @@
                                 }
                             }
                         },
-                        "description": "CustomerAddressCollection resource"
+                        "description": "The customer address list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -7078,7 +7086,15 @@
                                 }
                             }
                         },
-                        "description": "CustomerAddress resource created",
+                        "description": "The customer address this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -7190,7 +7206,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "CustomerAddress resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -7307,7 +7323,7 @@
                                 }
                             }
                         },
-                        "description": "CustomerAddress resource updated",
+                        "description": "The customer address, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -7403,7 +7419,7 @@
                                 }
                             }
                         },
-                        "description": "CustomerContactCollection resource"
+                        "description": "The customer contact list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -7497,7 +7513,15 @@
                                 }
                             }
                         },
-                        "description": "CustomerContact resource created",
+                        "description": "The customer contact this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -7609,7 +7633,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "CustomerContact resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -7726,7 +7750,7 @@
                                 }
                             }
                         },
-                        "description": "CustomerContact resource updated",
+                        "description": "The customer contact, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -7822,7 +7846,7 @@
                                 }
                             }
                         },
-                        "description": "Customer resource created",
+                        "description": "The customer, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -7987,7 +8011,7 @@
                                 }
                             }
                         },
-                        "description": "ReorderSuggestionCollection resource"
+                        "description": "The reorder suggestion list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -8048,7 +8072,7 @@
                                 }
                             }
                         },
-                        "description": "ReorderSummary resource"
+                        "description": "The reorder summary."
                     },
                     "401": {
                         "content": {
@@ -8174,7 +8198,7 @@
                                 }
                             }
                         },
-                        "description": "FulfilmentCollection resource"
+                        "description": "One page of the fulfilment list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -8249,7 +8273,7 @@
                                 }
                             }
                         },
-                        "description": "Fulfilment resource"
+                        "description": "The fulfilment."
                     },
                     "401": {
                         "content": {
@@ -8334,7 +8358,15 @@
                                 }
                             }
                         },
-                        "description": "Invoice resource created",
+                        "description": "The invoice this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -8451,7 +8483,15 @@
                                 }
                             }
                         },
-                        "description": "SalesReturn resource created",
+                        "description": "The sales return this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -8608,7 +8648,7 @@
                                 }
                             }
                         },
-                        "description": "GoodsReceiptCollection resource"
+                        "description": "One page of the goods receipt list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -8683,7 +8723,7 @@
                                 }
                             }
                         },
-                        "description": "GoodsReceipt resource"
+                        "description": "The goods receipt."
                     },
                     "401": {
                         "content": {
@@ -8867,7 +8907,7 @@
                                 }
                             }
                         },
-                        "description": "InvoiceCollection resource"
+                        "description": "One page of the invoice list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -8942,7 +8982,7 @@
                                 }
                             }
                         },
-                        "description": "Invoice resource"
+                        "description": "The invoice."
                     },
                     "401": {
                         "content": {
@@ -9038,7 +9078,15 @@
                                 }
                             }
                         },
-                        "description": "CreditNote resource created",
+                        "description": "The credit note this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -9155,7 +9203,15 @@
                                 }
                             }
                         },
-                        "description": "CreditNote resource created",
+                        "description": "The credit note this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -9261,7 +9317,7 @@
                                 }
                             }
                         },
-                        "description": "InvoiceLineCollection resource"
+                        "description": "The invoice line list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -9357,7 +9413,7 @@
                                 }
                             }
                         },
-                        "description": "Invoice resource created",
+                        "description": "The invoice, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -9464,7 +9520,7 @@
                                 }
                             }
                         },
-                        "description": "Invoice resource created",
+                        "description": "The invoice, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -9571,7 +9627,7 @@
                                 }
                             }
                         },
-                        "description": "Invoice resource created",
+                        "description": "The invoice, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -9731,7 +9787,7 @@
                                 }
                             }
                         },
-                        "description": "ItemCollection resource"
+                        "description": "One page of the item list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -9801,7 +9857,15 @@
                                 }
                             }
                         },
-                        "description": "Item resource created",
+                        "description": "The item this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -9890,7 +9954,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Item resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -9983,7 +10047,7 @@
                                 }
                             }
                         },
-                        "description": "Item resource"
+                        "description": "The item."
                     },
                     "401": {
                         "content": {
@@ -10077,7 +10141,7 @@
                                 }
                             }
                         },
-                        "description": "Item resource updated",
+                        "description": "The item, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -10173,7 +10237,7 @@
                                 }
                             }
                         },
-                        "description": "Item resource created",
+                        "description": "The item, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -10255,7 +10319,7 @@
                                 }
                             }
                         },
-                        "description": "CurrentUser resource"
+                        "description": "The current user."
                     },
                     "401": {
                         "content": {
@@ -10317,7 +10381,7 @@
                                 }
                             }
                         },
-                        "description": "Password resource created",
+                        "description": "The password was changed at `changed_at`. Every session of this account has ended, this one included, so the token that made this request no longer works. Sign in again with the new password, no sooner than one second after `changed_at`: a token issued in that same second is not accepted.",
                         "links": {}
                     },
                     "401": {
@@ -10389,7 +10453,7 @@
                                 }
                             }
                         },
-                        "description": "PermissionCollection resource"
+                        "description": "The permission list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -10515,7 +10579,7 @@
                                 }
                             }
                         },
-                        "description": "PickQueueEntryCollection resource"
+                        "description": "One page of the pick queue entry list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -10689,7 +10753,7 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrderCollection resource"
+                        "description": "One page of the purchase order list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -10759,7 +10823,15 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrder resource created",
+                        "description": "The purchase order this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -10848,7 +10920,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "PurchaseOrder resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -10941,7 +11013,7 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrder resource"
+                        "description": "The purchase order."
                     },
                     "401": {
                         "content": {
@@ -11035,7 +11107,7 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrder resource updated",
+                        "description": "The purchase order, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -11142,7 +11214,7 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrder resource created",
+                        "description": "The purchase order, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -11249,7 +11321,7 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrder resource created",
+                        "description": "The purchase order, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -11356,7 +11428,15 @@
                                 }
                             }
                         },
-                        "description": "GoodsReceipt resource created",
+                        "description": "The goods receipt this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -11475,7 +11555,7 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrderLineCollection resource"
+                        "description": "The purchase order line list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -11569,7 +11649,15 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrderLine resource created",
+                        "description": "The purchase order line this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -11681,7 +11769,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "PurchaseOrderLine resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -11798,7 +11886,7 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrderLine resource updated",
+                        "description": "The purchase order line, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -11907,7 +11995,7 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrderLine resource created",
+                        "description": "The purchase order line, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -12003,7 +12091,7 @@
                                 }
                             }
                         },
-                        "description": "PurchaseOrder resource created",
+                        "description": "The purchase order, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -12170,7 +12258,7 @@
                                 }
                             }
                         },
-                        "description": "RoleGrantProposalCollection resource"
+                        "description": "One page of the role grant proposal list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -12245,7 +12333,7 @@
                                 }
                             }
                         },
-                        "description": "RoleGrantProposal resource"
+                        "description": "The role grant proposal."
                     },
                     "401": {
                         "content": {
@@ -12330,7 +12418,7 @@
                                 }
                             }
                         },
-                        "description": "RoleGrantProposal resource created",
+                        "description": "The role grant proposal, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -12426,7 +12514,7 @@
                                 }
                             }
                         },
-                        "description": "RoleGrantProposal resource created",
+                        "description": "The role grant proposal, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -12533,7 +12621,7 @@
                                 }
                             }
                         },
-                        "description": "RoleGrantProposal resource created",
+                        "description": "The role grant proposal, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -12641,7 +12729,7 @@
                                 }
                             }
                         },
-                        "description": "RoleCollection resource"
+                        "description": "The role list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -12711,7 +12799,15 @@
                                 }
                             }
                         },
-                        "description": "Role resource created",
+                        "description": "The role this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -12800,7 +12896,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Role resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -12893,7 +12989,7 @@
                                 }
                             }
                         },
-                        "description": "Role resource"
+                        "description": "The role."
                     },
                     "401": {
                         "content": {
@@ -12987,7 +13083,7 @@
                                 }
                             }
                         },
-                        "description": "Role resource updated",
+                        "description": "The role, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -13083,7 +13179,7 @@
                                 }
                             }
                         },
-                        "description": "Role resource created",
+                        "description": "The role, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -13278,7 +13374,7 @@
                                 }
                             }
                         },
-                        "description": "SalesOrderCollection resource"
+                        "description": "One page of the sales order list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -13348,7 +13444,15 @@
                                 }
                             }
                         },
-                        "description": "SalesOrder resource created",
+                        "description": "The sales order this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -13437,7 +13541,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "SalesOrder resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -13530,7 +13634,7 @@
                                 }
                             }
                         },
-                        "description": "SalesOrder resource"
+                        "description": "The sales order."
                     },
                     "401": {
                         "content": {
@@ -13624,7 +13728,7 @@
                                 }
                             }
                         },
-                        "description": "SalesOrder resource updated",
+                        "description": "The sales order, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -13731,7 +13835,7 @@
                                 }
                             }
                         },
-                        "description": "SalesOrder resource created",
+                        "description": "The sales order, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -13827,7 +13931,7 @@
                                 }
                             }
                         },
-                        "description": "SalesOrder resource created",
+                        "description": "The sales order, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -13934,7 +14038,15 @@
                                 }
                             }
                         },
-                        "description": "Fulfilment resource created",
+                        "description": "The fulfilment this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -14053,7 +14165,7 @@
                                 }
                             }
                         },
-                        "description": "SalesOrderLineCollection resource"
+                        "description": "The sales order line list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -14147,7 +14259,15 @@
                                 }
                             }
                         },
-                        "description": "SalesOrderLine resource created",
+                        "description": "The sales order line this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -14259,7 +14379,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "SalesOrderLine resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -14376,7 +14496,7 @@
                                 }
                             }
                         },
-                        "description": "SalesOrderLine resource updated",
+                        "description": "The sales order line, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -14485,7 +14605,7 @@
                                 }
                             }
                         },
-                        "description": "SalesOrderLine resource created",
+                        "description": "The sales order line, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -14581,7 +14701,7 @@
                                 }
                             }
                         },
-                        "description": "PickList resource"
+                        "description": "The pick list."
                     },
                     "401": {
                         "content": {
@@ -14666,7 +14786,7 @@
                                 }
                             }
                         },
-                        "description": "SalesOrder resource created",
+                        "description": "The sales order, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -14917,7 +15037,7 @@
                                 }
                             }
                         },
-                        "description": "SalesReturnCollection resource"
+                        "description": "One page of the sales return list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -14992,7 +15112,7 @@
                                 }
                             }
                         },
-                        "description": "SalesReturn resource"
+                        "description": "The sales return."
                     },
                     "401": {
                         "content": {
@@ -15088,7 +15208,7 @@
                                 }
                             }
                         },
-                        "description": "SalesReturn resource created",
+                        "description": "The sales return, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -15180,7 +15300,7 @@
                                 }
                             }
                         },
-                        "description": "Settings resource"
+                        "description": "The settings."
                     },
                     "401": {
                         "content": {
@@ -15250,7 +15370,7 @@
                                 }
                             }
                         },
-                        "description": "Settings resource updated",
+                        "description": "The settings, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -15349,7 +15469,7 @@
                                 }
                             }
                         },
-                        "description": "StockLevelCollection resource"
+                        "description": "The stock level list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -15463,7 +15583,7 @@
                                 }
                             }
                         },
-                        "description": "StockMovementCollection resource"
+                        "description": "One page of the stock movement list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -15535,7 +15655,15 @@
                                 }
                             }
                         },
-                        "description": "StockMovement resource created",
+                        "description": "The stock movement this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -15628,7 +15756,15 @@
                                 }
                             }
                         },
-                        "description": "StockMovement resource created",
+                        "description": "The movement that took the stock out of the source location. The matching movement into the destination location was recorded with it. `Location` gives the outgoing movement's address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -15724,7 +15860,7 @@
                                 }
                             }
                         },
-                        "description": "StockMovement resource"
+                        "description": "The stock movement."
                     },
                     "401": {
                         "content": {
@@ -15877,7 +16013,7 @@
                                 }
                             }
                         },
-                        "description": "SupplierCollection resource"
+                        "description": "One page of the supplier list. `next_cursor` is null on the last page; otherwise send it as `after` for the next page."
                     },
                     "401": {
                         "content": {
@@ -15947,7 +16083,15 @@
                                 }
                             }
                         },
-                        "description": "Supplier resource created",
+                        "description": "The supplier this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -16036,7 +16180,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Supplier resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -16129,7 +16273,7 @@
                                 }
                             }
                         },
-                        "description": "Supplier resource"
+                        "description": "The supplier."
                     },
                     "401": {
                         "content": {
@@ -16223,7 +16367,7 @@
                                 }
                             }
                         },
-                        "description": "Supplier resource updated",
+                        "description": "The supplier, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -16319,7 +16463,7 @@
                                 }
                             }
                         },
-                        "description": "SupplierProductCollection resource"
+                        "description": "The supplier product list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -16413,7 +16557,15 @@
                                 }
                             }
                         },
-                        "description": "SupplierProduct resource created",
+                        "description": "The supplier product this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -16525,7 +16677,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "SupplierProduct resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -16642,7 +16794,7 @@
                                 }
                             }
                         },
-                        "description": "SupplierProduct resource updated",
+                        "description": "The supplier product, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -16738,7 +16890,7 @@
                                 }
                             }
                         },
-                        "description": "Supplier resource created",
+                        "description": "The supplier, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -16846,7 +16998,7 @@
                                 }
                             }
                         },
-                        "description": "UserCollection resource"
+                        "description": "The user list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -16916,7 +17068,15 @@
                                 }
                             }
                         },
-                        "description": "User resource created",
+                        "description": "The user this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -17005,7 +17165,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "User resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -17098,7 +17258,7 @@
                                 }
                             }
                         },
-                        "description": "User resource"
+                        "description": "The user."
                     },
                     "401": {
                         "content": {
@@ -17192,7 +17352,7 @@
                                 }
                             }
                         },
-                        "description": "User resource updated",
+                        "description": "The user, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -17313,7 +17473,7 @@
                                 }
                             }
                         },
-                        "description": "OfferedRoleCollection resource"
+                        "description": "The offered role list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -17398,7 +17558,7 @@
                                 }
                             }
                         },
-                        "description": "User resource created",
+                        "description": "The user, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -17505,7 +17665,15 @@
                                 }
                             }
                         },
-                        "description": "RoleGrantProposal resource created",
+                        "description": "The role grant proposal this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -17622,7 +17790,15 @@
                                 }
                             }
                         },
-                        "description": "Role resource created",
+                        "description": "The role, now held by this person. `Location` gives the address of the grant; it is the address `DELETE` uses to take the role away.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -17734,7 +17910,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Role resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -17841,7 +18017,7 @@
                                 }
                             }
                         },
-                        "description": "WarehouseCollection resource"
+                        "description": "The warehouse list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -17911,7 +18087,15 @@
                                 }
                             }
                         },
-                        "description": "Warehouse resource created",
+                        "description": "The warehouse this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -18000,7 +18184,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Warehouse resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -18093,7 +18277,7 @@
                                 }
                             }
                         },
-                        "description": "Warehouse resource"
+                        "description": "The warehouse."
                     },
                     "401": {
                         "content": {
@@ -18187,7 +18371,7 @@
                                 }
                             }
                         },
-                        "description": "Warehouse resource updated",
+                        "description": "The warehouse, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -18296,7 +18480,7 @@
                                 }
                             }
                         },
-                        "description": "StorageLocationCollection resource"
+                        "description": "The storage location list. It is not paged: `next_cursor` and `previous_cursor` are always null."
                     },
                     "401": {
                         "content": {
@@ -18390,7 +18574,15 @@
                                 }
                             }
                         },
-                        "description": "StorageLocation resource created",
+                        "description": "The storage location this request created. `Location` gives its address.",
+                        "headers": {
+                            "Location": {
+                                "description": "The address of what this request created.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "links": {}
                     },
                     "401": {
@@ -18502,7 +18694,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "StorageLocation resource deleted"
+                        "description": "Done. The answer has no body."
                     },
                     "401": {
                         "content": {
@@ -18619,7 +18811,7 @@
                                 }
                             }
                         },
-                        "description": "StorageLocation resource updated",
+                        "description": "The storage location, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -18728,7 +18920,7 @@
                                 }
                             }
                         },
-                        "description": "StorageLocation resource created",
+                        "description": "The storage location, as saved.",
                         "links": {}
                     },
                     "401": {
@@ -18824,7 +19016,7 @@
                                 }
                             }
                         },
-                        "description": "Warehouse resource created",
+                        "description": "The warehouse, as saved.",
                         "links": {}
                     },
                     "401": {
