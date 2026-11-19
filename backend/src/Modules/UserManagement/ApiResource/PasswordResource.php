@@ -7,6 +7,7 @@ namespace App\Modules\UserManagement\ApiResource;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\UserManagement\ApiResource\State\ChangePasswordProcessor;
 use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
@@ -100,7 +101,14 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/me/password',
             name: 'ChangePassword',
             status: 200,
-            openapi: new OpenApiOperation(operationId: 'ChangePassword'),
+            // BK-18 R18-h C1: this operation's own refusals beyond the derived set (its `Errors` cell). The decorator
+            // keeps each description and gives it the house problem shape (`App\Platform\Http\ProblemResponses`).
+            openapi: new OpenApiOperation(
+                operationId: 'ChangePassword',
+                responses: [
+                    '429' => new OpenApiResponse(description: 'This account\'s password was changed too many times recently. Wait before changing it again; no wait time is given.'),
+                ],
+            ),
             input: ChangePasswordInput::class,
             denormalizationContext: [
                 // API-9 / B-3. The spec-level clause stops a field being

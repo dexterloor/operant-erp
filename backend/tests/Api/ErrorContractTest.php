@@ -6,9 +6,12 @@ namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Problem\ProblemType;
 use App\Platform\Security\PermissionRequirement;
 use App\Platform\Security\PermissionRequirements;
 use App\Tests\Support\ContractDocument;
+use App\Tests\Support\DeclaredRefusals;
+use App\Tests\Support\ErrorContractRules;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
 
@@ -20,6 +23,14 @@ use Symfony\Component\Uid\Uuid;
 final class ErrorContractTest extends PurchaseOrderTestCase
 {
     use ArchivedRowSubjects;
+    use DeclaredRefusals;
+
+    /**
+     * Every problem document the probes received, with its label, for the body check (BK-18 R18-h C1, T-3).
+     *
+     * @var list<array{0: string, 1: array<string, mixed>}>
+     */
+    private array $problemBodies = [];
 
     /** The fourth probe's label: clause 15's write on a soft-deleted row (ST-9). */
     private const STATEFUL_PROBE = 'soft-deleted row, ST-9';
@@ -107,8 +118,8 @@ final class ErrorContractTest extends PurchaseOrderTestCase
         $catalogue = array_keys(ContractDocument::problemCatalogue());
         self::assertGreaterThan(10, \count($catalogue), '§5.2\'s catalogue parsed to almost nothing.');
 
-        [$always, $keyed] = self::universalSentence($catalogue);
-        $tokenGated = self::tokenGatedClause($catalogue);
+        [$always, $keyed] = ErrorContractRules::universalSentence($catalogue);
+        $tokenGated = ErrorContractRules::tokenGatedClause($catalogue);
         $rows = ContractDocument::operationRows();
         self::assertNotSame([], $rows, '§4.2 yielded no rows, so half 1 would be vacuous.');
 
@@ -116,11 +127,11 @@ final class ErrorContractTest extends PurchaseOrderTestCase
         $named = [];
         $cellFaults = [];
         foreach ($rows as $operationId => $row) {
-            $cell = self::cellTypes($row['errors']);
+            $cell = ErrorContractRules::cellTypes($row['errors']);
             foreach (array_diff($cell, $catalogue) as $unknown) {
                 $cellFaults[] = $operationId.' names `'.$unknown.'`, which is not in §5.2';
             }
-            foreach (array_intersect($cell, self::universalFor($operationId, $row['path'], $always, $keyed, $tokenGated)) as $universal) {
+            foreach (array_intersect($cell, ErrorContractRules::universalFor($operationId, $row['path'], $always, $keyed, $tokenGated)) as $universal) {
                 $cellFaults[] = $operationId.' names universal `'.$universal.'`';
             }
             $named[$operationId] = $cell;
@@ -137,6 +148,9 @@ final class ErrorContractTest extends PurchaseOrderTestCase
         foreach ($this->archivedRowWriteAnswers() as $name => $answer) {
             self::assertArrayHasKey($name, $registry, $name.' was driven by the fourth probe and is not in the registry.');
             $stateful[$name] = self::problemTypeOf($answer['contentType'], $answer['content']);
+            if (null !== $stateful[$name]) {
+                $this->problemBodies[] = [$name.' ('.self::STATEFUL_PROBE.')', (array) json_decode($answer['content'], true)];
+            }
         }
         self::assertNotSame([], $stateful, 'The fourth probe drove no soft-deleted-row write, so half 2 observes no stateful refusal.');
 
@@ -144,7 +158,7 @@ final class ErrorContractTest extends PurchaseOrderTestCase
         $observations = [];
         foreach ($registry as $name => $operation) {
             self::assertArrayHasKey($name, $named, $name.' is built and has no §4.2 row.');
-            $allowed[$name] = [...self::universalFor($name, $rows[$name]['path'], $always, $keyed, $tokenGated), ...$named[$name]];
+            $allowed[$name] = [...ErrorContractRules::universalFor($name, $rows[$name]['path'], $always, $keyed, $tokenGated), ...$named[$name]];
 
             foreach ($this->probe($operation) as $probe => $type) {
                 $observations[] = [$name, $probe, $type];
@@ -160,7 +174,7 @@ final class ErrorContractTest extends PurchaseOrderTestCase
         // for its operation — otherwise that operation's cell is not under test.
         $reached = [];
         foreach ($stateful as $name => $type) {
-            if (null !== $type && !\in_array($type, self::universalFor($name, $rows[$name]['path'], $always, $keyed, $tokenGated), true)) {
+            if (null !== $type && !\in_array($type, ErrorContractRules::universalFor($name, $rows[$name]['path'], $always, $keyed, $tokenGated), true)) {
                 $reached[] = $name;
             }
         }
@@ -176,6 +190,24 @@ final class ErrorContractTest extends PurchaseOrderTestCase
         }
 
         self::assertSame([], self::undeclared($observations, $allowed), '§5.2: an operation returned a non-universal type its Errors cell does not name.');
+
+        // T-3 (BK-18 R18-h C1): answerable => declared. Every status a probe got must be listed on that operation in the
+        // published spec, in the house shape; and every body must fit `Problem`. 405/406/415 answer how the request was
+        // sent and are stated once for the whole API, so they are not asked per operation (the "unacceptable Accept"
+        // probe's 406 is one of them).
+        $asked = 0;
+        foreach ($observations as [$name, $probe, $type]) {
+            $status = ProblemType::from($type)->status();
+            if (!\in_array($status, self::TRANSPORT_STATUSES, true)) {
+                $this->assertSpecDeclaresRefusal($name, $status);
+                ++$asked;
+            }
+        }
+        self::assertGreaterThan(\count($registry), $asked, 'Almost no probe answer was a per-operation refusal, so the spec was not asked about any.');
+        self::assertGreaterThan(\count($registry), \count($this->problemBodies), 'The probes collected almost no problem bodies.');
+        foreach ($this->problemBodies as [$label, $body]) {
+            $this->assertBodyFitsProblem($body, $label);
+        }
     }
 
     /**
@@ -199,82 +231,6 @@ final class ErrorContractTest extends PurchaseOrderTestCase
     private static function undeclaredEntry(string $name, string $probe, string $type): string
     {
         return $name.' ('.$probe.') returned `'.$type.'`';
-    }
-
-    /**
-     * §5.2's sentence: the types before "are **universal**", and the types after
-     * "plus" that are universal only where `ContractDocument::headerIsRequiredFor()`.
-     *
-     * @param list<string> $catalogue
-     *
-     * @return array{0: list<string>, 1: list<string>}
-     */
-    private static function universalSentence(array $catalogue): array
-    {
-        // Whitespace folded first: the sentence is wrapped across lines.
-        $section = (string) preg_replace('/\s+/', ' ', ContractDocument::sectionBetween('### 5.2 ', '### 5.2a'));
-        $start = strpos($section, '**Which of these are universal');
-        self::assertNotFalse($start, '§5.2\'s universal sentence was not found.');
-
-        $sentence = substr($section, $start, (int) strpos($section, 'already declares.', $start) - $start);
-        $pivot = strpos($sentence, 'are **universal**');
-        $plus = strpos($sentence, 'plus ');
-        $on = strpos($sentence, ' on exactly the operations');
-        self::assertTrue(false !== $pivot && false !== $plus && false !== $on && $pivot < $plus && $plus < $on, '§5.2\'s universal sentence no longer has the shape this parser reads.');
-
-        $always = array_values(array_intersect(self::cellTypes(substr($sentence, 0, $pivot)), $catalogue));
-        $keyed = array_values(array_intersect(self::cellTypes(substr($sentence, $plus, $on - $plus)), $catalogue));
-
-        self::assertNotSame([], $always, 'The universal sentence yielded no type.');
-        self::assertNotSame([], $keyed, 'The universal sentence yielded no header-conditional type.');
-
-        return [$always, $keyed];
-    }
-
-    /**
-     * §5.2's third clause, corrected 2026-09-14 (C5 row 16): the types universal
-     * on exactly the operations whose §4.2 `Path` is outside `/auth/`.
-     *
-     * @param list<string> $catalogue
-     *
-     * @return list<string>
-     */
-    private static function tokenGatedClause(array $catalogue): array
-    {
-        $section = (string) preg_replace('/\s+/', ' ', ContractDocument::sectionBetween('### 5.2 ', '### 5.2a'));
-        $marker = ' is universal on exactly the operations whose §4.2 `Path` is outside `/auth/`**';
-        $end = strpos($section, $marker);
-        $start = false === $end ? false : strrpos(substr($section, 0, $end), '**And ');
-        self::assertTrue(false !== $end && false !== $start, '§5.2\'s path-conditional universal clause was not found, or no longer has the shape this parser reads.');
-
-        $types = array_values(array_intersect(self::cellTypes(substr($section, $start, $end - $start)), $catalogue));
-        self::assertNotSame([], $types, '§5.2\'s path-conditional universal clause yielded no catalogued type.');
-
-        return $types;
-    }
-
-    /**
-     * @param list<string> $always
-     * @param list<string> $keyed
-     * @param list<string> $tokenGated
-     *
-     * @return list<string>
-     */
-    private static function universalFor(string $operationId, string $path, array $always, array $keyed, array $tokenGated): array
-    {
-        return [
-            ...$always,
-            ...(ContractDocument::headerIsRequiredFor($operationId) ? $keyed : []),
-            ...(str_starts_with($path, '/auth/') ? [] : $tokenGated),
-        ];
-    }
-
-    /** @return list<string> */
-    private static function cellTypes(string $text): array
-    {
-        preg_match_all('/`([a-z]+(?:-[a-z]+)*)`/', $text, $matches);
-
-        return array_values(array_unique($matches[1]));
     }
 
     /**
@@ -329,8 +285,12 @@ final class ErrorContractTest extends PurchaseOrderTestCase
     private function problemType(): ?string
     {
         $response = $this->client()->getResponse();
+        $type = self::problemTypeOf((string) $response->headers->get('Content-Type'), (string) $response->getContent());
+        if (null !== $type) {
+            $this->problemBodies[] = [(string) $response->getStatusCode().' '.$type, (array) json_decode((string) $response->getContent(), true)];
+        }
 
-        return self::problemTypeOf((string) $response->headers->get('Content-Type'), (string) $response->getContent());
+        return $type;
     }
 
     /** The problem type slug of one answer, or null when the answer is not a problem document. */

@@ -6,10 +6,13 @@ namespace App\Tests\Auth;
 
 use App\Modules\UserManagement\Domain\SealsIdentities;
 use App\Modules\UserManagement\Infrastructure\AccessTokenIssuer;
+use App\Modules\UserManagement\Infrastructure\PreAuthBudgets;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\SharedKernel\ValueObject\AuditEvent;
 use App\Tests\Support\CountingSeal;
+use App\Tests\Support\DeclaredRefusals;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Clock\ClockInterface;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Clock\Test\ClockSensitiveTrait;
 use Symfony\Component\Uid\Uuid;
@@ -25,6 +28,7 @@ use Symfony\Component\Uid\Uuid;
 final class PasswordResetRedeemTest extends AuthTestCase
 {
     use ClockSensitiveTrait;
+    use DeclaredRefusals;
 
     private const SLUG = self::SLUG_PREFIX.'redeem';
 
@@ -66,6 +70,29 @@ final class PasswordResetRedeemTest extends AuthTestCase
         self::assertSame(self::EMAIL, $rows[0]['actor_label']);
         self::assertNull($rows[0]['subject_type']);
         self::assertSame(['purpose' => 'reset'], json_decode((string) $rows[0]['metadata'], true));
+    }
+
+    /**
+     * **A spent network budget is a 429, and the published spec lists it** (BK-18 R18-h C1, T-3). Step 1 spends sign-in's
+     * per-network budget before any link is read, so the link need not exist: a spent budget refuses whatever is sent.
+     * The budget is spent through the store itself, on an address no other test uses.
+     */
+    #[Test]
+    public function aSpentNetworkBudgetIsRefusedAsDeclared(): void
+    {
+        $budgets = self::getContainer()->get('test.auth.budgets');
+        \assert($budgets instanceof PreAuthBudgets);
+        $clock = self::getContainer()->get(ClockInterface::class);
+        \assert($clock instanceof ClockInterface);
+        for ($i = 0; $i < PreAuthBudgets::IP_CEILING; ++$i) {
+            $budgets->consumeIpBudget('198.51.100.29/32', $clock->now());
+        }
+
+        $this->redeem('not-a-link', self::NEW, '198.51.100.29');
+
+        self::assertSame(429, $this->httpStatus(), $this->responseContent());
+        self::assertSame('urn:erp:problem:too-many-attempts', $this->json()['type'] ?? null);
+        $this->assertSpecDeclaresRefusal('CreatePasswordResetRedemption', 429);
     }
 
     /**

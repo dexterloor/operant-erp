@@ -13,6 +13,7 @@ use App\Platform\Http\Idempotency\IdempotencyEnvelopeStore;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Tenancy\CurrentTenant;
 use App\Platform\Tenancy\TenantContext;
+use App\Tests\Support\DeclaredRefusals;
 use Doctrine\DBAL\Driver\AbstractException;
 use Doctrine\DBAL\Exception\DeadlockException;
 use Doctrine\ORM\EntityManagerInterface;
@@ -36,6 +37,8 @@ use Symfony\Component\Uid\Uuid;
  */
 final class BulkArchivalCoordinatorTest extends PurchaseOrderTestCase
 {
+    use DeclaredRefusals;
+
     #[Test]
     public function aMemberLeavingAnOrmChangeScheduledIsAServerErrorAndPersistsNothing(): void
     {
@@ -203,6 +206,9 @@ final class BulkArchivalCoordinatorTest extends PurchaseOrderTestCase
             self::assertSame(BulkArchival::CONTENTION_RULE, $problem->getRule());
             self::assertSame(BulkArchival::CONTENTION_MESSAGE, $problem->getDetail());
         }
+        // T-3 (BK-18 R18-h C1): in-process, coordinator-level; asserted for `CreateBulkArchival` only. Its twin
+        // `CreateBulkRestoration` shares the coordinator, but no drive here reaches it through its own operation.
+        $this->assertSpecDeclaresRefusal('CreateBulkArchival', 409);
     }
 
     /** @return array{0: string, 1: string} the given id and a fresh one, byte-sorted (the coordinator's lock order) */

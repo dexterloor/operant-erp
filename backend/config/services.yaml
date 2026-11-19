@@ -516,6 +516,14 @@ services:
         decoration_priority: 1
         arguments: ['@.inner']
 
+    # BK-18 R18-h C1: every operation's published refusals are the statuses it can answer, in the house problem shape
+    # (`Problem`), and the vendor's 400/422/404 defaults and its `Error`/`ConstraintViolation` schemas are gone. It
+    # decorates the OpenAPI factory only: the docs endpoint and the contract export read it, nothing at runtime does (see
+    # the class docblock).
+    App\Platform\Http\ProblemResponses:
+        decorates: api_platform.openapi.factory
+        arguments: ['@.inner']
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test

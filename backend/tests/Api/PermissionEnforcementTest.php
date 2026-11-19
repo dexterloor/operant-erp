@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\HttpOperation;
 use App\Modules\UserManagement\Application\CurrentUserReader;
 use App\Platform\Security\PermissionRequirement;
 use App\Platform\Security\PermissionRequirements;
+use App\Tests\Support\DeclaredRefusals;
 use App\Tests\Support\PermissionSweepCases;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Routing\RouterInterface;
@@ -27,6 +28,8 @@ use Symfony\Component\Uid\Uuid;
  */
 final class PermissionEnforcementTest extends ApiTestCase
 {
+    use DeclaredRefusals;
+
     /**
      * The routes under `/api/v1` that answer without a token **and have been
      * looked at**, named individually because that is what "reviewed" means.
@@ -307,6 +310,9 @@ final class PermissionEnforcementTest extends ApiTestCase
                     .substr((string) $this->client()->getResponse()->getContent(), 0, 400));
                 self::assertSame('urn:erp:problem:permission-denied', $this->json()['type'], $case['label']);
                 self::assertSame($required, $this->json()['required_permission'], $case['label']);
+                // T-3 (BK-18 R18-h C1): the 403 just answered is listed on this operation in the published spec. The
+                // derived operations are in this domain too (one case per resource key).
+                $this->assertSpecDeclaresRefusal((string) $name, 403);
             }
             }
         }

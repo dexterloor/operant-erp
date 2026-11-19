@@ -7,6 +7,7 @@ namespace App\Modules\UserManagement\ApiResource;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\UserManagement\ApiResource\State\IssueTokenProcessor;
 use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
@@ -51,7 +52,15 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/auth/token',
             name: 'IssueToken',
             status: 200,
-            openapi: new OpenApiOperation(operationId: 'IssueToken'),
+            // BK-18 R18-h C1: this operation's own refusals beyond the derived set (its `Errors` cell). The decorator
+            // keeps each description and gives it the house problem shape (`App\Platform\Http\ProblemResponses`).
+            openapi: new OpenApiOperation(
+                operationId: 'IssueToken',
+                responses: [
+                    '401' => new OpenApiResponse(description: 'Sign-in refused. The same answer is given whatever the reason (a workspace, email or password that does not match, or an account or workspace that cannot sign in), so it does not say which.'),
+                    '429' => new OpenApiResponse(description: 'Too many sign-in attempts. `type` says which limit applied: too many attempts from this network, or sign-in paused for this workspace and email after repeated failures. Wait before trying again; no wait time is given.'),
+                ],
+            ),
             input: IssueTokenInput::class,
             denormalizationContext: [
                 // API-9 / B-3. The spec-level clause stops a field being

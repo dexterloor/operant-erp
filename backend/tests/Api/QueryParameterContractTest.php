@@ -7,6 +7,7 @@ namespace App\Tests\Api;
 use ApiPlatform\Metadata\HttpOperation;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\ContractDocument;
+use App\Tests\Support\DeclaredRefusals;
 use App\Tests\Support\IaDocument;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -30,6 +31,7 @@ use PHPUnit\Framework\Attributes\Test;
  */
 final class QueryParameterContractTest extends PurchaseOrderTestCase
 {
+    use DeclaredRefusals;
     use ListOperationFixtures;
     use OperationSuccessRecipes;
 
@@ -346,6 +348,8 @@ final class QueryParameterContractTest extends PurchaseOrderTestCase
             $defect = $this->refusalDefect(self::PROBE);
             if (null === $defect) {
                 ++$refused;
+                // T-3 (BK-18 R18-h C1): the 422 just answered is listed on this operation in the published spec.
+                $this->assertSpecDeclaresRefusal($name, 422);
             } else {
                 $defects[] = \sprintf('%s accepted `?%s`: %s', $name, self::PROBE, $defect);
             }

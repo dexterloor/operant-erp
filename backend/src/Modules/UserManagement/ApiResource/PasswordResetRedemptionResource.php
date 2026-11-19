@@ -7,6 +7,7 @@ namespace App\Modules\UserManagement\ApiResource;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\UserManagement\ApiResource\State\CreatePasswordResetRedemptionProcessor;
 use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
@@ -29,7 +30,15 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/auth/password-resets/redemption',
             name: 'CreatePasswordResetRedemption',
             status: 200,
-            openapi: new OpenApiOperation(operationId: 'CreatePasswordResetRedemption'),
+            // BK-18 R18-h C1: this operation's own refusals beyond the derived set (its `Errors` cell). The decorator
+            // keeps each description and gives it the house problem shape (`App\Platform\Http\ProblemResponses`).
+            openapi: new OpenApiOperation(
+                operationId: 'CreatePasswordResetRedemption',
+                responses: [
+                    '401' => new OpenApiResponse(description: 'This link can\'t be used. The same answer is given for every reason (for example a link that is wrong, expired or already used, or an account or workspace that can no longer sign in), so it does not say which.'),
+                    '429' => new OpenApiResponse(description: 'Too many attempts from this network. This limit is shared with signing in. Wait before trying again; no wait time is given.'),
+                ],
+            ),
             input: CreatePasswordResetRedemptionInput::class,
             denormalizationContext: [
                 // API-9 / B-3: only a deny-unknown deserializer stops an undeclared field being accepted.

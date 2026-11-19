@@ -11,6 +11,7 @@ use App\Modules\UserManagement\Infrastructure\AuthTrailWriter;
 use App\Platform\Tenancy\Entity\Tenant;
 use App\SharedKernel\ValueObject\AuditEvent;
 use App\Tests\Api\TransactionBoundaryTest;
+use App\Tests\Support\DeclaredRefusals;
 use App\Tests\Support\SecurityModelDocument;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Clock\MockClock;
@@ -66,6 +67,7 @@ use Symfony\Component\PasswordHasher\PasswordHasherInterface;
 final class PasswordChangeTest extends AuthTestCase
 {
     use ClockSensitiveTrait;
+    use DeclaredRefusals;
 
     private const SLUG = self::SLUG_PREFIX.'credential';
 
@@ -702,6 +704,8 @@ final class PasswordChangeTest extends AuthTestCase
 
         self::assertSame(429, $this->httpStatus(), $this->bodyForFailure());
         self::assertSame('urn:erp:problem:too-many-attempts', $this->json()['type'] ?? null);
+        // T-3 (BK-18 R18-h C1): the 429 just answered is listed on ChangePassword in the published spec.
+        $this->assertSpecDeclaresRefusal('ChangePassword', 429);
 
         self::assertCount($ceiling, $this->credentialTrail(),
             'The throttled request wrote a row. It refused the action, so there is nothing to record.');
