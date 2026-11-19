@@ -748,7 +748,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             }
 
             // BK-18 R18-a: every row id this operation declares is a canonical uuid.
-            $kind = $declared[(string) preg_replace('/ \(limit=1\)$/', '', (string) $name)] ?? null;
+            $kind = $declared[self::operationOf((string) $name)] ?? null;
             $ids = [];
             if ('object' === $kind) {
                 $ids['$.id'] = $body['id'] ?? null;
@@ -796,6 +796,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 $expected[] = $operationId.' (limit=1)';
             }
         }
+        // BK-18 R18-f/g C1: each extra variant of a declaring operation must have had an id checked too (no limit=1 twin).
+        foreach (array_keys($this->extraDrives()) as $extra) {
+            if (isset($declared[self::operationOf($extra)])) {
+                $expected[] = $extra;
+            }
+        }
         $pinFailures = [];
         foreach (self::LIST_PAGES_EMPTY_BY_RECIPE as $key) {
             if (!\in_array($key, $expected, true)) {
@@ -831,21 +837,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * `OpenApiContractTest::everyServedListOfObjectsIsItsElementClass`; the pin only means this test has not yet added its
      * on-the-wire check there.
      *
-     * Owed (R18-c D-5): drive each node from its recipe before 2b; when one is reached this pin goes red — delete the entry
-     * then, never re-key it. Trigger: the next commit that edits any of the nine success recipes ListAuditRecords,
-     * IssueCreditNote, IssueAdjustmentCreditNote, GetCreditNote, ListCreditNotes, CreateSalesReturn, GetSalesReturn,
-     * ListSalesReturns, CreateAdjustmentDecision (`tests/Api/OperationSuccessRecipes.php`), or R18-g / 2b, whichever is
-     * first.
+     * Emptied by {@see self::extraDrives()} (BK-18 R18-f/g C1, which closed R18-c D-5); a node no driven body reaches is
+     * red. A new entry needs its reason, and a recipe or an extra drive is preferred over one.
      *
      * @var array<string, string>
      */
-    private const NESTED_NODES_NO_RECIPE_REACHES = [
-        'AuditRecordCollection.items[].actor' => 'the ListAuditRecords recipe\'s rows carry a null actor (measured 2026-11-13)',
-        'CreditNote.lines[].return_decisions[]' => 'no driven CreditNote body carries a return decision (empty list, measured 2026-11-13): the four CreditNote recipes record none, and CreateAdjustmentDecision, which records one, answers a SalesReturn',
-        'CreditNote.lines[].return_decisions[].recorded_by' => 'inside an unreached return decision (above)',
-        'CreditNote.lines[].return_decisions[].sales_return' => 'inside an unreached return decision (above)',
-        'SalesReturn.credit_target' => 'null in every driven SalesReturn body (measured 2026-11-13): non-null only while the return owes a credit on a live, unpaid invoice (`SalesReturnReader`), and no recipe reads a return in that state',
-    ];
+    private const NESTED_NODES_NO_RECIPE_REACHES = [];
 
     /**
      * BK-18 R18-c T-C2. Every driven 2xx JSON body, walked together with its operation's 2xx schema (by operationId, from
@@ -926,7 +923,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         $components = [];
         $nodes = [];
         foreach ($bodies as $name => $body) {
-            $operation = (string) preg_replace('/ \(limit=1\)$/', '', (string) $name);
+            $operation = self::operationOf((string) $name);
             if (null === $body || !isset($bodySchema[$operation])) {
                 continue;
             }
@@ -1164,6 +1161,10 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * each answered the status its recipe drives for — the subject here is the
      * body, so a refusal's body would be the wrong subject.
      *
+     * Then each {@see self::extraDrives()} variant, keyed `<operationId>#<variant>`, prepared and driven in its own loop
+     * AFTER every recipe (so no recipe's fixtures or body change), with no ` (limit=1)` twin (final RED L-4). Every
+     * caller maps a driven name to its operationId through {@see self::operationOf()}.
+     *
      * @return array<string, array<mixed>|null>
      */
     private function drivenBodies(): array
@@ -1218,7 +1219,102 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             }
         }
 
+        // The recipes end with `ChangePassword`, which raises the actor's session floor (W1-b), so the extras act as a
+        // fresh principal holding the rig's default set ({@see self::actAs()}), exactly as the recipes' actor did.
+        $this->actAs(self::TENANT_A);
+        foreach ($this->extraDrives() as $name => [$prepare, $drive]) {
+            self::assertArrayHasKey(self::operationOf($name), $registry, $name.' names no operation of the registry.');
+            [$status, $label] = $drive($prepare());
+            $content = $this->responseContent();
+            self::assertSame($status, $this->httpStatus(), \sprintf('%s (%s) was not driven to success: %s', $name, $label, substr($content, 0, 300)));
+            self::assertNotSame('', $content, $name.' answered '.$status.' with an empty body.');
+            $bodies[$name] = json_decode($content, true, flags: \JSON_THROW_ON_ERROR);
+        }
+
         return $bodies;
+    }
+
+    /**
+     * A driven body's name to its operationId: drops a ` (limit=1)` twin suffix and an extra variant's `#…` suffix.
+     */
+    private static function operationOf(string $name): string
+    {
+        return (string) preg_replace(['/ \(limit=1\)\z/', '/#[^#]*\z/'], '', $name);
+    }
+
+    /**
+     * BK-18 R18-f/g C1 (R18-c D-5): success variants the shared recipes do not reach, each driving one operation to a body
+     * that carries a nested node no recipe's body carries. Same `[prepare, drive]` shape as
+     * {@see OperationSuccessRecipes::successRecipes()} and the same fixtures (its `recipe*` methods). They are not recipe
+     * keys: every recipe consumer pins its keys to `TransactionBoundaryTest::contractOperations()`.
+     *
+     * - `ListAuditRecords#with-actor`: one record's History whose rows name a live user, so `items[].actor` is an object.
+     * - `GetCreditNote#with-return-decision`: an adjustment credit note one of whose lines a return decision (`same`)
+     *   covers, so `lines[].return_decisions[]` and its `recorded_by` / `sales_return` references are served.
+     * - `GetSalesReturn#owing-credit`: a return on a shipment with a live, unpaid invoice and no credit yet, so
+     *   `credit_target` is an object.
+     *
+     * Each uses its own `SO-25x000` series tag.
+     *
+     * @return array<string, array{0: callable(): array<string, mixed>, 1: callable(array<string, mixed>): array{0: int, 1: string}}>
+     */
+    private function extraDrives(): array
+    {
+        return [
+            'ListAuditRecords#with-actor' => [function (): array {
+                $order = Uuid::v4()->toRfc4122();
+                $actor = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Recipe History Actor')",
+                    [$actor, self::TENANT_A, 'recipe-history-'.$actor.'@example.test']);
+                foreach (['purchase_order.placed', 'authz.permission.denied'] as $i => $event) {
+                    $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                        INSERT INTO audit_log (id, tenant_id, event_type, actor_user_id, actor_label, subject_type, subject_id, occurred_at)
+                        VALUES (?::uuid, ?::uuid, ?, ?::uuid, 'Recipe History Actor', 'purchase_order', ?::uuid, '2026-03-05 09:00:00+00'::timestamptz + ?::int * interval '1 second')
+                        SQL, [Uuid::v4()->toRfc4122(), self::TENANT_A, $event, $actor, $order, $i]);
+                }
+
+                return ['order' => $order];
+            }, function (array $c): array {
+                $this->send('GET', '/audit-log/records?subject_type=purchase_order&subject_id='.$c['order']);
+
+                return [200, 'list one record\'s History whose rows name a live user'];
+            }],
+            'GetCreditNote#with-return-decision' => [fn (): array => $this->recipeStockedSalesWorkspace('SO-250000'), function (array $c): array {
+                $this->recipeRaiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $line = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/invoices', null, $this->recipeKey());
+                $invoice = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('POST', $invoice.'/credit-note-adjustments', ['reason' => 'damaged_goods_kept',
+                    'lines' => [['fulfilment_line_id' => $line, 'quantity' => '0.5']]], $this->recipeKey());
+                $adjustment = (string) $this->client()->getResponse()->headers->get('Location');
+                $adjustmentLine = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
+                    ['fulfilment_line_id' => $line, 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $this->recipeKey());
+                $return = (string) $this->json()['id'];
+                $this->send('POST', '/sales-returns/'.$return.'/adjustment-decisions', ['kind' => 'same',
+                    'sales_return_line_id' => $this->json()['lines'][0]['id'], 'credit_note_line_id' => $adjustmentLine, 'quantity' => '0.5'], $this->recipeKey());
+                $this->send('GET', $adjustment);
+
+                return [200, 'create, confirm, fulfil, invoice, adjust part, return it, record it as already credited, then read the adjustment'];
+            }],
+            'GetSalesReturn#owing-credit' => [fn (): array => $this->recipeStockedSalesWorkspace('SO-251000'), function (array $c): array {
+                $this->recipeRaiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $line = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/invoices', null, $this->recipeKey());
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
+                    ['fulfilment_line_id' => $line, 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $this->recipeKey());
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
+
+                return [200, 'create, confirm, fulfil, invoice, return part, then read the return while it owes a credit'];
+            }],
+        ];
     }
 
     /**
