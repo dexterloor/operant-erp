@@ -1000,3 +1000,50 @@ for (const strict of [false, true]) {
     });
   });
 }
+
+
+// delete-swap (delete-swap-final-red.md H-1 branch A1 + M-1; delete-swap-design.md Revision 1 (a) (f) (g) (h) (n) (r)): a 204 whose
+// own re-read answers 403/404 swaps the page to ST-4b/ST-5. Measured on the shipped code before this test was written (step 0):
+// focus moves ONCE, to the swapped h1 — `closeDelete`'s flushSync commits the pending swap together with the close (React's
+// unified sync lanes), so the page h1 is already gone when it would be focused — nothing says "was deleted" (as on the person
+// page; UX Q-UX-A open), and the router refreshes once (R-14b parity). Pinned here; the page was not changed for it.
+describe('Delete item — its own re-read hides the record (delete-swap, branch A1)', () => {
+  for (const [st, answer, heading] of [
+    [403, () => problem(403, 'permission-denied'), "You don't have access to items."],
+    [404, () => problem(404, 'not-found'), "We couldn't find that."],
+  ] as const) {
+    it(`a 204 whose re-read answers ${st}: focus moves once, to "${heading}"; nothing says it was deleted; one refresh; no dialog`, async () => {
+      const calls = stubFetch([empty(204), answer()]);
+      const u = userEvent.setup();
+      show();
+      await u.click(deleteButton()!);
+      const stops: string[] = [];
+      const rec = (e: FocusEvent) => {
+        const t = e.target as HTMLElement;
+        stops.push(`${t.tagName} ${t.textContent?.trim()}`);
+      };
+      document.addEventListener('focusin', rec);
+      try {
+        await u.click(confirm());
+        await screen.findByRole('heading', { level: 1, name: heading });
+        await new Promise((t) => setTimeout(t, 50));
+      } finally {
+        document.removeEventListener('focusin', rec);
+      }
+      // (h) every focus stop after the pressed button's own: exactly the swapped h1 (M-1: all elements, not only headings).
+      const pressed = stops.findIndex((s) => s.startsWith('BUTTON'));
+      expect(stops[pressed]).toBe('BUTTON Delete item');
+      expect(stops.slice(pressed + 1)).toEqual([`H1 ${heading}`]);
+      // (a)
+      expect(screen.getByRole('heading', { level: 1, name: heading })).toHaveFocus();
+      // (n)
+      expect(document.body.textContent).not.toContain(AFTER);
+      expect(document.body.textContent).not.toContain(AFTER_RESTORED);
+      // (r)
+      expect(nav.refresh).toHaveBeenCalledTimes(1);
+      // (f) / (g)
+      expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET']);
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  }
+});

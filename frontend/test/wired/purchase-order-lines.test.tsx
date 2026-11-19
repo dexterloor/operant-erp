@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }), usePathname: () => '/purchase-orders/x' }));
+const nav = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: nav.replace, refresh: nav.refresh }), usePathname: () => '/purchase-orders/x' }));
 import { PurchaseOrderPage, type PurchaseOrderPageProps } from '@/app/(app)/purchase-orders/[id]/PurchaseOrderPage';
 import type { PurchaseOrder, PurchaseOrderLine } from '@/lib/api/purchasing';
 import type { CatalogueChoice, CatalogueChoicesLoad, LinesLoad, WarehouseChoice } from '@/lib/purchasing/load';
@@ -56,6 +57,8 @@ const E8 = entry(8, { inventory_item: { id: 'a1b2c3d4-0000-4000-8000-00000000000
 const E9 = entry(9, { inventory_item: { id: 'a1b2c3d4-0000-4000-8000-000000000009', sku: 'GADGET-9', name: 'Gadget' }, unit_cost: '9.0000', currency_code: 'USD', unit_of_measure_code: 'BOX' });
 const CATALOGUE: CatalogueChoicesLoad = { kind: 'ok', entries: [E7, E8, E9] };
 const LINES: LinesLoad = { kind: 'ok', lines: [line(1), line(2)], nextCursor: null };
+/** A Deleted lines reading with one row, so the page draws the subsection (delete-swap). */
+const GONE_5: LinesLoad = { kind: 'ok', lines: [line(5, { archived_at: '2026-01-01T00:00:00Z' })], nextCursor: null };
 const NEW_LINE = line(3, { inventory_item: E8.inventory_item, quantity: '2.500000', quantity_outstanding: '2.500000', unit_cost: '3.2500' });
 
 const show = (over: Partial<PurchaseOrderPageProps> = {}) =>
@@ -651,5 +654,76 @@ describe('/purchase-orders/[id] — the line writes and what else is on the page
     expect(lineNumbers()).toEqual(['1', '2']);
     expect(screen.getByRole('button', { name: 'Delete line 2' })).toBeInTheDocument();
     expect(document.activeElement).not.toBe(document.body);
+  });
+});
+
+// delete-swap (delete-swap-final-red.md H-1 branch A1 + M-1; delete-swap-design.md Revision 1 (a) (f) (g) (h) (n) (r)): a 204 whose
+// own re-read answers 403/404 swaps the page to ST-4b/ST-5. Measured on the shipped code before this test was written (step 0):
+// focus moves ONCE, to the swapped h1 — `closeDelete`'s flushSync commits the pending swap together with the close (React's
+// unified sync lanes), so the page h1 is already gone when it would be focused — nothing says "was deleted" (as on the person
+// page; UX Q-UX-A open), and nothing refreshes the router (a line write never does). Pinned here; the page was not changed for it.
+describe('Delete line — its own re-read hides the record (delete-swap, branch A1)', () => {
+  for (const [st, answer, heading] of [
+    [403, () => problem(403, 'permission-denied'), "You don't have access to purchase orders."],
+    [404, () => problem(404, 'not-found'), "We couldn't find that."],
+  ] as const) {
+    it(`a 204 whose re-read answers ${st}: focus moves once, to "${heading}"; nothing says it was deleted; no refresh; no dialog`, async () => {
+      nav.refresh.mockClear();
+      const calls = stubFetch([empty(204), answer()]);
+      const u = userEvent.setup();
+      show({ canRestoreLine: true, deletedLines: GONE_5 });
+      // Deleted lines is drawn, so the restorable form of the sentence is the one a mistake would say.
+      expect(screen.getByRole('heading', { level: 3, name: 'Deleted lines' })).toBeInTheDocument();
+      const stops: string[] = [];
+      const rec = (e: FocusEvent) => {
+        const t = e.target as HTMLElement;
+        stops.push(`${t.tagName} ${t.textContent?.trim()}`);
+      };
+      document.addEventListener('focusin', rec);
+      try {
+        await u.click(screen.getByRole('button', { name: 'Delete line 2' }));
+        await screen.findByRole('heading', { level: 1, name: heading });
+        await new Promise((t) => setTimeout(t, 50));
+      } finally {
+        document.removeEventListener('focusin', rec);
+      }
+      // (h) every focus stop after the pressed button's own: exactly the swapped h1 (M-1: all elements, not only headings).
+      const pressed = stops.findIndex((s) => s.startsWith('BUTTON'));
+      expect(stops[pressed]).toBe('BUTTON Delete');
+      expect(stops.slice(pressed + 1)).toEqual([`H1 ${heading}`]);
+      // (a)
+      expect(screen.getByRole('heading', { level: 1, name: heading })).toHaveFocus();
+      // (n)
+      expect(document.body.textContent).not.toContain('Line 2 (SKU-2) was deleted. It can be restored from Deleted lines.');
+      expect(document.body.textContent).not.toContain('Line 2 (SKU-2) was deleted.');
+      // (r)
+      expect(nav.refresh).not.toHaveBeenCalled();
+      // (f) / (g)
+      expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET']);
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  }
+});
+
+// delete-swap-final-red.md M-2 (a shipped false sentence, fixed on both branches): a line Delete answered 204 whose order re-read
+// reads the draft DELETED (archived in another tab in between). The page drops the lines for a deleted order, so the Lines section
+// and its Deleted lines go, and the page's archived layout moves the lost focus to the page h1. The sentence is the placeless form:
+// "…It can be restored from Deleted lines." would name a subsection that is no longer on the page (`settleRestore`'s guard).
+describe('Delete line — the order re-read finds the draft deleted elsewhere (delete-swap M-2, T-L3)', () => {
+  it('a 204 whose order re-read reads the draft deleted: the page h1 has focus; the region says exactly "Line 2 (SKU-2) was deleted."; no element names Deleted lines as a place to restore from', async () => {
+    nav.refresh.mockClear();
+    const calls = stubFetch([empty(204), json(200, { ...DRAFT, archived_at: '2026-11-19T09:00:00Z' })]);
+    const u = userEvent.setup();
+    show({ canRestoreLine: true, deletedLines: GONE_5 });
+    expect(screen.getByRole('heading', { level: 3, name: 'Deleted lines' })).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Delete line 2' }));
+    await waitFor(() => expect(region()).toHaveTextContent('Line 2 (SKU-2) was deleted.'));
+    await new Promise((t) => setTimeout(t, 50));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Lines' })).toBeNull();
+    expect(region().textContent).toBe('Line 2 (SKU-2) was deleted.');
+    expect(document.body.textContent).not.toContain('It can be restored from Deleted lines.');
+    expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET']);
+    expect(nav.refresh).not.toHaveBeenCalled();
   });
 });

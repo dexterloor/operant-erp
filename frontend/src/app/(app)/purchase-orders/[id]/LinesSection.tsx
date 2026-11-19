@@ -258,12 +258,18 @@ export function LinesSection({ orderId, orderNumber, lines, status, currency, ca
 
   const settleDelete = (r: DeleteLineResult, l: PurchaseOrderLine) => {
     switch (r.kind) {
-      case 'deleted':
-        // FE-D1: commit (the re-read is on screen already), focus the heading, then speak.
+      case 'deleted': {
+        // FE-D1: commit (the re-read is on screen already), focus the Lines heading — only while it is on the page — then
+        // speak. delete-swap-final-red.md M-2 (`settleRestore`'s guard): a re-read that reads the draft deleted elsewhere
+        // removes this section and its Deleted lines (the page moves the lost focus to its h1), so the sentence names no place
+        // to restore from then.
         flushSync(() => setNotice(null));
-        heading.current?.focus();
-        announce(DELETE_LINE.after(l.line_number, l.inventory_item.sku, deletedShown.current));
+        const h = heading.current;
+        const on = h !== null && h.isConnected;
+        if (on) h.focus();
+        announce(DELETE_LINE.after(l.line_number, l.inventory_item.sku, on && deletedShown.current));
         return;
+      }
       case 'refused-archived':
         setNotice(null);
         onRefusedStale?.(r.message !== '' ? r.message : REFUSED_WITHOUT_MESSAGE);
