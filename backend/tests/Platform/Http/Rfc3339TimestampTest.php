@@ -28,9 +28,29 @@ final class Rfc3339TimestampTest extends TestCase
             self::assertSame(1790812800, Rfc3339Timestamp::parse($value)?->getTimestamp(), $value);
         }
 
-        // The edges Postgres still takes: the first instant of year 1 in UTC, the largest displacement, year 9999.
-        foreach (['0001-01-01T00:00:00Z', '0001-01-01T15:59:00+15:59', '2026-01-01T00:00:00-15:59', '9999-12-31T23:59:59-15:59'] as $value) {
+        // The edges Postgres still takes and every reader can read back: the first instant of year 1 in UTC, the largest
+        // displacement, the last instant of year 9999 in UTC (as `Z`, and at the widest offset east, still 9999 in UTC).
+        foreach (['0001-01-01T00:00:00Z', '0001-01-01T15:59:00+15:59', '2026-01-01T00:00:00-15:59', '9999-12-31T23:59:59Z', '9999-12-31T23:59:59+15:59'] as $value) {
             self::assertNotNull(Rfc3339Timestamp::parse($value), $value);
+        }
+    }
+
+    /**
+     * **Leniency kept on purpose (G-105):** RFC 3339 names none of these, but each is a numeric offset or `Z` that PHP
+     * reads unambiguously, every writer stores PHP's reading, and refusing them would refuse requests that work. A strike
+     * to the strict form `±hh:mm` moves the `+05` and `+0000` rows into `refused()`.
+     */
+    #[Test]
+    public function aNumericOffsetWithoutItsColonOrAfterOneSpaceIsStillAccepted(): void
+    {
+        foreach ([
+            '2026-10-01T05:00:00+05' => 1790812800,
+            '2026-10-01T00:00:00+0000' => 1790812800,
+            '2026-10-01T00:00:00 Z' => 1790812800,
+            "2026-10-01T00:00:00\tZ" => 1790812800,
+            '2026-10-01T00:00:00z' => 1790812800,
+        ] as $value => $instant) {
+            self::assertSame($instant, Rfc3339Timestamp::parse($value)?->getTimestamp(), $value);
         }
     }
 
@@ -54,6 +74,31 @@ final class Rfc3339TimestampTest extends TestCase
         yield 'offset +16:00' => ['2026-01-01T00:00:00+16:00'];
         yield 'offset -16:00' => ['2026-01-01T00:00:00-16:00'];
         yield 'offset +99:59' => ['2026-01-01T00:00:00+99:59'];
+        // Accepted by PHP's `P` without a warning, outside RFC 3339, and read differently by Postgres or refused by it
+        // (G-105, measured 2026-11-18): a zone name, abbreviation or military letter is refused wherever it ends.
+        yield 'UTC zone name' => ['2026-10-01T00:00:00UTC'];
+        yield 'EST' => ['2026-10-01T00:00:00EST'];
+        yield 'region name' => ['2026-10-01T00:00:00Europe/Paris'];
+        yield 'GMT+2' => ['2026-10-01T00:00:00GMT+2'];
+        yield 'military letter' => ['2026-10-01T00:00:00a'];
+        // Names whose text ends like a valid zone -- in `Z`, in two digits, in `HH:MM` -- so the rule is anchored to the
+        // seconds, not to the end alone.
+        yield 'NZ, ending in Z' => ['2026-10-01T00:00:00NZ'];
+        yield 'GMT+12, ending in two digits' => ['2026-10-01T00:00:00GMT+12'];
+        yield 'Etc/GMT+12, a region ending in two digits' => ['2026-10-01T00:00:00Etc/GMT+12'];
+        yield 'GMT+05:00, ending in an offset' => ['2026-10-01T00:00:00GMT+05:00'];
+        yield 'GMT+02:00, ending in an offset' => ['2026-10-01T00:00:00GMT+02:00'];
+        yield 'GMT+02, ending in two digits' => ['2026-10-01T00:00:00GMT+02'];
+        yield 'Etc/GMT-14' => ['2026-10-01T00:00:00Etc/GMT-14'];
+        // Numeric, but not `±hh:mm`, `±hhmm` or `±hh` (accepted by PHP before G-105; `+020` is read as +00:20).
+        yield 'one-digit hour offset' => ['2026-10-01T00:00:00+5'];
+        yield 'one-digit hour offset with minutes' => ['2026-10-01T00:00:00+5:00'];
+        yield 'offset with seconds' => ['2026-10-01T00:00:00+02:00:00'];
+        yield 'offset with one minute digit' => ['2026-10-01T00:00:00+02:0'];
+        yield 'three-digit offset' => ['2026-10-01T00:00:00+020'];
+        // Postgres stores year 10000; `new \DateTimeImmutable()` cannot read it back, so every later read was a 500.
+        yield 'past 9999 in UTC by one minute' => ['9999-12-31T23:59:59-00:01'];
+        yield 'past 9999 at the widest offset' => ['9999-12-31T23:59:59-15:59'];
     }
 
     #[Test]
