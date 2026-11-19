@@ -65,6 +65,30 @@ const UNIT_HINT = "Once stock, orders or supplier catalogues record quantities o
 /** A distinctive fixture for `ItemWriter::UNIT_IN_USE`: the page shows the server's sentence as sent, whatever it is. */
 const IN_USE = 'Fixture: this unit is in use, so it was refused.';
 
+// Stock ST-1 (stock-plan.md §2.4, §6.7; stock-st1-red.md L-11, L-12): one link to this item's movements, only for a
+// ListStockMovements holder, on a live AND an archived item (an archived item's movements are reachable only from here
+// without a picker). A link, not a stock panel: nothing else on the page moves.
+describe('/items/[id] — the link to this item’s movements (stock ST-1)', () => {
+  const MOVEMENTS = 'Stock movements of this item';
+  it('a ListStockMovements holder gets the link, href exactly /stock-movements?inventory_item_id=<id>; without it there is none', () => {
+    const { unmount } = renderWired(<ItemPage initial={BOLT} canEdit={false} canRestore={false} canListMovements />);
+    expect(screen.getByRole('link', { name: MOVEMENTS })).toHaveAttribute('href', `/stock-movements?inventory_item_id=${IID}`);
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+    unmount();
+    renderWired(<ItemPage initial={BOLT} canEdit={false} canRestore={false} />);
+    expect(screen.queryByRole('link', { name: MOVEMENTS })).toBeNull();
+  });
+
+  it('the link renders on an archived item too, and in edit; it is the page’s only link (no stock-on-hand link)', () => {
+    const { unmount } = renderWired(<ItemPage initial={ARCHIVED} canEdit canRestore canListMovements />);
+    expect(screen.getByRole('link', { name: MOVEMENTS })).toHaveAttribute('href', `/stock-movements?inventory_item_id=${IID}`);
+    unmount();
+    renderWired(<ItemPage initial={BOLT} canEdit canRestore={false} canListMovements />);
+    expect(screen.getByRole('link', { name: MOVEMENTS })).toBeInTheDocument();
+    expect([...document.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([`/stock-movements?inventory_item_id=${IID}`]);
+  });
+});
+
 describe('/items/[id] — the editor (B-3 as amended)', () => {
   it('h1 "{sku} — {name}"; editable SKU, Name, Unit and the three numbers, in that order (I-4 T-0b); Preferred supplier is text', () => {
     show();
@@ -77,7 +101,8 @@ describe('/items/[id] — the editor (B-3 as amended)', () => {
     expect(field('Reorder point')).toHaveAttribute('inputmode', 'decimal');
     expect(field('Reorder point')).toHaveAttribute('type', 'text');
     expect(screen.getByText("Leave both reorder numbers at 0 if this item isn't reordered. Use a point for decimals, for example 2.5, and no commas.")).toBeInTheDocument();
-    // No stock, no movements, no links to them (G-47), no History. Delete item only for a DeleteItem holder (I-3 T-5:
+    // No stock or links to it (G-47); a link to this item's movements for a ListStockMovements holder (stock ST-1; not
+    // passed here, so no link), no History. Delete item only for a DeleteItem holder (I-3 T-5:
     // the offer rule itself is item-delete.test.tsx's; `show()` here passes no canDelete).
     expect(screen.queryAllByRole('link')).toEqual([]);
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();

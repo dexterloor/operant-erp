@@ -51,7 +51,7 @@ async function render(codes: string[]): Promise<ReactElement> {
   expect(isValidElement(el)).toBe(true);
   return el as ReactElement;
 }
-const props = (el: ReactElement) => el.props as { canEdit: boolean; canRestore: boolean; canDelete: boolean };
+const props = (el: ReactElement) => el.props as { canEdit: boolean; canRestore: boolean; canDelete: boolean; canListMovements: boolean };
 
 describe('/items/[id] — Save follows UpdateItem, Restore item follows RestoreItem (ST-4c, each on its own operation)', () => {
   it('inventory_item.view alone: no editor, no Restore item', async () => {
@@ -89,6 +89,12 @@ describe('/items/[id] — Save follows UpdateItem, Restore item follows RestoreI
     } finally {
       v.byOperation = null;
     }
+  });
+
+  // Stock ST-1 (stock-plan.md §2.4; M18): the movements link follows ListStockMovements' codes, and nothing else.
+  it('the link to this item’s movements follows ListStockMovements (stock_movement.view)', async () => {
+    expect(props(await render(['inventory_item.view', 'stock_movement.view']))).toMatchObject({ canListMovements: true });
+    expect(props(await render(['inventory_item.view', 'stock_level.view', 'goods_receipt.view']))).toMatchObject({ canListMovements: false });
   });
 
   it('without inventory_item.view the page is ST-4b, even with every write code', async () => {

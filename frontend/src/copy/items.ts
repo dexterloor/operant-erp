@@ -119,6 +119,11 @@ export const ITEM_PAGE = {
   /** Archived item page banner (ST-9, RULED shape): "This item was archived on {date}." Its action is `RESTORE_ITEM.action`. */
   archivedOn: 'This item was archived on ',
   archivedAfter: '.',
+  /**
+   * `movementsLink` (stock-ux-copy.md B-7, NEW; stock ST-1): a link to this item's movements, only for a
+   * ListStockMovements holder, on a live and an archived item. A link, not a stock panel: no stock figure is shown.
+   */
+  movementsLink: 'Stock movements of this item',
 } as const;
 
 /** B-4: `/items/new` (create), as amended by R1-1 (the Unit is a select over the served units, BK-22). */

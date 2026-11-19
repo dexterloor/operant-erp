@@ -14,7 +14,8 @@ import { ItemPage } from './ItemPage';
 // transport, once per request (shared with the title). `canEdit` = UpdateItem's codes; `canRestore` = RestoreItem's;
 // `canDelete` = DeleteItem's (items I-3).
 // 401 → the session-ended notice; 403 → ST-4b; 404 or a non-record id → ST-5 (`not-found.tsx`); any other failure throws
-// to the error page. No stock and no movements are read or linked here (G-47).
+// to the error page. No stock is read here and nothing links to it (G-47); a ListStockMovements holder gets one link to
+// this item's movements (`canListMovements`, stock ST-1), on a live and an archived item. No movement is read here.
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ id: string }> };
@@ -43,5 +44,5 @@ export default async function Page({ params }: Params) {
   if (first.kind === 'not-found') notFound();
   if (first.kind !== 'ok') throw new Error('The item could not be read.');
   const codes = viewer.permissionCodes;
-  return <ItemPage initial={first.item} canEdit={viewerMay('UpdateItem', codes)} canRestore={viewerMay('RestoreItem', codes)} canDelete={viewerMay('DeleteItem', codes)} />;
+  return <ItemPage initial={first.item} canEdit={viewerMay('UpdateItem', codes)} canRestore={viewerMay('RestoreItem', codes)} canDelete={viewerMay('DeleteItem', codes)} canListMovements={viewerMay('ListStockMovements', codes)} />;
 }

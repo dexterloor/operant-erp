@@ -8,6 +8,7 @@ import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
 import type { ActorReference, ApprovePurchaseOrderInput, CancelPurchaseOrderInput, CreateGoodsReceiptInput, CreateGoodsReceiptLineInput, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, GoodsReceipt, GoodsReceiptLine, GoodsReceiptLocationReference, GoodsReceiptOrderLineReference, GoodsReceiptOrderReference, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
+import type { StockMovement, StockMovementItemReference, StockMovementLocationReference } from '@/lib/api/stock';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
 // C-1 (b3b §14): every hand-written wire type in lib/api has exactly the served property names. The literal is a
@@ -117,6 +118,10 @@ const MIRRORED: Record<string, string[]> = {
   'GoodsReceipt.lines[].purchase_order_line': keysOf<GoodsReceiptOrderLineReference>()({ id: true, line_number: true }),
   'GoodsReceipt.lines[].inventory_item': keysOf<PurchaseOrderItemReference>()({ id: true, sku: true, name: true }),
   'GoodsReceipt.lines[].storage_location': keysOf<GoodsReceiptLocationReference>()({ id: true, code: true }),
+  // Stock ST-1 (stock-plan.md §1.1): the movement and its two inline references (read only; no unit served yet, BK-41).
+  StockMovement: keysOf<StockMovement>()({ id: true, quantity: true, occurred_at: true, reason: true, source_type: true, source_id: true, inventory_item: true, storage_location: true }),
+  'StockMovement.inventory_item': keysOf<StockMovementItemReference>()({ id: true, sku: true, name: true }),
+  'StockMovement.storage_location': keysOf<StockMovementLocationReference>()({ id: true, code: true }),
 };
 
 describe('C-1 — wire parity of the hand-written lib/api types', () => {

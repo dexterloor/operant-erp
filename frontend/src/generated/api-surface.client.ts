@@ -283,6 +283,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.view'],
     },
   },
+  GetStockMovement: {
+    method: 'GET',
+    template: '/api/v1/stock-movements/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['stock_movement.view'],
+    },
+  },
   GetSupplier: {
     method: 'GET',
     template: '/api/v1/suppliers/{id}',
@@ -391,6 +401,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['role.view'],
+    },
+  },
+  ListStockMovements: {
+    method: 'GET',
+    template: '/api/v1/stock-movements',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['stock_movement.view'],
     },
   },
   ListStorageLocations: {
@@ -706,6 +726,9 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   RoleGrantProposal: ['decided_at', 'decided_by', 'expires_at', 'id', 'is_expired', 'lapse_reason', 'permission_codes', 'proposed_at', 'proposed_by', 'reason', 'role', 'status', 'user'],
   RoleReference: ['id', 'name'],
   SodRowRef: ['half', 'id'],
+  StockMovement: ['id', 'inventory_item', 'occurred_at', 'quantity', 'reason', 'source_id', 'source_type', 'storage_location'],
+  'StockMovement.inventory_item': ['id', 'name', 'sku'],
+  'StockMovement.storage_location': ['code', 'id'],
   StorageLocation: ['archived_at', 'code', 'id', 'kind'],
   'StorageLocation.CreateStorageLocationInput': ['code', 'kind'],
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['code', 'kind'],

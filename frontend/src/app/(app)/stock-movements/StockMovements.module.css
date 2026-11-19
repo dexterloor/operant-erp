@@ -1,0 +1,32 @@
+/*
+ * The movement page's facts and notes (stock ST-1): a stated copy of purchase-orders/PurchaseOrders.module.css .fields and
+ * .notes (Revision 10 A-3: a route folder imports no other family's stylesheet; no composes or @import), plus the hint
+ * under a fact. Tokens only. The focus ring is global.
+ */
+.fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.fields dd {
+  margin: 0;
+}
+
+.notes p {
+  margin: 0;
+}
+
+.hint {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}

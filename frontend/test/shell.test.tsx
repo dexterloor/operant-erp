@@ -47,6 +47,19 @@ describe('Sidebar', () => {
   });
 });
 
+describe('Sidebar — stock ST-1', () => {
+  // stock-plan.md §6.7: with the real built list, Inventory reads Items · Stock movements · Warehouses for a holder of the
+  // three codes; the unbuilt stock-on-hand entry is never offered, and a movement page marks Stock movements current.
+  it('Inventory: Items · Stock movements · Warehouses with the real built pages; the movement page is current under it', () => {
+    render(<Sidebar permissionCodes={['inventory_item.view', 'stock_level.view', 'stock_movement.view', 'warehouse.view']} currentPath="/stock-movements/0b7c1f9e-3f4a-4c8e-9d2b-5a6e7f8091a2" builtHrefs={BUILT_PAGE_HREFS} />);
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual(['Items', 'Stock movements', 'Warehouses']);
+    expect(within(nav).getByRole('link', { name: 'Stock movements' })).toHaveAttribute('href', '/stock-movements');
+    expect(within(nav).getByRole('link', { name: 'Stock movements' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).queryByText('Stock on hand')).toBeNull();
+  });
+});
+
 describe('Rail tooltips (WCAG 1.4.13, M-3)', () => {
   it('show on keyboard focus and are dismissed with Esc without moving focus', async () => {
     const user = userEvent.setup();

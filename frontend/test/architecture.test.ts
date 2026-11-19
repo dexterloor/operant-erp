@@ -202,6 +202,8 @@ const LITERAL_SCAN_DIRS = [
   'src/lib/purchasing',
   // Purchase orders PO-3 (R8-3 completeness): the family's components (NewOrderForm, the create page's form).
   'src/components/purchasing',
+  // Stock ST-1 (stock-plan.md §3.1; Revision 11 R11-1): the stock family's logic.
+  'src/lib/stock',
   'src/components/roles',
   'src/components/permissions',
   'src/components/bulk',
@@ -339,7 +341,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Suppliers S-1 (Revision 8 R8-2) added: copy/suppliers.ts.
   // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: copy/purchasing.ts.
   // delete-swap-arch-red.md H-1 added: copy/units.ts (the unit vocabulary, moved out of copy/items.ts).
-  'src/copy': 13,
+  // Stock ST-1 (Revision 11 R11-1) added: copy/stock.ts.
+  'src/copy': 14,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
@@ -352,7 +355,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // first action). PO-2 added: lib/purchasing/results.ts, lib/purchasing/wired.ts (Restore purchase order). PO-3 added
   // nothing here (Create purchase order joins the three files).
   // Purchase orders GR-2 H-1 added: lib/bff/heldKey.ts (the held Idempotency-Key of a stock- or money-moving create).
-  'src/lib': 76,
+  // Stock ST-1 (Revision 11 R11-1) added: lib/api/stock.ts, lib/stock/{load,source}.ts (no results or wired: nothing is written).
+  'src/lib': 79,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -380,8 +384,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders GR-2 added: components/purchasing/ReceiveForm.tsx (the receive page's form, plan R1-4: the M-6 map lives here).
   'src/components': 74,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
-  // Purchase orders PO-1 added: lib/api/purchasing.ts.
-  'src/lib/api': 10,
+  // Purchase orders PO-1 added: lib/api/purchasing.ts. Stock ST-1 added: lib/api/stock.ts.
+  'src/lib/api': 11,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
@@ -399,6 +403,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: the purchasing loaders. PO-2 added: results and
   // wired (Restore purchase order, the family's first action).
   'src/lib/purchasing': 3,
+  // Stock ST-1 (Revision 11 R11-1) added: the movement loaders (with the two narrow cross-family reads) and the source table.
+  'src/lib/stock': 2,
   // Suppliers S-2 added: SupplierCreateForm.tsx (the create page's form). Suppliers S-4 added: EntryForm.tsx (Edit entry).
   // Suppliers S-5 added: AddEntryForm.tsx (Add to catalogue).
   'src/components/suppliers': 4,
@@ -475,7 +481,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // app/(app)/goods-receipts/[id]/{page,GoodsReceiptPage,not-found}.tsx, and app/(app)/purchase-orders/[id]/ReceiptsSection.tsx
   // (the order page's Receipts section, no route).
   // Purchase orders GR-2 added: app/(app)/purchase-orders/[id]/receive/{page,ReceivePage}.tsx.
-  'src/app': 87,
+  // Stock ST-1 (Revision 11 R11-1) added: app/(app)/stock-movements/{page,StockMovementsList,StockMovementStates}.tsx,
+  // app/(app)/stock-movements/[id]/{page,StockMovementPage,not-found}.tsx (its CSS module is not counted: .ts/.tsx only).
+  'src/app': 93,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -928,6 +936,8 @@ const BULK_LITERAL_DIRS = [
   'src/lib/suppliers',
   // Purchase orders PO-1 (purchase-orders-plan.md §1.5, G-3): `purchase_order` is a bulk key.
   'src/lib/purchasing',
+  // Stock ST-1 (stock-plan.md §3.1, G-3): `inventory_item` and `storage_location` are bulk keys; the movement reads name neither.
+  'src/lib/stock',
   'src/lib/api',
   'src/lib/auth',
   'src/lib/format',
@@ -1918,7 +1928,9 @@ describe('architecture — R8-3: components/records is props-only and names no f
 // quantities and unit costs are served decimals); the receipt route dir joins at GR-1. PO-3: components/purchasing joins
 // with its first file (plan §3 lists the three purchasing dirs; the folder exists from PO-3, so it is scanned from PO-3).
 // Goods receipts GR-1: the receipt route dir joins (a receipt line's quantity is a served decimal).
-const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/components/purchasing', 'src/app/(app)/purchase-orders', 'src/app/(app)/goods-receipts'] as const;
+// Stock ST-1 (stock-plan.md §3.1; Revision 11 R11-5): the stock logic and the movement route dir (a movement's quantity is a
+// served signed decimal).
+const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/components/purchasing', 'src/app/(app)/purchase-orders', 'src/app/(app)/goods-receipts', 'src/lib/stock', 'src/app/(app)/stock-movements'] as const;
 const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts', 'src/lib/format/money.ts'] as const;
 // Suppliers S-3 RED L-7: widened to the money names (`amount`, `unit_cost`, `unitCost`) now that `money.ts` is scanned.
 const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served|amount|unit_cost|unitCost/i;
@@ -1978,7 +1990,8 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
     // quantity and a cost) likewise. Goods receipts GR-1: the order route dir gains [id]/ReceiptsSection.tsx → 10, and the
     // receipt route dir joins with its 6 files. GR-2: the order route dir gains [id]/receive/{page,ReceivePage}.tsx → 12; the
     // receive form (a quantity typed and sent as text) and the zero rule (`isNotReceived`, results.ts) are in the control.
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 12 + 6);
+    // Stock ST-1: lib/stock (counted by EXPECTED_COUNTS) and the movement route dir with its 6 files.
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 12 + 6 + EXPECTED_COUNTS['src/lib/stock']! + 6);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 
@@ -2206,9 +2219,13 @@ const SHARED_COPY: readonly string[] = ['headings', 'shell', 'permissionLabels',
 const COPY_GROUPS: Readonly<Record<string, readonly string[]>> = {
   items: ['items'], warehouses: ['warehouses'], suppliers: ['suppliers'], purchasing: ['purchasing'],
   account: ['password'], admin: ['people', 'roles', 'sod', 'bulk'],
+  // Stock ST-1 (Revision 11 R11-1).
+  stock: ['stock'],
 };
 const GROUP_OF_FOLDER: Readonly<Record<string, string>> = {
   items: 'items', warehouses: 'warehouses', suppliers: 'suppliers', 'purchase-orders': 'purchasing', 'goods-receipts': 'purchasing',
+  // Stock ST-1 (Revision 11 R11-1, RED L-6): the movement folder only; ST-2 adds `stock` and `components/stock`.
+  'stock-movements': 'stock',
   account: 'account', 'admin/users': 'admin', 'admin/roles': 'admin',
   'components/items': 'items', 'components/warehouses': 'warehouses', 'components/suppliers': 'suppliers',
   'components/purchasing': 'purchasing', 'components/auth': 'account', 'components/people': 'admin', 'components/roles': 'admin',
@@ -3162,5 +3179,244 @@ describe('architecture — GR-2 H-1: a stock- or money-moving create holds its I
       { file: 'src/generated/x.ts', source: "export const g = (caller) => caller.call('CreateGoodsReceipt', {}, {}, {});" },
     ];
     expect(heldKeyViolations(planted).violations.map((v) => v.file)).toEqual(['src/lib/stock/A.ts', 'src/lib/stock/B.ts', 'src/lib/stock/C.ts', 'src/lib/stock/D.ts', 'src/lib/stock/Dyn.ts', 'src/lib/stock/E.ts', 'src/lib/stock/PerPress.ts']);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Stock ST-1 (stock-plan.md §6.1 as amended by stock-st1-red.md L-6; b4-architecture.md Revision 11 R11-1, R11-7): the
+// movement pages stay inside the stock family. The domain is the route folder, `src/lib/stock/**` and `src/lib/api/stock.ts`
+// (RED L-6: a stock lib file reading through another family's lib would otherwise go unseen). ST-1 adds no ROUTE_FAMILIES
+// entry (a one-folder family needs none); ST-2's commit adds `['stock', 'stock-movements']`.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const STOCK_ROUTE_DIR = 'src/app/(app)/stock-movements';
+const STOCK_LIB_DIR = 'src/lib/stock';
+const STOCK_API_FILE = 'src/lib/api/stock.ts';
+/** What a stock file may import under `src/components/` and `src/lib/` (R11-1; stock-plan.md §3.3). A new one is a deliberate edit. */
+const STOCK_MAY_IMPORT = {
+  components: ['ui', 'states'],
+  lib: ['stock', 'bff', 'format', 'results', 'routes'],
+  libApi: ['stock'],
+} as const;
+const isStockFile = (f: string) => under(f, STOCK_ROUTE_DIR) || under(f, STOCK_LIB_DIR) || f === STOCK_API_FILE;
+
+/** R11-1's check: a stock file whose import reaches another family's `components/`, `lib/` or `lib/api/`; `lib/api/stock.ts` importing anything. */
+function stockFamilyViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!isStockFile(sf.file)) continue;
+    for (const spec of specifiersOf(sf)) {
+      if (sf.file === STOCK_API_FILE) {
+        out.push({ file: sf.file, detail: `lib/api/stock.ts imports nothing (C-1 mirrored): '${spec}'` });
+        continue;
+      }
+      const t = targetOf(sf.file, spec).replace(/\.(ts|tsx|css)$/, '');
+      const parts = t.split('/');
+      let ok = true;
+      if (parts[0] === 'src' && parts[1] === 'components') ok = (STOCK_MAY_IMPORT.components as readonly string[]).includes(parts[2] ?? '');
+      else if (parts[0] === 'src' && parts[1] === 'lib' && parts[2] === 'api') ok = (STOCK_MAY_IMPORT.libApi as readonly string[]).includes(parts[3] ?? '');
+      else if (parts[0] === 'src' && parts[1] === 'lib') ok = (STOCK_MAY_IMPORT.lib as readonly string[]).includes(parts[2] ?? '');
+      if (!ok) out.push({ file: sf.file, detail: `a stock file imports another family's components or lib (R11-1): '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — stock ST-1: R11-1, the movement pages stay inside the stock family', () => {
+  it('the real stock files (route folder, lib/stock, lib/api/stock.ts) import only the stock family and shared components/lib', () => {
+    const files = walk('src').filter((f) => isStockFile(f.file));
+    expect(files.map((f) => f.file)).toEqual([
+      'src/app/(app)/stock-movements/StockMovementStates.tsx',
+      'src/app/(app)/stock-movements/StockMovementsList.tsx',
+      'src/app/(app)/stock-movements/[id]/StockMovementPage.tsx',
+      'src/app/(app)/stock-movements/[id]/not-found.tsx',
+      'src/app/(app)/stock-movements/[id]/page.tsx',
+      'src/app/(app)/stock-movements/page.tsx',
+      'src/lib/api/stock.ts',
+      'src/lib/stock/load.ts',
+      'src/lib/stock/source.ts',
+    ]);
+    // Positive control: the check sees the real family and shared imports, the lib files included (not an empty domain).
+    const targets = files.flatMap((f) => specifiersOf(f).map((s) => `${f.file} -> ${targetOf(f.file, s)}`));
+    expect(targets).toEqual(
+      expect.arrayContaining([
+        'src/app/(app)/stock-movements/page.tsx -> src/lib/stock/load',
+        'src/app/(app)/stock-movements/StockMovementsList.tsx -> src/lib/stock/source',
+        'src/app/(app)/stock-movements/StockMovementsList.tsx -> src/lib/format/quantity',
+        'src/lib/stock/load.ts -> src/lib/api/stock',
+        'src/lib/stock/load.ts -> src/lib/bff/reads',
+        'src/lib/stock/source.ts -> src/lib/bff/paths',
+      ]),
+    );
+    expect(stockFamilyViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: another family’s lib, components or api goes red from the route folder and from lib/stock; lib/api/stock.ts importing anything is red; its own and the shared ones are not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/stock-movements/page.tsx', source: "import { loadReceipts } from '@/lib/purchasing/load';" },
+      { file: 'src/app/(app)/stock-movements/A.tsx', source: "import { loadItem } from '@/lib/items/load';" },
+      { file: 'src/app/(app)/stock-movements/[id]/B.tsx', source: "import { ReceiveForm } from '@/components/purchasing/ReceiveForm';" },
+      { file: 'src/app/(app)/stock-movements/C.tsx', source: "import type { Item } from '@/lib/api/items';" },
+      { file: 'src/lib/stock/load.ts', source: "import { loadItem } from '@/lib/items/load';" },
+      { file: 'src/lib/stock/D.ts', source: "import { loadWarehouses } from '../warehouses/load';" },
+      { file: 'src/lib/api/stock.ts', source: "import type { Item } from './items';" },
+      { file: 'src/app/(app)/stock-movements/Ok.tsx', source: "import { loadMovements } from '@/lib/stock/load';\nimport { ArchivableList } from '../ArchivableList';\nimport { renderSignedQuantity } from '@/lib/format/quantity';\nimport { DateTime } from '@/components/ui/DateTime';\nimport type { StockMovement } from '@/lib/api/stock';" },
+      { file: 'src/lib/stock/Ok2.ts', source: "import type { StockMovement } from '../api/stock';\nimport { pageQuery } from '../bff/reads';" },
+      // Outside the family the rule does not apply.
+      { file: 'src/app/(app)/items/Z.tsx', source: "import { loadReceipts } from '@/lib/purchasing/load';" },
+    ];
+    expect(stockFamilyViolations(planted).map((v) => v.file)).toEqual([
+      'src/app/(app)/stock-movements/page.tsx',
+      'src/app/(app)/stock-movements/A.tsx',
+      'src/app/(app)/stock-movements/[id]/B.tsx',
+      'src/app/(app)/stock-movements/C.tsx',
+      'src/lib/stock/load.ts',
+      'src/lib/stock/D.ts',
+      'src/lib/api/stock.ts',
+    ]);
+  });
+
+  it('copy clause: the movement folder is in the stock group; another family’s copy (the tempting itemCell) is red, its own and the shared copy are not', () => {
+    expect(COPY_GROUPS.stock).toEqual(['stock']);
+    expect(GROUP_OF_FOLDER['stock-movements']).toBe('stock');
+    // RED L-6: ST-1 registers only its own folder; ST-2's folders enter with ST-2.
+    expect(Object.hasOwn(GROUP_OF_FOLDER, 'stock')).toBe(false);
+    expect(Object.hasOwn(GROUP_OF_FOLDER, 'components/stock')).toBe(false);
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/stock-movements/P1.tsx', source: "import { ORDER_LINES } from '@/copy/purchasing';" },
+      { file: 'src/app/(app)/stock-movements/[id]/P2.tsx', source: "import { ITEM_PAGE } from '@/copy/items';" },
+      { file: 'src/app/(app)/stock-movements/Ok.tsx', source: "import { STOCK_MOVEMENTS_LIST } from '@/copy/stock';\nimport { unitSpoken } from '@/copy/units';\nimport { WENT_WRONG } from '@/copy/headings';" },
+    ];
+    expect(copyViolations(planted).map((v) => v.file)).toEqual(['src/app/(app)/stock-movements/P1.tsx', 'src/app/(app)/stock-movements/[id]/P2.tsx']);
+  });
+
+  it('route families: ST-1 adds no ROUTE_FAMILIES entry, so a movement page importing a receipt page’s file is red', () => {
+    expect(ROUTE_FAMILIES).toEqual([['purchase-orders', 'goods-receipts']]);
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/stock-movements/E.tsx', source: "import { receiptColumns } from '../goods-receipts/GoodsReceiptsList';" },
+      { file: 'src/app/(app)/stock-movements/[id]/F.tsx', source: "import styles from '../../purchase-orders/PurchaseOrders.module.css';" },
+      { file: 'src/app/(app)/stock-movements/[id]/Ok.tsx', source: "import styles from '../StockMovements.module.css';\nimport { StockMovementsDenied } from '../StockMovementStates';\nimport { ArchivableList } from '../../ArchivableList';" },
+    ];
+    expect(routeFolderViolations(planted).map((v) => v.file)).toEqual(['src/app/(app)/stock-movements/E.tsx', 'src/app/(app)/stock-movements/[id]/F.tsx']);
+  });
+});
+
+// R11-7 (stock-plan.md §6.1-5): no money on any stock surface — the A-5 transitive check over the movement route folder and
+// lib/stock, with a real-file transitivity control and planted direct and one-hop controls.
+const STOCK_SURFACES = (files: readonly SourceFile[]) => files.filter((f) => under(f.file, STOCK_ROUTE_DIR) || under(f.file, STOCK_LIB_DIR));
+const moneyOnStock = (files: readonly SourceFile[]) => STOCK_SURFACES(files).filter((f) => reachableFrom(files, f).has(MONEY)).map((f) => f.file);
+
+describe('architecture — stock ST-1: no money reachable from any movement surface (R11-7)', () => {
+  it('no stock surface reaches lib/format/money through any chain of imports (8 surfaces)', () => {
+    const files = walk('src');
+    expect(STOCK_SURFACES(files).length).toBe(8);
+    expect(moneyOnStock(files)).toEqual([]);
+    // Positive control: the closure is real and follows chains (page → list → core and the stock loaders).
+    const page = files.find((f) => f.file === 'src/app/(app)/stock-movements/page.tsx')!;
+    expect([...reachableFrom(files, page)]).toEqual(expect.arrayContaining(['src/app/(app)/stock-movements/StockMovementsList.tsx', 'src/lib/stock/source.ts', 'src/lib/stock/load.ts', 'src/app/(app)/ArchivableList.tsx', 'src/lib/format/quantity.ts']));
+  });
+
+  it('planted controls: a direct import and a lib hop go red; the family’s own logic does not', () => {
+    const real = walk('src');
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/stock-movements/[id]/Direct.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/lib/stock/costText.ts', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/app/(app)/stock-movements/Hop.tsx', source: "import { costText } from '@/lib/stock/costText';" },
+      { file: 'src/app/(app)/stock-movements/Fine.tsx', source: "import { loadMovements } from '@/lib/stock/load';\nimport { ArchivableList } from '../ArchivableList';" },
+    ];
+    expect(moneyOnStock([...real, ...planted]).sort()).toEqual(['src/app/(app)/stock-movements/Hop.tsx', 'src/app/(app)/stock-movements/[id]/Direct.tsx', 'src/lib/stock/costText.ts']);
+  });
+});
+
+// stock-plan.md §6.1-6: the three tripwire twins reach the real ST-1 files. Each plant is the REAL file's text plus a
+// comment naming a token (a comment fires them: their stated limit, loud and safe), so a green real tree is proof the
+// folder is inside each walk, not that it was missed. The real-tree controls of each twin stay untouched.
+describe('architecture — stock ST-1: the G-47, G-51 and FE-R2 twins reach the movement folder', () => {
+  const LIST = 'app/(app)/stock-movements/StockMovementsList.tsx';
+  const DETAIL_PAGE = 'app/(app)/stock-movements/[id]/page.tsx';
+  const DETAIL = 'app/(app)/stock-movements/[id]/StockMovementPage.tsx';
+  const plant = (file: string, comment: string) => {
+    const sources = realSources();
+    expect(Object.hasOwn(sources, file), `${file} is not in the walk`).toBe(true);
+    return { ...sources, [file]: `${sources[file]}\n// ${comment}\n` };
+  };
+
+  it('the real tree keeps every twin false with the movement pages in it', () => {
+    const pages = realPages();
+    expect(pages).toEqual(expect.arrayContaining(['(app)/stock-movements/page.tsx', '(app)/stock-movements/[id]/page.tsx']));
+    const clientOps = realClientOps() as unknown[];
+    expect(clientOps).toEqual(expect.arrayContaining(['ListStockMovements', 'GetStockMovement']));
+    expect(stockRowTriggers(pages, realSources(), clientOps)).toEqual([]);
+    expect(stockCountOrMoveTriggers(pages, realSources(), clientOps)).toEqual([]);
+    expect(pickRouteIsDue(pages, realSources())).toBe(false);
+  });
+
+  it('a comment naming the stock read in the real list file trips G-47', () => {
+    expect(stockRowTriggers(realPages(), plant(LIST, ['List', 'Stock', 'Levels'].join('')), realClientOps() as unknown[])).toEqual([expect.stringContaining(LIST)]);
+  });
+
+  it('a comment naming the count’s operation in the real movement page trips G-51', () => {
+    expect(stockCountOrMoveTriggers(realPages(), plant(DETAIL_PAGE, ['Create', 'Stock', 'Adjustment'].join('')), realClientOps() as unknown[])).toEqual([expect.stringContaining(DETAIL_PAGE)]);
+  });
+
+  it('a comment naming the pick read in the real movement page component trips FE-R2', () => {
+    expect(pickRouteIsDue(realPages(), plant(DETAIL, ['Get', 'Pick', 'List'].join('')))).toBe(true);
+  });
+});
+
+describe('architecture — stock ST-1: the quantity and bulk scans read the stock dirs', () => {
+  it('lib/stock and the movement route dir are in the quantity scan; a planted Number(quantity) in lib/stock is red', () => {
+    expect(QUANTITY_SCAN_DIRS).toEqual(expect.arrayContaining(['src/lib/stock', 'src/app/(app)/stock-movements']));
+    const scanned = QUANTITY_SCAN_DIRS.flatMap((d) => walk(d)).map((f) => f.file);
+    expect(scanned).toEqual(expect.arrayContaining(['src/lib/stock/load.ts', 'src/lib/stock/source.ts', 'src/app/(app)/stock-movements/StockMovementsList.tsx', 'src/app/(app)/stock-movements/[id]/StockMovementPage.tsx']));
+    const planted: SourceFile[] = [{ file: 'src/lib/stock/load.ts', source: 'export const n = (m: { quantity: string }) => Number(m.quantity);' }];
+    expect(quantityNumberViolations(planted).map((v) => v.detail)).toEqual(['Number(']);
+  });
+
+  it("lib/stock is bulk-scanned, holds no bulk key or cap, and a planted 'storage_location' or cap there is red", () => {
+    const keys = bulkResources();
+    const cap = bulkMaxIds();
+    expect(keys).toEqual(expect.arrayContaining(['inventory_item', 'storage_location']));
+    const real = walk('src/lib/stock');
+    expect(real.map((f) => f.file)).toEqual(['src/lib/stock/load.ts', 'src/lib/stock/source.ts']);
+    expect(bulkLiteralViolations(real, keys, cap)).toEqual([]);
+    const planted: SourceFile[] = [{ file: 'src/lib/stock/source.ts', source: `export const r = 'storage_location';\nexport const c = ${cap};` }];
+    expect(bulkLiteralViolations(planted, keys, cap).map((v) => v.detail)).toEqual(["literal 'storage_location'", `number ${cap}`]);
+  });
+});
+
+// Commit RED L-4 (b4-architecture.md Revision 11 R11-4, stock-st1-red.md L-2): the source gates are server-computed
+// booleans, so no client file of the stock route folder calls `viewerMay` or imports the contract reader
+// `@/lib/bff/surface`. The server pages (no 'use client') read the gates and pass them down. TS/TSX specifiers only.
+// Limit, stated: a module without the directive that a client file imports is outside the domain — today
+// `StockMovementStates.tsx`, which reads `gateCode` for ST-4b's permission label, as every family's states file does.
+const isClientFile = (sf: SourceFile) => /^\s*(?:\/\/[^\n]*\n\s*|\/\*[\s\S]*?\*\/\s*)*['"]use client['"]/.test(sf.source);
+function stockClientGateViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, STOCK_ROUTE_DIR) || !isClientFile(sf)) continue;
+    for (const spec of specifiersOf(sf)) if (targetOf(sf.file, spec) === 'src/lib/bff/surface') out.push({ file: sf.file, detail: `a client stock file imports the contract reader (R11-4): '${spec}'` });
+    if (/\bviewerMay\b/.test(sf.source)) out.push({ file: sf.file, detail: 'a client stock file names viewerMay (R11-4)' });
+  }
+  return out;
+}
+
+describe('architecture — stock ST-1: R11-4, no client stock file computes a gate', () => {
+  it('the real folder: its two client files import no contract reader; its server pages do (not an empty domain)', () => {
+    const files = walk(STOCK_ROUTE_DIR);
+    expect(files.filter(isClientFile).map((f) => f.file)).toEqual(['src/app/(app)/stock-movements/StockMovementsList.tsx', 'src/app/(app)/stock-movements/[id]/StockMovementPage.tsx']);
+    const servers = files.filter((f) => !isClientFile(f) && /\bviewerMay\b/.test(f.source)).map((f) => f.file);
+    expect(servers).toEqual(['src/app/(app)/stock-movements/[id]/page.tsx', 'src/app/(app)/stock-movements/page.tsx']);
+    expect(stockClientGateViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: the list importing viewerMay, or a client file naming it, is red; a server page is not', () => {
+    const list = walk(STOCK_ROUTE_DIR).find((f) => f.file === 'src/app/(app)/stock-movements/StockMovementsList.tsx')!;
+    const planted: SourceFile[] = [
+      { file: list.file, source: list.source.replace("import Link from 'next/link';", "import Link from 'next/link';\nimport { viewerMay } from '@/lib/bff/surface';") },
+      { file: 'src/app/(app)/stock-movements/[id]/C.tsx', source: "'use client';\nexport const g = (codes: string[]) => viewerMay('GetGoodsReceipt', codes);" },
+      { file: 'src/app/(app)/stock-movements/S.tsx', source: "import { viewerMay } from '@/lib/bff/surface';\nexport const g = viewerMay;" },
+    ];
+    expect([...new Set(stockClientGateViolations(planted).map((v) => v.file))]).toEqual(['src/app/(app)/stock-movements/StockMovementsList.tsx', 'src/app/(app)/stock-movements/[id]/C.tsx']);
   });
 });

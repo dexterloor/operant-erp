@@ -80,6 +80,9 @@ const MIRRORED = {
   'GoodsReceipt.lines[].purchase_order_line': ['GoodsReceipt', 'properties', 'lines', 'items', 'properties', 'purchase_order_line'],
   'GoodsReceipt.lines[].inventory_item': ['GoodsReceipt', 'properties', 'lines', 'items', 'properties', 'inventory_item'],
   'GoodsReceipt.lines[].storage_location': ['GoodsReceipt', 'properties', 'lines', 'items', 'properties', 'storage_location'],
+  StockMovement: ['StockMovement'],
+  'StockMovement.inventory_item': ['StockMovement', 'properties', 'inventory_item'],
+  'StockMovement.storage_location': ['StockMovement', 'properties', 'storage_location'],
 };
 
 const BANNER =

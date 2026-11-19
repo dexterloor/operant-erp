@@ -124,7 +124,8 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
   it('suppliers S-1: the start page moves to /suppliers for a supplier.view holder, in navigation order', () => {
     // Purchase orders PO-1 moved this pin deliberately: /purchase-orders joins BUILT_PAGE_HREFS (its own test is below).
     // Goods receipts GR-1 moved it again: /goods-receipts joins (its own test is below).
-    expect(BUILT_PAGE_HREFS).toEqual(['/purchase-orders', '/goods-receipts', '/suppliers', '/items', '/warehouses', '/admin/users', '/admin/roles']);
+    // Stock ST-1 moved it again: /stock-movements joins (its own test is below).
+    expect(BUILT_PAGE_HREFS).toEqual(['/purchase-orders', '/goods-receipts', '/suppliers', '/items', '/stock-movements', '/warehouses', '/admin/users', '/admin/roles']);
     expect(startDestination(['supplier.view', 'inventory_item.view', 'warehouse.view', 'app_user.view'])).toBe('/suppliers');
     expect(startDestination(['supplier.view'])).toBe('/suppliers');
     expect(startDestination(['inventory_item.view', 'warehouse.view'])).toBe('/items');
@@ -157,5 +158,18 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
     expect(startDestination(['purchase_order.view', 'goods_receipt.view', 'supplier.view'])).toBe('/purchase-orders');
     expect(startDestination(['supplier.view', 'inventory_item.view'])).toBe('/suppliers');
     expect(startDestination(['goods_receipt.view', 'supplier.view'], ['/suppliers', '/items', '/goods-receipts'])).toBe('/goods-receipts');
+  });
+  // Stock ST-1 (stock-plan.md §1.4, owner notice 1; RED L-1 of the next-family RED): Stock movements follows Items in
+  // Inventory, so every default holder of stock_movement.view (owner, admin, warehouse_operator, viewer — each also holds
+  // goods_receipt.view and inventory_item.view, whose pages come earlier) keeps its start page; only a composed seat with
+  // stock_movement.view and none of the earlier codes now starts at /stock-movements.
+  it('stock ST-1: no default holder’s start page moves; a stock_movement.view-only seat starts at /stock-movements', () => {
+    expect(startDestination(['stock_movement.view'])).toBe('/stock-movements');
+    expect(startDestination(['stock_movement.view', 'warehouse.view'])).toBe('/stock-movements');
+    expect(startDestination(['goods_receipt.view', 'inventory_item.view', 'stock_movement.view', 'warehouse.view', 'storage_location.view'])).toBe('/goods-receipts');
+    expect(startDestination(['purchase_order.view', 'goods_receipt.view', 'inventory_item.view', 'stock_movement.view'])).toBe('/purchase-orders');
+    expect(startDestination(['inventory_item.view', 'stock_movement.view'])).toBe('/items');
+    // The navigation-only stock-on-hand entry, before it in the menu, is not built, so it is never a start destination.
+    expect(startDestination(['stock_level.view', 'stock_movement.view'])).toBe('/stock-movements');
   });
 });

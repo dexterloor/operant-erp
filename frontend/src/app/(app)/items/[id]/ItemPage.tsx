@@ -2,6 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ItemForm } from '@/components/items/ItemForm';
 import styles from '@/components/items/Items.module.css';
@@ -38,6 +39,8 @@ export interface ItemPageProps {
   canRestore: boolean;
   /** Holds DeleteItem's codes (from the contract): **Delete item** on a live item (items I-3). */
   canDelete?: boolean;
+  /** Holds ListStockMovements' codes (from the contract): the link to this item's movements (stock ST-1), live or archived. */
+  canListMovements?: boolean;
 }
 
 type Cause = 'unreachable' | 'server-error';
@@ -65,7 +68,8 @@ const withUnit = (served: string, code: string) => (
  * A refused Save whose re-read finds the item archived (UX-I2 on a stale page) turns the page archived and shows the
  * server's sentence under **Not saved**, its heading focused. Not when that reading was dropped because a newer live
  * reading was committed first (FE-R7): the refusal is not kept. A failed re-read → the region error (focus on its heading),
- * Retry re-reads; 403 → ST-4b; 404 → ST-5. No stock, movements or links to them (G-47); no History (plan §2e). **Delete
+ * Retry re-reads; 403 → ST-4b; 404 → ST-5. No stock or links to it (G-47); a link to this item's movements for a
+ * ListStockMovements holder (stock ST-1), on a live and an archived item; no History (plan §2e). **Delete
  * item** (items I-3, the warehouse step-4.6 shape) on a live item for a DeleteItem holder: the shared danger dialog, its
  * stock line when the committed item's `holds_stock` is true (the only place the page shows it, I3-4); after a 204 the
  * page stays and turns archived. The person's own Delete outranks their own Save (items-i4-ux.md M-4 T-17, M-3):
@@ -74,7 +78,7 @@ const withUnit = (served: string, code: string) => (
  * access is still shown). After a save's, restore's or delete's message is on screen the router cache is refreshed
  * once.
  */
-export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: ItemPageProps) {
+export function ItemPage({ initial, canEdit, canRestore, canDelete = false, canListMovements = false }: ItemPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -326,6 +330,12 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
           <dd>{withUnit(item.safety_stock, item.unit_of_measure_code)}</dd>
         </dl>
       )}
+      {canListMovements ? (
+        // stock ST-1 (stock-plan.md §2.4): a link, not a stock panel; shown whether the item is live or archived.
+        <p>
+          <Link href={`/stock-movements?inventory_item_id=${id}`}>{ITEM_PAGE.movementsLink}</Link>
+        </p>
+      ) : null}
       {deleting ? (
         <DeleteDialog
           copy={{

@@ -367,3 +367,38 @@ describe('axe — Delete item (items I-3)', () => {
     vi.unstubAllGlobals();
   });
 });
+
+// Stock ST-1 (stock-plan.md §3.1, §6.7): the movement list with rows, a filtered empty state, and the movement page,
+// each inside the frame's <main> as the app renders it.
+describe('axe — stock movements (stock ST-1)', () => {
+  const ITEM = { id: 'c1b2c3d4-0000-4000-8000-000000000001', sku: 'WID-001', name: 'Widget' };
+  const M = { id: 'a1b2c3d4-0000-4000-8000-000000000001', quantity: '-2.500000', occurred_at: '2026-03-04T11:00:00Z', reason: 'receipt', source_type: 'goods_receipt', source_id: 'e1b2c3d4-0000-4000-8000-000000000003', inventory_item: ITEM, storage_location: { id: 'c9b2c3d4-0000-4000-8000-000000000001', code: 'A-01' } };
+  const gates = { goodsReceipt: true, movement: true };
+  const run = async () => (await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } })).violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+
+  it('the list with rows, filtered: no violations', async () => {
+    const { StockMovementsList } = await import('@/app/(app)/stock-movements/StockMovementsList');
+    const { renderWired } = await import('./wired/harness');
+    renderWired(<main><StockMovementsList initial={{ kind: 'ok', items: [M], nextCursor: 'n1', previousCursor: null, tenantHasRows: true }} itemId={ITEM.id} itemName={{ sku: ITEM.sku, name: ITEM.name }} gates={gates} canOpenItem canListOrders /></main>);
+    expect(await run()).toEqual([]);
+  });
+
+  it('a filtered empty state and the unknown-item state: no violations', async () => {
+    const { StockMovementsList } = await import('@/app/(app)/stock-movements/StockMovementsList');
+    const { StockMovementsUnknownItem } = await import('@/app/(app)/stock-movements/StockMovementStates');
+    const { renderWired } = await import('./wired/harness');
+    const { unmount } = renderWired(<main><StockMovementsList initial={{ kind: 'ok', items: [], nextCursor: null, previousCursor: null, tenantHasRows: true }} itemId={ITEM.id} itemName={null} gates={gates} canOpenItem canListOrders /></main>);
+    expect(await run()).toEqual([]);
+    unmount();
+    render(<main><StockMovementsUnknownItem /></main>);
+    expect(await run()).toEqual([]);
+  });
+
+  it('the movement page: no violations', async () => {
+    const { StockMovementPage } = await import('@/app/(app)/stock-movements/[id]/StockMovementPage');
+    const { sourceOf } = await import('@/lib/stock/source');
+    const { renderWired } = await import('./wired/harness');
+    renderWired(<main><StockMovementPage movement={M} source={sourceOf(M, gates)} receiptNumber="GR-000123" partnerLocation={null} canOpenItem canListMovements /></main>);
+    expect(await run()).toEqual([]);
+  });
+});
