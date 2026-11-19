@@ -16,7 +16,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class UpdateSettingsInput
 {
     #[SerializedName('display_name')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $displayName;
 
     /**

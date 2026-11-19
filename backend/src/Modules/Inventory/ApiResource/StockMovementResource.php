@@ -16,6 +16,7 @@ use App\Modules\Inventory\Application\StockItemRef;
 use App\Modules\Inventory\Application\StockLocationRef;
 use App\Modules\Inventory\Application\StockMovementView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -105,6 +106,7 @@ final class StockMovementResource
         #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
         public string $quantity,
+        #[Instant]
         #[SerializedName('occurred_at')]
         public string $occurredAt,
         public string $reason,

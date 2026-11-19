@@ -28,10 +28,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateItemInput
 {
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $sku = null;
 
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $name = null;
 
     /**
@@ -48,11 +48,14 @@ final class CreateItemInput
     public ?string $supplierId = null;
 
     #[SerializedName('reorder_point')]
+    #[ApiProperty(schema: ['type' => ['string', 'null'], 'minLength' => 1])]
     public ?string $reorderPoint = null;
 
     #[SerializedName('reorder_quantity')]
+    #[ApiProperty(schema: ['type' => ['string', 'null'], 'minLength' => 1])]
     public ?string $reorderQuantity = null;
 
     #[SerializedName('safety_stock')]
+    #[ApiProperty(schema: ['type' => ['string', 'null'], 'minLength' => 1])]
     public ?string $safetyStock = null;
 }

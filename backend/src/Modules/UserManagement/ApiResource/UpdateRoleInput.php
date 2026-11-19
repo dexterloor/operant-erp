@@ -20,7 +20,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateRoleInput
 {
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $name;
 
     #[ApiProperty(schema: ['type' => ['string', 'null']])]

@@ -122,7 +122,8 @@ final readonly class CustomerAddressWriter
         'country_code' => 'country_code',
     ];
 
-    private const KINDS = ['billing', 'shipping'];
+    /** The address kinds; also the request schemas' `enum` for `kind` (BK-18 R18-f/g C2), so the two cannot drift. */
+    public const KINDS = ['billing', 'shipping'];
 
     public function __construct(
         private TenantContext $tenants,

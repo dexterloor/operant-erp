@@ -21,6 +21,7 @@ use App\Modules\UserManagement\ApiResource\State\RoleProvider;
 use App\Modules\UserManagement\ApiResource\State\UpdateRoleProcessor;
 use App\Modules\UserManagement\Application\RoleView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -210,6 +211,7 @@ final class RoleResource
         public int $holderCount,
         #[SerializedName('margin_exposure')]
         public bool $marginExposure,
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {

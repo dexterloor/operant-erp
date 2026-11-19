@@ -6,6 +6,7 @@ namespace App\Modules\Purchasing\ApiResource;
 
 use ApiPlatform\Metadata\ApiProperty;
 use App\Modules\Purchasing\Application\PurchaseOrderWriter;
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -77,9 +78,11 @@ final class CreatePurchaseOrderInput
      * cannot create an order — which is the refusal E4-3 exists to produce.
      */
     #[SerializedName('currency_code')]
+    #[ApiProperty(schema: ['type' => ['string', 'null'], 'minLength' => 1])]
     public ?string $currencyCode = null;
 
     /** RFC 3339. Nullable in the schema: an order may be raised with no expected date. */
+    #[Instant(inRequest: true)]
     #[SerializedName('expected_at')]
     public ?string $expectedAt = null;
 
@@ -119,8 +122,8 @@ final class CreatePurchaseOrderInput
             'required' => ['inventory_item_id', 'quantity', 'unit_cost'],
             'properties' => [
                 'inventory_item_id' => ['type' => 'string', 'format' => 'uuid'],
-                'quantity' => ['type' => 'string'],
-                'unit_cost' => ['type' => 'string'],
+                'quantity' => ['type' => 'string', 'minLength' => 1],
+                'unit_cost' => ['type' => 'string', 'minLength' => 1],
             ],
         ],
     ])]

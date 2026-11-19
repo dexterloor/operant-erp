@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Purchasing\ApiResource;
 
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -28,6 +29,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class ApprovePurchaseOrderInput
 {
     use SubmittedFields;
+
+    #[Instant(inRequest: true)]
 
     #[SerializedName('expected_at')]
     public ?string $expectedAt;

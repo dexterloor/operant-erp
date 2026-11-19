@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\HttpOperation;
 use ApiPlatform\Metadata\Operation;
+use App\Modules\Customers\Application\CustomerAddressWriter;
 use App\Modules\Purchasing\Application\GoodsReceiptWriter;
 use App\Modules\Purchasing\Application\PurchaseOrderWriter;
 use App\Modules\Sales\Application\AdjustmentDecisionWriter;
@@ -17,6 +18,7 @@ use App\Modules\Sales\Application\SalesOrderWriter;
 use App\Modules\Sales\Application\SalesReturnWriter;
 use App\Modules\UserManagement\ApiResource\RoleReference;
 use App\Modules\Warehouses\Application\Contract\LocationKinds;
+use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\Reference\UnitsOfMeasure;
 use App\Tests\Support\ContractDocument;
@@ -353,6 +355,290 @@ final class OpenApiContractTest extends ApiTestCase
         ];
         $controlWalked = 0;
         self::assertSame(['get /x ?q: ^x$'], self::parameterSchemaPatterns($synthetic, $controlWalked), 'The walk misses a pattern behind two $refs.');
+    }
+
+    /**
+     * BK-18 R18-f/g: the parameter-schema keywords API Platform turns into a refusal or that change what an export records,
+     * beyond `format: uuid` (which every record-id parameter carries). `ParameterValidationConstraints` compiles a parameter
+     * schema's `minLength`/`maxLength` into a `Length` constraint (and `pattern`, held by the method above, into a `Regex`),
+     * so adding one changes which requests are refused; and `ListDeclarations::isFreeText()` reads a parameter's `format`,
+     * so a `date-time` there would make the export trail record the filter's value (why `ListSalesReturns?decided_since` is
+     * served without one; SEC to rule). Neither is a description-only edit; this test makes each one a decision.
+     */
+    #[Test]
+    public function noServedParameterSchemaCarriesAKeywordThatChangesAnswers(): void
+    {
+        $spec = $this->regenerate();
+        $walked = 0;
+        $found = self::parameterSchemaKeywords($spec, $walked);
+        self::assertGreaterThan(0, $walked, 'Anti-vacuity: no served parameter schema was walked.');
+        self::assertSame([], $found, "A served parameter schema carries minLength, maxLength or a format other than uuid; each changes answers"
+            ." (ParameterValidationConstraints) or the export trail (ListDeclarations::isFreeText):\n".implode("\n", $found));
+
+        // Control: each keyword, nested two `$ref`s deep in a parameter's schema, is reported; `format: uuid` is not.
+        $synthetic = [
+            'paths' => ['/x' => [
+                'get' => ['parameters' => [
+                    ['name' => 'q', 'in' => 'query', 'schema' => ['$ref' => '#/components/schemas/A']],
+                    ['name' => 'id', 'in' => 'query', 'schema' => ['type' => 'string', 'format' => 'uuid']],
+                ]],
+            ]],
+            'components' => ['schemas' => [
+                'A' => ['anyOf' => [['$ref' => '#/components/schemas/B']]],
+                'B' => ['type' => 'object', 'properties' => [
+                    'a' => ['type' => 'string', 'minLength' => 1],
+                    'b' => ['type' => 'string', 'maxLength' => 9],
+                    'c' => ['type' => 'string', 'format' => 'date-time'],
+                ]],
+            ]],
+        ];
+        $controlWalked = 0;
+        self::assertSame(['get /x ?q: minLength=1', 'get /x ?q: maxLength=9', 'get /x ?q: format=date-time'],
+            self::parameterSchemaKeywords($synthetic, $controlWalked), 'The walk misses a keyword behind two $refs, or reports format: uuid.');
+    }
+
+    /**
+     * @param array<string, mixed> $spec
+     *
+     * @return list<string> `method path ?name: keyword=value`
+     */
+    private static function parameterSchemaKeywords(array $spec, int &$walked): array
+    {
+        $found = [];
+        foreach ($spec['paths'] ?? [] as $path => $item) {
+            foreach ($item as $method => $operation) {
+                $parameters = 'parameters' === $method ? $operation : (\is_array($operation) ? ($operation['parameters'] ?? []) : []);
+                foreach ($parameters as $parameter) {
+                    $parameter = self::dereference($parameter, $spec);
+                    ++$walked;
+                    foreach (self::answerChangingKeywordsUnder($parameter['schema'] ?? [], $spec, []) as $keyword) {
+                        $found[] = \sprintf('%s %s ?%s: %s', $method, $path, (string) ($parameter['name'] ?? '?'), $keyword);
+                    }
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * @param array<string, mixed> $spec
+     * @param array<string, true>  $seen
+     *
+     * @return list<string>
+     */
+    private static function answerChangingKeywordsUnder(mixed $node, array $spec, array $seen): array
+    {
+        if (!\is_array($node)) {
+            return [];
+        }
+        if (isset($node['$ref']) && \is_string($node['$ref'])) {
+            if (isset($seen[$node['$ref']])) {
+                return [];
+            }
+            $seen[$node['$ref']] = true;
+            $node = self::dereference($node, $spec);
+        }
+        $found = [];
+        foreach ($node as $key => $value) {
+            if (('minLength' === $key || 'maxLength' === $key) && !\is_array($value)) {
+                $found[] = $key.'='.json_encode($value);
+            } elseif ('format' === $key && \is_string($value)) {
+                if ('uuid' !== $value) {
+                    $found[] = 'format='.$value;
+                }
+            } else {
+                array_push($found, ...self::answerChangingKeywordsUnder($value, $spec, $seen));
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * BK-18 R18-f/g T-G4, the name backstop: across the WHOLE served spec (every `components.*` section, `paths` and
+     * `webhooks`), a property or parameter named `…_at` or `…_since` is served `format: date-time`, and nothing else is;
+     * every request-body date-time property carries {@see Rfc3339Timestamp::PROFILE} as its description, and no response
+     * member does. Exceptions are pinned two-way, each with its reason.
+     *
+     * It is a backstop: the name is a convention, not a fact. What an instant IS is held by `RequestBodySchemaProbeTest`
+     * probe 4 (format ⇔ `not_a_timestamp`) and by `ResponseShapeTest` (d)/(e) (every served instant parses and keeps its
+     * shape; every instant-shaped value is declared).
+     */
+    #[Test]
+    public function everyDateAndTimeIsDeclaredAsOne(): void
+    {
+        $spec = $this->regenerate();
+        $sites = self::instantNameSites($spec);
+        $failures = [];
+        $counts = ['request' => 0, 'response' => 0, 'parameter' => 0, 'exception' => 0];
+        $mismatched = [];
+        foreach ($sites as [$where, $name, $node, $side]) {
+            $dateTime = 'date-time' === self::formatOf($node);
+            $named = 1 === preg_match('/_(?:at|since)\z/', $name);
+            if ($named !== $dateTime) {
+                $mismatched[] = $where;
+                if (!isset(self::INSTANT_NAME_EXCEPTIONS[$where])) {
+                    $failures[] = $named
+                        ? $where.' is named like an instant, but is not served format: date-time'
+                        : $where.' is served format: date-time, but is not named …_at or …_since';
+                }
+                continue;
+            }
+            if (!$dateTime) {
+                continue;
+            }
+            ++$counts[$side];
+            $description = self::descriptionOf($node);
+            if ('request' === $side && Rfc3339Timestamp::PROFILE !== $description) {
+                $failures[] = $where.' is a request date-time property whose description is not Rfc3339Timestamp::PROFILE';
+            } elseif ('response' === $side && Rfc3339Timestamp::PROFILE === $description) {
+                $failures[] = $where.' is a response member described with Rfc3339Timestamp::PROFILE (the accepted request shape)';
+            }
+        }
+        sort($mismatched);
+        $exceptions = array_keys(self::INSTANT_NAME_EXCEPTIONS);
+        sort($exceptions);
+        foreach ($exceptions as $exception) {
+            if (!\in_array($exception, $mismatched, true)) {
+                $failures[] = $exception.' is pinned in INSTANT_NAME_EXCEPTIONS but agrees with the rule (stale)';
+            } else {
+                ++$counts['exception'];
+            }
+        }
+        $summary = \sprintf('(%d request, %d response, %d parameter date-time sites; %d exceptions)', $counts['request'], $counts['response'], $counts['parameter'], $counts['exception']);
+        self::assertSame([], $failures, "A date and time is not declared as one $summary:\n".implode("\n", $failures));
+        self::assertGreaterThanOrEqual(1, $counts['request'], 'Anti-vacuity: no request date-time site '.$summary);
+        self::assertGreaterThanOrEqual(1, $counts['response'], 'Anti-vacuity: no response date-time site '.$summary);
+        self::assertGreaterThanOrEqual(1, $counts['exception'], 'Anti-vacuity: no exception was exercised '.$summary);
+    }
+
+    /** @var array<string, string> T-G4's exceptions, keyed as {@see self::instantNameSites()} names a site */
+    private const INSTANT_NAME_EXCEPTIONS = [
+        'get /api/v1/sales-returns ?decided_since' => 'served without a format: ListDeclarations::isFreeText() reads format, and a format would make the export trail record the instant; SEC to rule (BK-18 R18-f/g H-2)',
+    ];
+
+    /**
+     * Every named property (with the side it is sent on) and every parameter, across `components.*`, `paths` and
+     * `webhooks`. A component is on the request side when an operation's request body reaches it.
+     *
+     * @param array<string, mixed> $spec
+     *
+     * @return list<array{0: string, 1: string, 2: array<mixed>, 3: 'request'|'response'|'parameter'}>
+     */
+    private static function instantNameSites(array $spec): array
+    {
+        $requestComponents = [];
+        $collect = static function (mixed $node) use (&$collect, &$requestComponents, $spec): void {
+            if (!\is_array($node)) {
+                return;
+            }
+            if (isset($node['$ref']) && \is_string($node['$ref']) && str_starts_with($node['$ref'], '#/components/schemas/')) {
+                $name = substr($node['$ref'], \strlen('#/components/schemas/'));
+                if (!isset($requestComponents[$name])) {
+                    $requestComponents[$name] = true;
+                    $collect($spec['components']['schemas'][$name] ?? []);
+                }
+
+                return;
+            }
+            foreach ($node as $child) {
+                $collect($child);
+            }
+        };
+        foreach ($spec['paths'] ?? [] as $item) {
+            foreach (\is_array($item) ? $item : [] as $operation) {
+                if (\is_array($operation) && isset($operation['requestBody'])) {
+                    $collect($operation['requestBody']);
+                }
+            }
+        }
+        foreach ($spec['components']['requestBodies'] ?? [] as $body) {
+            $collect($body);
+        }
+
+        $sites = [];
+        $walk = static function (mixed $node, string $where, string $side) use (&$walk, &$sites): void {
+            if (!\is_array($node) || isset($node['$ref'])) {
+                return; // a $ref is walked where its component is
+            }
+            foreach (\is_array($node['properties'] ?? null) ? $node['properties'] : [] as $name => $child) {
+                $sites[] = [$where.'.'.$name, (string) $name, (array) $child, $side];
+                $walk($child, $where.'.'.$name, $side);
+            }
+            foreach ($node as $key => $child) {
+                if ('properties' !== $key && \is_array($child)) {
+                    $walk($child, $where, $side);
+                }
+            }
+        };
+        $parameter = static function (mixed $raw, string $where) use (&$sites, $spec): void {
+            $resolved = self::dereference($raw, $spec);
+            $sites[] = [$where.' ?'.(string) ($resolved['name'] ?? '?'), (string) ($resolved['name'] ?? ''), (array) ($resolved['schema'] ?? []), 'parameter'];
+        };
+
+        foreach ($spec['components'] ?? [] as $section => $entries) {
+            foreach (\is_array($entries) ? $entries : [] as $name => $entry) {
+                if ('parameters' === $section) {
+                    $parameter($entry, 'components.parameters.'.$name);
+                } elseif ('schemas' === $section) {
+                    $walk($entry, (string) $name, isset($requestComponents[$name]) ? 'request' : 'response');
+                } else {
+                    $walk($entry, 'components.'.$section.'.'.$name, 'requestBodies' === $section ? 'request' : 'response');
+                }
+            }
+        }
+        foreach ($spec['paths'] ?? [] as $path => $item) {
+            foreach (\is_array($item) ? $item : [] as $method => $operation) {
+                if ('parameters' === $method) {
+                    foreach ((array) $operation as $raw) {
+                        $parameter($raw, $path);
+                    }
+                    continue;
+                }
+                if (!\is_array($operation)) {
+                    continue;
+                }
+                foreach ($operation['parameters'] ?? [] as $raw) {
+                    $parameter($raw, $method.' '.$path);
+                }
+                $walk($operation['requestBody'] ?? [], $method.' '.$path.' request', 'request');
+                $walk($operation['responses'] ?? [], $method.' '.$path.' response', 'response');
+            }
+        }
+        $walk($spec['webhooks'] ?? [], 'webhooks', 'response');
+
+        return $sites;
+    }
+
+    /** @param array<mixed> $node */
+    private static function formatOf(array $node): ?string
+    {
+        if (isset($node['format'])) {
+            return (string) $node['format'];
+        }
+        foreach ($node['anyOf'] ?? [] as $branch) {
+            if (\is_array($branch) && isset($branch['format'])) {
+                return (string) $branch['format'];
+            }
+        }
+
+        return null;
+    }
+
+    /** @param array<mixed> $node */
+    private static function descriptionOf(array $node): ?string
+    {
+        if (isset($node['description'])) {
+            return (string) $node['description'];
+        }
+        foreach ($node['anyOf'] ?? [] as $branch) {
+            if (\is_array($branch) && isset($branch['description'])) {
+                return (string) $branch['description'];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -2451,11 +2737,13 @@ final class OpenApiContractTest extends ApiTestCase
      */
     private const REQUEST_ENUMS = [
         'CreateAdjustmentDecision.kind' => AdjustmentDecisionWriter::KINDS,
+        'CreateCustomerAddress.kind' => CustomerAddressWriter::KINDS,
         'CreateItem.unit_of_measure_code' => UnitsOfMeasure::CODES,
         'CreateSalesReturn.reason' => SalesReturnWriter::REASONS,
         'CreateStorageLocation.kind' => LocationKinds::ALL,
         'IssueAdjustmentCreditNote.reason' => CreditNoteWriter::ADJUST_REASONS,
         'IssueCreditNote.reason' => CreditNoteWriter::ISSUE_REASONS,
+        'UpdateCustomerAddress.kind' => CustomerAddressWriter::KINDS,
         'UpdateItem.unit_of_measure_code' => UnitsOfMeasure::CODES,
         'UpdateStorageLocation.kind' => LocationKinds::ALL,
     ];

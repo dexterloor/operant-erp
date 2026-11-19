@@ -34,7 +34,7 @@ trait OperationSuccessRecipes
      */
     protected function successRecipes(): array
     {
-        $key = static fn (): array => ['Idempotency-Key' => Uuid::v4()->toRfc4122()];
+        $key = fn (): array => $this->recipeKey();
         $none = static fn (): array => [];
         $draft = function (string $number): array {
             $d = $this->seedDraft(self::TENANT_A, $number);
@@ -54,22 +54,11 @@ trait OperationSuccessRecipes
 
             return ['order' => $order, 'line' => $line, 'bin' => $bin];
         };
+        // The sales helpers are trait methods ({@see self::recipeSalesWorkspace()} and below, which say why they live in
+        // this trait); these closures keep every recipe's call site as it was.
+        $salesWorkspace = fn (string $tag): array => $this->recipeSalesWorkspace($tag);
         // One line (V1-R-2, V4 B4a): a recipe that sends no `lines` leaves the nested create unprobed by
-        // every check that plants into the body. Both closures live **inside this trait** rather than in
-        // a sales-side twin, because the trait is `@phpstan-require-extends PurchaseOrderTestCase` and
-        // every consumer holds its keys equal to `TransactionBoundaryTest::contractOperations()`: a
-        // separate rig would not satisfy that pin and the operations would be red in four tests at once
-        // (RED F-12).
-        $salesWorkspace = function (string $tag): array {
-            $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail '.$tag);
-
-            return [
-                'customer' => $customer,
-                'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
-                'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH '.$tag),
-                'item' => $this->seedItem(self::TENANT_A, 'SKU-NEW-'.$tag),
-            ];
-        };
+        // every check that plants into the body.
         $raiseSalesOrder = function (array $c) use ($key): void {
             $this->send('POST', '/sales-orders', [
                 'customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse'],
@@ -77,36 +66,8 @@ trait OperationSuccessRecipes
                 'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '1', 'unit_price' => '1']],
             ], $key());
         };
-        // Sales step 5: a sales workspace with a bin of its warehouse holding the item, seeded as the owner in the
-        // PREPARE half, and one drive that raises, confirms and part-fulfils an order through the operations.
-        $stockedSalesWorkspace = function (string $tag) use ($salesWorkspace): array {
-            $c = $salesWorkspace($tag);
-            $c['bin'] = Uuid::v4()->toRfc4122();
-            $this->insertAsOwnerForTenant(self::TENANT_A,
-                'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
-                [$c['bin'], self::TENANT_A, $c['warehouse'], 'A-01']);
-            $this->insertAsOwnerForTenant(self::TENANT_A,
-                'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 100.25)',
-                [Uuid::v4()->toRfc4122(), self::TENANT_A, $c['item'], $c['bin']]);
-
-            return $c;
-        };
-        $raiseConfirmAndFulfil = function (array $c) use ($key): string {
-            $this->send('POST', '/sales-orders', [
-                'customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse'],
-                'currency_code' => 'EUR', 'ship_to_address_id' => $c['address'],
-                'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '3', 'unit_price' => '1']],
-            ], $key());
-            $order = (string) $this->client()->getResponse()->headers->get('Location');
-            $this->send('POST', $order.'/confirmation');
-            $this->send('GET', $order.'/lines');
-            $line = $this->json()['items'][0]['id'];
-            $this->send('POST', $order.'/fulfilments', ['lines' => [
-                ['sales_order_line_id' => $line, 'quantity' => '1.5', 'storage_location_id' => $c['bin']],
-            ]], $key());
-
-            return $order;
-        };
+        $stockedSalesWorkspace = fn (string $tag): array => $this->recipeStockedSalesWorkspace($tag);
+        $raiseConfirmAndFulfil = fn (array $c): string => $this->recipeRaiseConfirmAndFulfil($c);
         $receive = function (array $o) use ($key): void {
             $this->send('POST', '/purchase-orders/'.$o['order'].'/goods-receipts',
                 ['lines' => [['purchase_order_line_id' => $o['line'], 'quantity' => '1', 'storage_location_id' => $o['bin']]]], $key());
@@ -1465,6 +1426,86 @@ trait OperationSuccessRecipes
      * Stock reads C2: a receipt's two lines sharing one instant and one shipment line, as the owner (no `src/` path inserts a
      * movement but the three stock writers). @return array{movement: string} the shipment's movement id
      */
+    /**
+     * The `Idempotency-Key` header every recipe sends on an unsafe create: a fresh v4 uuid each call.
+     *
+     * The sales helpers below were local closures of {@see self::successRecipes()} until BK-18 R18-f/g C1, which made
+     * them trait methods so `ResponseShapeTest::extraDrives()` can drive extra variants with the same fixtures (final RED
+     * H-2). No recipe's requests changed: `successRecipes()` keeps local closures that call these.
+     *
+     * @return array{Idempotency-Key: string}
+     */
+    protected function recipeKey(): array
+    {
+        return ['Idempotency-Key' => Uuid::v4()->toRfc4122()];
+    }
+
+    /**
+     * A customer with an address, a warehouse and an item, all of TENANT_A, tagged so two recipes never share one.
+     *
+     * These helpers live **inside this trait** rather than in a sales-side twin, because the trait
+     * is `@phpstan-require-extends PurchaseOrderTestCase` and every consumer holds its keys equal to
+     * `TransactionBoundaryTest::contractOperations()`: a separate rig would not satisfy that pin and the operations would
+     * be red in four tests at once (RED F-12).
+     *
+     * @return array<string, string>
+     */
+    protected function recipeSalesWorkspace(string $tag): array
+    {
+        $customer = $this->seedCustomer(self::TENANT_A, 'Acme Retail '.$tag);
+
+        return [
+            'customer' => $customer,
+            'address' => $this->seedCustomerAddress(self::TENANT_A, $customer),
+            'warehouse' => $this->seedWarehouse(self::TENANT_A, 'WH '.$tag),
+            'item' => $this->seedItem(self::TENANT_A, 'SKU-NEW-'.$tag),
+        ];
+    }
+
+    /**
+     * Sales step 5: a sales workspace with a bin of its warehouse holding the item, seeded as the owner (the PREPARE half
+     * of a recipe).
+     *
+     * @return array<string, string>
+     */
+    protected function recipeStockedSalesWorkspace(string $tag): array
+    {
+        $c = $this->recipeSalesWorkspace($tag);
+        $c['bin'] = Uuid::v4()->toRfc4122();
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO storage_location (id, tenant_id, warehouse_id, code) VALUES (?::uuid, ?::uuid, ?::uuid, ?)',
+            [$c['bin'], self::TENANT_A, $c['warehouse'], 'A-01']);
+        $this->insertAsOwnerForTenant(self::TENANT_A,
+            'INSERT INTO stock_level (id, tenant_id, inventory_item_id, storage_location_id, qty_on_hand) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, 100.25)',
+            [Uuid::v4()->toRfc4122(), self::TENANT_A, $c['item'], $c['bin']]);
+
+        return $c;
+    }
+
+    /**
+     * Sales step 5: raises, confirms and part-fulfils an order through the operations (the DRIVE half). Returns the
+     * order's Location; the last response is the fulfilment's 201, so its Location is the fulfilment.
+     *
+     * @param array<string, string> $c a {@see self::recipeStockedSalesWorkspace()}
+     */
+    protected function recipeRaiseConfirmAndFulfil(array $c): string
+    {
+        $this->send('POST', '/sales-orders', [
+            'customer_id' => $c['customer'], 'warehouse_id' => $c['warehouse'],
+            'currency_code' => 'EUR', 'ship_to_address_id' => $c['address'],
+            'lines' => [['inventory_item_id' => $c['item'], 'quantity' => '3', 'unit_price' => '1']],
+        ], $this->recipeKey());
+        $order = (string) $this->client()->getResponse()->headers->get('Location');
+        $this->send('POST', $order.'/confirmation');
+        $this->send('GET', $order.'/lines');
+        $line = $this->json()['items'][0]['id'];
+        $this->send('POST', $order.'/fulfilments', ['lines' => [
+            ['sales_order_line_id' => $line, 'quantity' => '1.5', 'storage_location_id' => $c['bin']],
+        ]], $this->recipeKey());
+
+        return $order;
+    }
+
     /**
      * Audit reads C1: four trail rows by a dedicated user, at their own instants, by owner INSERT — a denial-free
      * security row with an IP, and three business rows whose opaque `metadata` carries bare `*_id` keys and a decimal.

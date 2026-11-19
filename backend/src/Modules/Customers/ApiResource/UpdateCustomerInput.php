@@ -14,18 +14,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateCustomerInput
 {
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $code;
 
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $name;
 
     #[SerializedName('country_code')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $countryCode;
 
     #[SerializedName('currency_code')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $currencyCode;
 
     #[SerializedName('payment_terms_days')]

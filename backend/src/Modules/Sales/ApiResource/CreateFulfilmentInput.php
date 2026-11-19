@@ -6,6 +6,7 @@ namespace App\Modules\Sales\ApiResource;
 
 use ApiPlatform\Metadata\ApiProperty;
 use App\Modules\Sales\Application\FulfilmentWriter;
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -18,6 +19,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreateFulfilmentInput
 {
     /** RFC 3339. Absent means "now". */
+    #[Instant(inRequest: true)]
     #[SerializedName('shipped_at')]
     public ?string $shippedAt = null;
 
@@ -32,7 +34,7 @@ final class CreateFulfilmentInput
             'required' => ['quantity', 'sales_order_line_id', 'storage_location_id'],
             'properties' => [
                 'sales_order_line_id' => ['type' => 'string', 'format' => 'uuid'],
-                'quantity' => ['type' => 'string'],
+                'quantity' => ['type' => 'string', 'minLength' => 1],
                 'storage_location_id' => ['type' => 'string', 'format' => 'uuid'],
             ],
         ],

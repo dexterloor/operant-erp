@@ -18,6 +18,7 @@ use App\Modules\UserManagement\ApiResource\State\UpdateUserProcessor;
 use App\Modules\UserManagement\ApiResource\State\UserProvider;
 use App\Modules\UserManagement\Application\UserView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -134,6 +135,7 @@ final class UserResource
         public string $displayName,
         #[SerializedName('is_active')]
         public bool $isActive,
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
         #[ApiProperty(schema: ['type' => 'array', 'items' => RoleReference::WIRE_SCHEMA])]

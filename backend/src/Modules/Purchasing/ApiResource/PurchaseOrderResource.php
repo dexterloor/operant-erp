@@ -19,6 +19,7 @@ use App\Modules\Purchasing\ApiResource\State\PurchaseOrderProvider;
 use App\Modules\Purchasing\ApiResource\State\RestorePurchaseOrderProcessor;
 use App\Modules\Purchasing\ApiResource\State\UpdatePurchaseOrderProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -263,6 +264,7 @@ final class PurchaseOrderResource
         #[SerializedName('currency_code')]
         public string $currencyCode,
         /** RFC 3339, or null while the order carries no expected date. */
+        #[Instant]
         #[SerializedName('expected_at')]
         public ?string $expectedAt,
         #[SerializedName('order_number')]
@@ -272,6 +274,7 @@ final class PurchaseOrderResource
         #[SerializedName('total_amount')]
         public string $totalAmount,
         /** Null while the order is `draft`, and on an order cancelled while a draft (`purchase_order_ordered_at_set`). */
+        #[Instant]
         #[SerializedName('ordered_at')]
         public ?string $orderedAt,
         /**
@@ -283,6 +286,7 @@ final class PurchaseOrderResource
         #[SerializedName('created_by')]
         public ?ActorReference $createdBy,
         /** Non-null iff the row is archived (ST-9). */
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {

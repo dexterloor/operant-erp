@@ -21,11 +21,11 @@ final class CreateSupplierProductInput
     public ?string $inventoryItemId = null;
 
     #[SerializedName('supplier_sku')]
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $supplierSku = null;
 
     #[SerializedName('unit_cost')]
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $unitCost = null;
 
     #[SerializedName('lead_time_days')]
@@ -33,7 +33,7 @@ final class CreateSupplierProductInput
     public mixed $leadTimeDays = null;
 
     #[SerializedName('minimum_order_quantity')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $minimumOrderQuantity;
 
     /** @return array<string, mixed> wire name => value; `minimum_order_quantity` only when the body carried it */

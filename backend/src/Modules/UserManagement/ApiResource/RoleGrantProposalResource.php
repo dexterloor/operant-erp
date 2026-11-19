@@ -17,6 +17,7 @@ use App\Modules\UserManagement\ApiResource\State\RejectRoleGrantProposalProcesso
 use App\Modules\UserManagement\ApiResource\State\RoleGrantProposalProvider;
 use App\Modules\UserManagement\Application\RoleGrantProposalView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -159,13 +160,16 @@ final class RoleGrantProposalResource
         /** PC-16 field 2. */
         #[SerializedName('proposed_by')]
         public UserDisplayReference $proposedBy,
+        #[Instant]
         #[SerializedName('proposed_at')]
         public string $proposedAt,
+        #[Instant]
         #[SerializedName('expires_at')]
         public string $expiresAt,
         /** PC-16 field 3; null on `pending` and `lapsed`. */
         #[SerializedName('decided_by')]
         public ?UserDisplayReference $decidedBy,
+        #[Instant]
         #[SerializedName('decided_at')]
         public ?string $decidedAt,
         /** Only on `rejected`. */

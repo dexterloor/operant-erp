@@ -18,6 +18,7 @@ use App\Modules\Customers\ApiResource\State\RestoreCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\UpdateCustomerProcessor;
 use App\Modules\Customers\Application\CustomerView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -135,6 +136,7 @@ final class CustomerResource
         public string $currencyCode,
         #[SerializedName('payment_terms_days')]
         public int $paymentTermsDays,
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {

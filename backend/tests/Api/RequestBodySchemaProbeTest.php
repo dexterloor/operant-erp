@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\UserManagement\Domain\DefaultRoles;
+use App\Platform\Http\Rfc3339Timestamp;
 use App\Tests\Support\GeneratedSpec;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -186,6 +187,27 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
 
     private const PROBE_7 = '7 (trailing line break)';
 
+    private const PROBE_4 = '4 (not a uuid)';
+
+    private const PROBE_9 = '9 (empty)';
+
+    private const PROBE_9B = '9b (spaces only)';
+
+    /**
+     * BK-18 R18-f: the date-time shape the published description promises ({@see Rfc3339Timestamp::PROFILE}), without the
+     * leniency the server also accepts (`+05`, `+0000`, ` Z`). A recipe's own value at a `date-time` field must have it, so
+     * the recipes are examples a client could copy (final RED H-1).
+     */
+    private const PUBLISHED_INSTANT = '/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})\z/';
+
+    /**
+     * Probe 7 (g103 deviations RED L-3): carried plain-string fields whose recipe sends a non-string, so probe 7 could not
+     * append a line break. Two-way; empty today. An entry needs its reason; making the recipe send a string is preferred.
+     *
+     * @var array<string, string>
+     */
+    private const PROBE_7_SKIPPED = [];
+
     /**
      * Probe 7: fields whose value followed by a line break is refused, with the code each one gives (G-103). Filled from
      * the report-mode run of 2026-11-18 on the fixed tree (`docs/session13/g103-build-progress.md`).
@@ -199,7 +221,6 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         'CreateCustomer.country_code' => 'not_a_country_code',
         'CreateCustomer.currency_code' => 'not_a_currency_code',
         'CreateCustomerAddress.country_code' => 'not_a_country_code',
-        'CreateCustomerAddress.kind' => 'not_an_address_kind',
         'CreateExport.resource' => 'unknown_resource',
         'CreateFulfilment.lines/0/quantity' => 'not_a_positive_decimal',
         'CreateGoodsReceipt.lines/0/quantity' => 'not_a_positive_decimal',
@@ -276,6 +297,15 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
 
     private int $plants = 0;
 
+    /** Probe 7 (L-1): the request sent carried no string at the path, so no own value had a line break appended. */
+    private bool $plantMissedValue = false;
+
+    /** @var array<string, list<string>> probe 9's codes at the field, by key, read by probe 9b */
+    private static array $probe9Codes = [];
+
+    /** @var list<string> probe 7's skipped keys (L-3), held equal to {@see self::PROBE_7_SKIPPED} */
+    private static array $probe7Skipped = [];
+
     /** @var array<string, mixed>|null the body actually sent by the last plant */
     private ?array $plantedBody = null;
 
@@ -300,6 +330,8 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         $spec = self::spec();
         $routes = self::routes($spec);
         $cases = self::cases($routes);
+        self::$probe9Codes = [];
+        self::$probe7Skipped = [];
 
         // KIND_FOR_FIELD is two-way against the operation it serves; the pins name real cases.
         $kindCases = array_values(array_filter(array_keys($cases), static fn (string $k): bool => str_starts_with($k, 'CreateAdjustmentDecision.')));
@@ -340,6 +372,8 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         $probe7ByOutcome = [];
         /** @var array<string, string> $probe7Cases key => kind */
         $probe7Cases = [];
+        /** @var array<string, int> $probeCounts probes 4, 9 and 9b, by side */
+        $probeCounts = [];
         foreach ($groups as $group => $keys) {
             [$operation, $recipe] = explode(' ', $group);
             self::assertArrayHasKey($operation, $routes, $operation.' has an input field but no route in the served spec.');
@@ -393,15 +427,21 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
                     $this->matches = 0;
                     $this->plants = 0;
                     $this->plantedBody = null;
+                    $this->plantMissedValue = false;
                     $this->drive($operation, $recipe);
                     $this->plant = null;
                     ++$runs;
                     $status = $this->httpStatus();
                     $errors = $this->errors();
                     $codes = array_values(array_map(static fn (array $e): string => $e[1], array_filter($errors, static fn (array $e): bool => $e[0] === $case['pointer'])));
-                    $planted = $unset ? 'absent' : json_encode($value);
+                    // L-2: probe 7 prints the value actually sent, not the counting run's.
+                    $planted = $unset ? 'absent' : json_encode(self::PROBE_7 === $name ? (self::valuesAt($this->plantedBody, $case['path'])[0] ?? null) : $value);
                     if (1 !== $this->plants) {
                         $failures[] = \sprintf('%s probe %s: %d plants happened, not exactly one.', $key, $name, $this->plants);
+                        continue;
+                    }
+                    if ($this->plantMissedValue) {
+                        $failures[] = \sprintf('%s probe %s: the request sent did not carry a string at the path, so there was no own value to append a line break to.', $key, $name);
                         continue;
                     }
                     if ($unset && self::carries($this->plantedBody, $case['path'])) {
@@ -421,6 +461,13 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
                         if ('nested line' !== $case['kind'] && !$case['mixed'] && \in_array('array', (array) ($case['schema']['type'] ?? []), true)) {
                             ++$probe3NativeArrays;
                         }
+                    }
+                    if (self::PROBE_4 === $name) {
+                        $side = 'date-time' === ($case['schema']['format'] ?? null) ? 'probe 4 date-time' : 'probe 4 other';
+                        $probeCounts[$side] = ($probeCounts[$side] ?? 0) + 1;
+                    } elseif (self::PROBE_9 === $name || self::PROBE_9B === $name) {
+                        $side = self::PROBE_9B === $name ? 'probe 9b' : (1 === ($case['schema']['minLength'] ?? null) ? 'probe 9 minLength' : 'probe 9 other');
+                        $probeCounts[$side] = ($probeCounts[$side] ?? 0) + 1;
                     }
                     if (self::PROBE_7 === $name) {
                         $probe7Cases[$key] = $case['kind'];
@@ -472,6 +519,17 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         $outcomes = array_keys($probe7ByOutcome);
         sort($outcomes);
         self::assertSame(['changes the outcome', 'refused', 'stored as sent', 'trimmed'], $outcomes, 'Probe 7 did not see all four outcome classes.');
+        // L-3: the carried plain-string fields probe 7 could not run on, two-way.
+        $skipped = self::$probe7Skipped;
+        sort($skipped);
+        $pinnedSkipped = array_keys(self::PROBE_7_SKIPPED);
+        sort($pinnedSkipped);
+        self::assertSame($pinnedSkipped, $skipped, 'Probe 7: carried plain-string fields whose recipe sends a non-string (PROBE_7_SKIPPED, two-way).');
+
+        // BK-18 R18-f: probe 4's date clause, probe 9 and probe 9b each ran on both sides.
+        foreach (['probe 4 date-time', 'probe 4 other', 'probe 9 minLength', 'probe 9 other', 'probe 9b'] as $side) {
+            self::assertGreaterThanOrEqual(1, $probeCounts[$side] ?? 0, 'Anti-vacuity: '.$side.' ran on no field.');
+        }
     }
 
     /** Probe 7's class for a key: the map it is pinned in, else stored as sent. */
@@ -556,9 +614,12 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
      *
      * @param array{operation: string, path: list<string|int>, pointer: string, kind: string, mixed: bool, phpNullable: bool, constructorWithoutDefault: bool, schema: array<string, mixed>, required: bool} $case
      *
-     * @return list<array{0: string, 1: mixed, 2: bool, 3: callable(int, list<string>, list<array{0: string, 1: string}>, ?string): ?string}>
+     * Probe 9b is yielded only after probe 9 has run and seen `blank` at the field, so it is a generator: the caller's
+     * loop runs each probe before asking for the next.
+     *
+     * @return \Generator<int, array{0: string, 1: mixed, 2: bool, 3: callable(int, list<string>, list<array{0: string, 1: string}>, ?string): ?string}>
      */
-    private static function probesFor(string $key, array $case, bool $carried, int $control, mixed $carriedValue = null): array
+    private static function probesFor(string $key, array $case, bool $carried, int $control, mixed $carriedValue = null): \Generator
     {
         $schema = $case['schema'];
         $types = (array) ($schema['type'] ?? []);
@@ -630,7 +691,14 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
 
         if ('string' === $base) {
             $uuid = 'uuid' === ($schema['format'] ?? null);
-            $probes[] = ['4 (not a uuid)', 'not-a-uuid', false, static function (int $status, array $codes) use ($uuid): ?string {
+            $dateTime = 'date-time' === ($schema['format'] ?? null);
+            $probes[] = [self::PROBE_4, 'not-a-uuid', false, static function (int $status, array $codes) use ($uuid, $dateTime): ?string {
+                // BK-18 R18-f: served `format: date-time` exactly when a non-timestamp is refused as not_a_timestamp.
+                if ($dateTime !== \in_array('not_a_timestamp', $codes, true)) {
+                    return $dateTime
+                        ? 'described as a date and time, but a non-timestamp was not refused as not_a_timestamp'
+                        : 'refused as not_a_timestamp, but not described as a date and time';
+                }
                 if ($uuid) {
                     return 422 === $status && \in_array('not_a_uuid', $codes, true) ? null : 'it is described as a uuid, but a non-uuid was not refused as not_a_uuid';
                 }
@@ -653,11 +721,39 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
             $probes[] = ['6 (absent)', null, true, self::absenceCheck($key, $case, $control)];
         }
 
-        if ($carried && 'string' === $base && !isset($schema['format']) && !isset($schema['enum']) && \is_string($carriedValue)) {
-            $probes[] = [self::PROBE_7, $carriedValue."\n", false, self::lineBreakCheck($key, $control)];
+        // BK-18 R18-f: a uuid or an enum leaves probe 7's domain; a date-time stays under G-103's probe.
+        if ($carried && 'string' === $base && 'uuid' !== ($schema['format'] ?? null) && !isset($schema['enum'])) {
+            if (\is_string($carriedValue)) {
+                $probes[] = [self::PROBE_7, $carriedValue."\n", false, self::lineBreakCheck($key, $control)];
+            } else {
+                self::$probe7Skipped[] = $key; // L-3
+            }
         }
 
-        return $probes;
+        // BK-18 R18-f, probe 9 (Rule B″): served `minLength: 1` exactly when `""` is refused at the field under a code other
+        // than not_for_this_kind or required.
+        $free = 'string' === $base && !isset($schema['format']) && !isset($schema['enum']);
+        if ($free) {
+            $minLength = 1 === ($schema['minLength'] ?? null);
+            $probes[] = [self::PROBE_9, '', false, static function (int $status, array $codes) use ($key, $minLength): ?string {
+                self::$probe9Codes[$key] = 422 === $status ? $codes : [];
+                $refused = 422 === $status && [] !== array_diff($codes, ['not_for_this_kind', 'required']);
+                if ($minLength && !$refused) {
+                    return 'it is described minLength: 1, but an empty value was not refused at the field';
+                }
+
+                return !$minLength && $refused ? 'it refuses an empty value at the field, but is not described minLength: 1' : null;
+            }];
+        }
+
+        yield from $probes;
+
+        // Probe 9b: on the fields probe 9 saw refused as `blank`, a value of only spaces is refused as `blank` too.
+        if ($free && \in_array('blank', self::$probe9Codes[$key] ?? [], true)) {
+            yield [self::PROBE_9B, '   ', false, static fn (int $status, array $codes): ?string => 422 === $status && \in_array('blank', $codes, true)
+                ? null
+                : 'an empty value is refused as blank, but a value of only spaces was not refused as blank'];
+        }
     }
 
     /**
@@ -817,10 +913,16 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
             if (null !== $this->plant && $this->matches === $this->plant['nth']) {
                 $body ??= [];
                 $value = $this->plant['value'];
-                if ($this->plant['appendLineBreak'] && \is_string($current = self::valuesAt($body, $this->plant['path'])[0] ?? null)) {
-                    $value = $current."\n";
+                $current = $this->plant['appendLineBreak'] ? (self::valuesAt($body, $this->plant['path'])[0] ?? null) : null;
+                if ($this->plant['appendLineBreak'] && !\is_string($current)) {
+                    // L-1: never fall back to the counting run's value; the loop reports the miss.
+                    $this->plantMissedValue = true;
+                } else {
+                    if ($this->plant['appendLineBreak']) {
+                        $value = $current."\n";
+                    }
+                    $body = self::planted($body, $this->plant['path'], $value, $this->plant['unset']);
                 }
-                $body = self::planted($body, $this->plant['path'], $value, $this->plant['unset']);
                 $this->plantedBody = $body;
                 ++$this->plants;
             }
@@ -961,6 +1063,15 @@ final class RequestBodySchemaProbeTest extends PurchaseOrderTestCase
         }
         if (isset($schema['enum']) && !\in_array($value, (array) $schema['enum'], true)) {
             return json_encode($value).' is not in its enum';
+        }
+        // BK-18 R18-f: a date-time value the server accepts AND in the published shape (final RED H-1); a non-empty value
+        // where the field is described minLength 1.
+        if (\is_string($value) && 'date-time' === ($schema['format'] ?? null)
+            && (null === Rfc3339Timestamp::parse($value) || 1 !== preg_match(self::PUBLISHED_INSTANT, $value))) {
+            return json_encode($value).' is not a date and time in the published shape';
+        }
+        if ('' === $value && 1 === ($schema['minLength'] ?? null)) {
+            return '"" is empty, but the field is described minLength: 1';
         }
         if (\is_array($value) && array_is_list($value) && isset($schema['items']) && \is_array($schema['items']) && 'object' !== ($schema['items']['type'] ?? null)) {
             foreach ($value as $item) {

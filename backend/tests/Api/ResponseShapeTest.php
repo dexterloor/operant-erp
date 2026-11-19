@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
+use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\GeneratedSpec;
@@ -748,7 +749,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             }
 
             // BK-18 R18-a: every row id this operation declares is a canonical uuid.
-            $kind = $declared[(string) preg_replace('/ \(limit=1\)$/', '', (string) $name)] ?? null;
+            $kind = $declared[self::operationOf((string) $name)] ?? null;
             $ids = [];
             if ('object' === $kind) {
                 $ids['$.id'] = $body['id'] ?? null;
@@ -796,6 +797,12 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 $expected[] = $operationId.' (limit=1)';
             }
         }
+        // BK-18 R18-f/g C1: each extra variant of a declaring operation must have had an id checked too (no limit=1 twin).
+        foreach (array_keys($this->extraDrives()) as $extra) {
+            if (isset($declared[self::operationOf($extra)])) {
+                $expected[] = $extra;
+            }
+        }
         $pinFailures = [];
         foreach (self::LIST_PAGES_EMPTY_BY_RECIPE as $key) {
             if (!\in_array($key, $expected, true)) {
@@ -831,21 +838,36 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * `OpenApiContractTest::everyServedListOfObjectsIsItsElementClass`; the pin only means this test has not yet added its
      * on-the-wire check there.
      *
-     * Owed (R18-c D-5): drive each node from its recipe before 2b; when one is reached this pin goes red — delete the entry
-     * then, never re-key it. Trigger: the next commit that edits any of the nine success recipes ListAuditRecords,
-     * IssueCreditNote, IssueAdjustmentCreditNote, GetCreditNote, ListCreditNotes, CreateSalesReturn, GetSalesReturn,
-     * ListSalesReturns, CreateAdjustmentDecision (`tests/Api/OperationSuccessRecipes.php`), or R18-g / 2b, whichever is
-     * first.
+     * Emptied by {@see self::extraDrives()} (BK-18 R18-f/g C1, which closed R18-c D-5); a node no driven body reaches is
+     * red. A new entry needs its reason, and a recipe or an extra drive is preferred over one.
      *
      * @var array<string, string>
      */
-    private const NESTED_NODES_NO_RECIPE_REACHES = [
-        'AuditRecordCollection.items[].actor' => 'the ListAuditRecords recipe\'s rows carry a null actor (measured 2026-11-13)',
-        'CreditNote.lines[].return_decisions[]' => 'no driven CreditNote body carries a return decision (empty list, measured 2026-11-13): the four CreditNote recipes record none, and CreateAdjustmentDecision, which records one, answers a SalesReturn',
-        'CreditNote.lines[].return_decisions[].recorded_by' => 'inside an unreached return decision (above)',
-        'CreditNote.lines[].return_decisions[].sales_return' => 'inside an unreached return decision (above)',
-        'SalesReturn.credit_target' => 'null in every driven SalesReturn body (measured 2026-11-13): non-null only while the return owes a credit on a live, unpaid invoice (`SalesReturnReader`), and no recipe reads a return in that state',
+    private const NESTED_NODES_NO_RECIPE_REACHES = [];
+
+    /**
+     * BK-18 R18-g T-G3, (f)'s exceptions: `format: date-time` members reachable from a 2xx schema that no driven body
+     * carries a non-null value for, each with its reason, so (d) never saw one. Pinned two-way. A recipe or an extra drive
+     * that reaches one is preferred over an entry; when one is reached, delete it.
+     *
+     * @var array<string, string>
+     */
+    private const INSTANTS_NO_DRIVEN_BODY_SHOWS = [
+        'Customer.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'Item.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'PurchaseOrder.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'PurchaseOrderLine.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'Role.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'SalesOrder.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'SalesOrderLine.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'StorageLocation.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'Supplier.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'User.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'Warehouse.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
     ];
+
+    /** The reason shared by every `archived_at` entry above (measured 2026-11-19, BK-18 R18-f/g C2). */
+    private const ONLY_LIVE_ROWS_ARE_DRIVEN = 'null in every driven body: the recipes and extra drives read live rows only, and no `?archived=true` view is driven (PO: whether to drive Archived views before 2b)';
 
     /**
      * BK-18 R18-c T-C2. Every driven 2xx JSON body, walked together with its operation's 2xx schema (by operationId, from
@@ -863,6 +885,13 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * value checked; (b) every nested object node with `properties` reachable from a 2xx schema had a value checked,
      * except {@see self::NESTED_NODES_NO_RECIPE_REACHES}; (iii) {@see self::MEMBERS_ABSENT_FOR_SOME_CALLERS} == the
      * members of the served resource components that the spec leaves out of `required`.
+     *
+     * BK-18 R18-g, on the same walk (no second drive): (d) a value at a `format: date-time` member parses with
+     * `Rfc3339Timestamp::parse()` and keeps one of the two shapes the readers serve (`RFC3339_EXTENDED`, `RFC3339`); (e) a
+     * string at a member with no `format` that parses is an undeclared instant; (f) the date-time members never seen
+     * non-null equal {@see self::INSTANTS_NO_DRIVEN_BODY_SHOWS}, two-way. Controls on the planted `GetWarehouse` copy: an
+     * `archived_at` that parses but does not keep its shape, one that does not parse, and an instant planted at `name`, each
+     * reported by exactly its half.
      *
      * Not covered: completeness (that every always-present member is listed) is
      * `OpenApiContractTest::everyServedListOfObjectsIsItsElementClass`'s, by reflection — it is not observable here (a
@@ -905,7 +934,8 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             $defects = [];
             $components = [];
             $nodes = [];
-            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $defects, $components, $nodes);
+            $instants = [];
+            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $defects, $components, $nodes, $instants);
 
             return $defects;
         };
@@ -920,18 +950,26 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         self::assertNotSame([], $audit['items'] ?? [], 'Control (i): ListAuditLogEntries has a row to plant into.');
         $audit['items'][0]['metadata'] = ['zz' => 1];
         self::assertSame([], $check($audit, 'ListAuditLogEntries'), 'Control (i): a key under the opaque metadata object is not reported.');
+        // (i), BK-18 R18-g: (d)'s round-trip half, (d)'s parse half and (e), each alone.
+        self::assertSame(['$.archived_at: "2026-10-01T00:00:00+0000" is an instant that does not keep a served shape (RFC3339_EXTENDED or RFC3339)'],
+            $check(['archived_at' => '2026-10-01T00:00:00+0000'] + $warehouse, 'GetWarehouse'), 'Control (i): (d) round-trip half, parse half green.');
+        self::assertSame(['$.archived_at: "2026-02-30T00:00:00Z" is declared a date and time, but Rfc3339Timestamp::parse() refuses it'],
+            $check(['archived_at' => '2026-02-30T00:00:00Z'] + $warehouse, 'GetWarehouse'), 'Control (i): (d) parse half.');
+        self::assertSame(['$.name: "2026-11-18T09:30:00.000+00:00" is an instant, but the member is not declared format: date-time'],
+            $check(['name' => '2026-11-18T09:30:00.000+00:00'] + $warehouse, 'GetWarehouse'), 'Control (i): (e).');
 
         // The walk over every driven body.
         $defects = [];
         $components = [];
         $nodes = [];
+        $instants = [];
         foreach ($bodies as $name => $body) {
-            $operation = (string) preg_replace('/ \(limit=1\)$/', '', (string) $name);
+            $operation = self::operationOf((string) $name);
             if (null === $body || !isset($bodySchema[$operation])) {
                 continue;
             }
             $found = [];
-            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $found, $components, $nodes);
+            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $found, $components, $nodes, $instants);
             foreach ($found as $defect) {
                 $defects[] = $name.' '.$defect;
             }
@@ -942,14 +980,23 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         // (ii)(b) every reachable nested object node had a value checked, except the pin.
         $reachable = [];
+        $reachableInstants = [];
         foreach ($served as $component) {
-            self::reachableNodes($schemas[$component] ?? [], $component, $schemas, $served, $reachable);
+            self::reachableNodes($schemas[$component] ?? [], $component, $schemas, $served, $reachable, $reachableInstants);
         }
         $unreached = array_values(array_diff(array_keys($reachable), array_keys($nodes)));
         sort($unreached);
         $pinned = array_keys(self::NESTED_NODES_NO_RECIPE_REACHES);
         sort($pinned);
         self::assertSame($pinned, $unreached, 'Control (ii)(b): nested object nodes no driven body reaches (pinned two-way, each with a reason).');
+
+        // (f) BK-18 R18-g T-G3: every date-time member was seen non-null (so (d) checked it), except the pin.
+        self::assertGreaterThan(0, \count($instants), 'Anti-vacuity: (d) checked no date-time value.');
+        $unseen = array_values(array_diff(array_keys($reachableInstants), array_keys($instants)));
+        sort($unseen);
+        $pinnedInstants = array_keys(self::INSTANTS_NO_DRIVEN_BODY_SHOWS);
+        sort($pinnedInstants);
+        self::assertSame($pinnedInstants, $unseen, 'Control (f): date-time members no driven body shows non-null (pinned two-way, each with a reason).');
 
         // (iii) the sometimes-absent members, two-way.
         $notRequired = [];
@@ -1016,8 +1063,9 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * @param list<string>          $defects
      * @param array<string, true>   $components
      * @param array<string, true>   $nodes
+     * @param array<string, true>   $instants the `format: date-time` members a non-null value was checked at
      */
-    private static function walkBody(mixed $value, array $schema, string $key, string $where, array $schemas, array &$defects, array &$components, array &$nodes): void
+    private static function walkBody(mixed $value, array $schema, string $key, string $where, array $schemas, array &$defects, array &$components, array &$nodes, array &$instants): void
     {
         [$node, $key, $isComponent] = self::resolveNode($schema, $key, $schemas);
         $type = (array) ($node['type'] ?? []);
@@ -1034,12 +1082,16 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                     }
                     continue;
                 }
-                self::walkBody($element, (array) ($node['items'] ?? []), $key.'[]', $where.'['.$index.']', $schemas, $defects, $components, $nodes);
+                self::walkBody($element, (array) ($node['items'] ?? []), $key.'[]', $where.'['.$index.']', $schemas, $defects, $components, $nodes, $instants);
             }
 
             return;
         }
         if (!isset($node['properties'])) {
+            if (\is_string($value)) {
+                self::checkInstant($value, $node, $key, $where, $defects, $instants);
+            }
+
             return; // a scalar, or an opaque free-form object
         }
         if (!\is_array($value)) {
@@ -1068,7 +1120,32 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 }
                 continue;
             }
-            self::walkBody($memberValue, $memberNode, $key.'.'.$member, $where.'.'.$member, $schemas, $defects, $components, $nodes);
+            self::walkBody($memberValue, $memberNode, $key.'.'.$member, $where.'.'.$member, $schemas, $defects, $components, $nodes, $instants);
+        }
+    }
+
+    /**
+     * BK-18 R18-g: (d) a string at a `format: date-time` member parses with {@see Rfc3339Timestamp::parse()} (so a client
+     * can send it back) AND keeps one of the two shapes the readers serve — the parser alone accepts `+0000` and
+     * `…UTC`-free leniency a reader must not emit (RED M-1); (e) a string at a member with no `format` that parses is an
+     * instant nobody declared.
+     *
+     * @param array<mixed>        $node
+     * @param list<string>        $defects
+     * @param array<string, true> $instants
+     */
+    private static function checkInstant(string $value, array $node, string $key, string $where, array &$defects, array &$instants): void
+    {
+        $parsed = Rfc3339Timestamp::parse($value);
+        if ('date-time' === ($node['format'] ?? null)) {
+            $instants[$key] = true;
+            if (null === $parsed) {
+                $defects[] = $where.': '.json_encode($value).' is declared a date and time, but Rfc3339Timestamp::parse() refuses it';
+            } elseif ($value !== $parsed->format(\DateTimeInterface::RFC3339_EXTENDED) && $value !== $parsed->format(\DateTimeInterface::RFC3339)) {
+                $defects[] = $where.': '.json_encode($value).' is an instant that does not keep a served shape (RFC3339_EXTENDED or RFC3339)';
+            }
+        } elseif (!isset($node['format']) && null !== $parsed) {
+            $defects[] = $where.': '.json_encode($value).' is an instant, but the member is not declared format: date-time';
         }
     }
 
@@ -1080,8 +1157,9 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * @param array<string, mixed>  $schemas
      * @param list<string>          $served
      * @param array<string, true>   $reachable
+     * @param array<string, true>   $instants  the `format: date-time` members reached, keyed the same way
      */
-    private static function reachableNodes(array $schema, string $key, array $schemas, array $served, array &$reachable, bool $root = true): void
+    private static function reachableNodes(array $schema, string $key, array $schemas, array $served, array &$reachable, array &$instants, bool $root = true): void
     {
         [$node, $key, $isComponent] = self::resolveNode($schema, $key, $schemas);
         if (!$root && $isComponent && \in_array($key, $served, true)) {
@@ -1089,11 +1167,15 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         }
         $type = (array) ($node['type'] ?? []);
         if (\in_array('array', $type, true) || isset($node['items'])) {
-            self::reachableNodes((array) ($node['items'] ?? []), $key.'[]', $schemas, $served, $reachable, false);
+            self::reachableNodes((array) ($node['items'] ?? []), $key.'[]', $schemas, $served, $reachable, $instants, false);
 
             return;
         }
         if (!isset($node['properties'])) {
+            if ('date-time' === ($node['format'] ?? null)) {
+                $instants[$key] = true;
+            }
+
             return;
         }
         if (!$root) {
@@ -1103,7 +1185,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             $reachable[$key] = true;
         }
         foreach ($node['properties'] as $member => $memberNode) {
-            self::reachableNodes((array) $memberNode, $key.'.'.$member, $schemas, $served, $reachable, false);
+            self::reachableNodes((array) $memberNode, $key.'.'.$member, $schemas, $served, $reachable, $instants, false);
         }
     }
 
@@ -1164,6 +1246,10 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * each answered the status its recipe drives for — the subject here is the
      * body, so a refusal's body would be the wrong subject.
      *
+     * Then each {@see self::extraDrives()} variant, keyed `<operationId>#<variant>`, prepared and driven in its own loop
+     * AFTER every recipe (so no recipe's fixtures or body change), with no ` (limit=1)` twin (final RED L-4). Every
+     * caller maps a driven name to its operationId through {@see self::operationOf()}.
+     *
      * @return array<string, array<mixed>|null>
      */
     private function drivenBodies(): array
@@ -1218,7 +1304,102 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             }
         }
 
+        // The recipes end with `ChangePassword`, which raises the actor's session floor (W1-b), so the extras act as a
+        // fresh principal holding the rig's default set ({@see self::actAs()}), exactly as the recipes' actor did.
+        $this->actAs(self::TENANT_A);
+        foreach ($this->extraDrives() as $name => [$prepare, $drive]) {
+            self::assertArrayHasKey(self::operationOf($name), $registry, $name.' names no operation of the registry.');
+            [$status, $label] = $drive($prepare());
+            $content = $this->responseContent();
+            self::assertSame($status, $this->httpStatus(), \sprintf('%s (%s) was not driven to success: %s', $name, $label, substr($content, 0, 300)));
+            self::assertNotSame('', $content, $name.' answered '.$status.' with an empty body.');
+            $bodies[$name] = json_decode($content, true, flags: \JSON_THROW_ON_ERROR);
+        }
+
         return $bodies;
+    }
+
+    /**
+     * A driven body's name to its operationId: drops a ` (limit=1)` twin suffix and an extra variant's `#…` suffix.
+     */
+    private static function operationOf(string $name): string
+    {
+        return (string) preg_replace(['/ \(limit=1\)\z/', '/#[^#]*\z/'], '', $name);
+    }
+
+    /**
+     * BK-18 R18-f/g C1 (R18-c D-5): success variants the shared recipes do not reach, each driving one operation to a body
+     * that carries a nested node no recipe's body carries. Same `[prepare, drive]` shape as
+     * {@see OperationSuccessRecipes::successRecipes()} and the same fixtures (its `recipe*` methods). They are not recipe
+     * keys: every recipe consumer pins its keys to `TransactionBoundaryTest::contractOperations()`.
+     *
+     * - `ListAuditRecords#with-actor`: one record's History whose rows name a live user, so `items[].actor` is an object.
+     * - `GetCreditNote#with-return-decision`: an adjustment credit note one of whose lines a return decision (`same`)
+     *   covers, so `lines[].return_decisions[]` and its `recorded_by` / `sales_return` references are served.
+     * - `GetSalesReturn#owing-credit`: a return on a shipment with a live, unpaid invoice and no credit yet, so
+     *   `credit_target` is an object.
+     *
+     * Each uses its own `SO-25x000` series tag.
+     *
+     * @return array<string, array{0: callable(): array<string, mixed>, 1: callable(array<string, mixed>): array{0: int, 1: string}}>
+     */
+    private function extraDrives(): array
+    {
+        return [
+            'ListAuditRecords#with-actor' => [function (): array {
+                $order = Uuid::v4()->toRfc4122();
+                $actor = Uuid::v4()->toRfc4122();
+                $this->insertAsOwnerForTenant(self::TENANT_A,
+                    "INSERT INTO app_user (id, tenant_id, email, password_hash, display_name) VALUES (?::uuid, ?::uuid, ?, 'not-a-hash', 'Recipe History Actor')",
+                    [$actor, self::TENANT_A, 'recipe-history-'.$actor.'@example.test']);
+                foreach (['purchase_order.placed', 'authz.permission.denied'] as $i => $event) {
+                    $this->insertAsOwnerForTenant(self::TENANT_A, <<<'SQL'
+                        INSERT INTO audit_log (id, tenant_id, event_type, actor_user_id, actor_label, subject_type, subject_id, occurred_at)
+                        VALUES (?::uuid, ?::uuid, ?, ?::uuid, 'Recipe History Actor', 'purchase_order', ?::uuid, '2026-03-05 09:00:00+00'::timestamptz + ?::int * interval '1 second')
+                        SQL, [Uuid::v4()->toRfc4122(), self::TENANT_A, $event, $actor, $order, $i]);
+                }
+
+                return ['order' => $order];
+            }, function (array $c): array {
+                $this->send('GET', '/audit-log/records?subject_type=purchase_order&subject_id='.$c['order']);
+
+                return [200, 'list one record\'s History whose rows name a live user'];
+            }],
+            'GetCreditNote#with-return-decision' => [fn (): array => $this->recipeStockedSalesWorkspace('SO-250000'), function (array $c): array {
+                $this->recipeRaiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $line = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/invoices', null, $this->recipeKey());
+                $invoice = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('POST', $invoice.'/credit-note-adjustments', ['reason' => 'damaged_goods_kept',
+                    'lines' => [['fulfilment_line_id' => $line, 'quantity' => '0.5']]], $this->recipeKey());
+                $adjustment = (string) $this->client()->getResponse()->headers->get('Location');
+                $adjustmentLine = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
+                    ['fulfilment_line_id' => $line, 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $this->recipeKey());
+                $return = (string) $this->json()['id'];
+                $this->send('POST', '/sales-returns/'.$return.'/adjustment-decisions', ['kind' => 'same',
+                    'sales_return_line_id' => $this->json()['lines'][0]['id'], 'credit_note_line_id' => $adjustmentLine, 'quantity' => '0.5'], $this->recipeKey());
+                $this->send('GET', $adjustment);
+
+                return [200, 'create, confirm, fulfil, invoice, adjust part, return it, record it as already credited, then read the adjustment'];
+            }],
+            'GetSalesReturn#owing-credit' => [fn (): array => $this->recipeStockedSalesWorkspace('SO-251000'), function (array $c): array {
+                $this->recipeRaiseConfirmAndFulfil($c);
+                $fulfilment = (string) $this->client()->getResponse()->headers->get('Location');
+                $this->send('GET', $fulfilment);
+                $line = $this->json()['lines'][0]['id'];
+                $this->send('POST', $fulfilment.'/invoices', null, $this->recipeKey());
+                $this->send('POST', $fulfilment.'/sales-returns', ['reason' => 'other', 'lines' => [
+                    ['fulfilment_line_id' => $line, 'quantity' => '0.5', 'storage_location_id' => $c['bin']],
+                ]], $this->recipeKey());
+                $this->send('GET', (string) $this->client()->getResponse()->headers->get('Location'));
+
+                return [200, 'create, confirm, fulfil, invoice, return part, then read the return while it owes a credit'];
+            }],
+        ];
     }
 
     /**

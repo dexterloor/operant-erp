@@ -47,11 +47,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateSalesOrderLineInput
 {
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $quantity;
 
     #[SerializedName('unit_price')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $unitPrice;
 
     /**

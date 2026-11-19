@@ -15,11 +15,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateCustomerContactInput
 {
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $name;
 
+    #[ApiProperty(schema: ['type' => ['string', 'null'], 'minLength' => 1])]
     public ?string $email;
 
+    #[ApiProperty(schema: ['type' => ['string', 'null'], 'minLength' => 1])]
     public ?string $phone;
 
     #[SerializedName('is_primary')]

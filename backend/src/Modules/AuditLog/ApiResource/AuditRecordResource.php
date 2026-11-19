@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\AuditLog\ApiResource;
 
 use App\Modules\AuditLog\Application\AuditRecordView;
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -25,7 +26,7 @@ final readonly class AuditRecordResource
         'required' => ['id', 'occurred_at', 'event_type', 'actor', 'actor_label', 'subject_type', 'subject_id'],
         'properties' => [
             'id' => ['type' => 'string', 'format' => 'uuid'],
-            'occurred_at' => ['type' => 'string', 'format' => 'date-time'],
+            'occurred_at' => Instant::SCHEMA,
             'event_type' => ['type' => 'string'],
             'actor' => ['type' => ['object', 'null'], 'required' => ['id', 'display_name'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'display_name' => ['type' => 'string']]],
             'actor_label' => ['type' => 'string'],

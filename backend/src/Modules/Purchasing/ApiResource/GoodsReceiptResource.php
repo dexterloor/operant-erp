@@ -16,6 +16,7 @@ use App\Modules\Purchasing\Application\GoodsReceiptLineView;
 use App\Modules\Purchasing\Application\GoodsReceiptView;
 use App\Modules\Purchasing\Application\OrderReference;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\Reference\UnitsOfMeasure;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -113,6 +114,7 @@ final class GoodsReceiptResource
         public string $id,
         #[SerializedName('receipt_number')]
         public string $receiptNumber,
+        #[Instant]
         #[SerializedName('received_at')]
         public string $receivedAt,
         #[ApiProperty(schema: PurchasingReferenceSchema::ORDER)]

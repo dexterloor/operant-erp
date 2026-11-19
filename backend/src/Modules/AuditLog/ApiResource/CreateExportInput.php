@@ -20,7 +20,7 @@ use ApiPlatform\Metadata\ApiProperty;
  */
 final class CreateExportInput
 {
-    #[ApiProperty(description: 'The kind of record to export: the primary table of the List whose current view is rendered (e.g. inventory_item).', required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(description: 'The kind of record to export: the primary table of the List whose current view is rendered (e.g. inventory_item).', required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $resource = null;
 
     #[ApiProperty(
@@ -29,6 +29,6 @@ final class CreateExportInput
     )]
     public mixed $filters = null;
 
-    #[ApiProperty(description: 'One of the List\'s sort values, when it declares any.', schema: ['type' => ['string', 'null']])]
+    #[ApiProperty(description: 'One of the List\'s sort values, when it declares any.', schema: ['type' => ['string', 'null'], 'minLength' => 1])]
     public mixed $sort = null;
 }

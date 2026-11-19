@@ -18,6 +18,7 @@ use App\Modules\Purchasing\ApiResource\State\RestorePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\ApiResource\State\UpdatePurchaseOrderLineProcessor;
 use App\Modules\Purchasing\Application\ItemReference;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\Reference\UnitsOfMeasure;
@@ -233,6 +234,7 @@ final class PurchaseOrderLineResource
          * trigger — which since `Version20260921000200` archives only LIVE lines, so a
          * line discarded on its own keeps its own instant instead of the order's.
          */
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {

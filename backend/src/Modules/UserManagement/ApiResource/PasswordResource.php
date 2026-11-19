@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\UserManagement\ApiResource\State\ChangePasswordProcessor;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -122,6 +123,7 @@ final class PasswordResource
 {
     public function __construct(
         /** RFC 3339, whole seconds — the session floor the change set (owner ruling P-A); within a second of E-23's audit_log row. */
+        #[Instant]
         #[SerializedName('changed_at')]
         public string $changedAt,
     ) {

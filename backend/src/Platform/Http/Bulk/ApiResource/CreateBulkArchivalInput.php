@@ -14,7 +14,7 @@ use ApiPlatform\Metadata\ApiProperty;
  */
 final class CreateBulkArchivalInput
 {
-    #[ApiProperty(description: 'The kind of record to archive: its table (e.g. inventory_item, storage_location, customer).', required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(description: 'The kind of record to archive: its table (e.g. inventory_item, storage_location, customer).', required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $resource = null;
 
     #[ApiProperty(

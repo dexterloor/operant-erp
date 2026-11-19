@@ -30,7 +30,7 @@ final class CreateStockTransferInput
     #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public mixed $destinationStorageLocationId;
 
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $quantity;
 
     #[ApiProperty(schema: ['type' => ['string', 'null']])]

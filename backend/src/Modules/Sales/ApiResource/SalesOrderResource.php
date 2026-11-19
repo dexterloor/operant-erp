@@ -19,6 +19,7 @@ use App\Modules\Sales\ApiResource\State\RestoreSalesOrderProcessor;
 use App\Modules\Sales\ApiResource\State\SalesOrderProvider;
 use App\Modules\Sales\ApiResource\State\UpdateSalesOrderProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -297,6 +298,7 @@ final class SalesOrderResource
          * sets it in the same transition that leaves `draft`, so the sentence this comment carried until then
          * (*"nothing confirms one yet, so it is null on every row"*) is no longer true and is not kept.
          */
+        #[Instant]
         #[SerializedName('ordered_at')]
         public ?string $orderedAt,
         /**
@@ -322,6 +324,7 @@ final class SalesOrderResource
         #[SerializedName('ship_to_country_code')]
         public string $shipToCountryCode,
         /** Non-null iff the row is archived (ST-9). */
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {

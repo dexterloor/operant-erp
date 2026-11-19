@@ -13,9 +13,9 @@ use ApiPlatform\Metadata\ApiProperty;
 final class CreatePasswordResetInput
 {
     public function __construct(
-        #[ApiProperty(required: true)]
+        #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
         public string $workspace,
-        #[ApiProperty(required: true)]
+        #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
         public string $email,
     ) {
     }

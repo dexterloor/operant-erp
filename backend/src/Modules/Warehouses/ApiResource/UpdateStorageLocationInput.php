@@ -15,7 +15,7 @@ use App\Modules\Warehouses\Application\Contract\LocationKinds;
  */
 final class UpdateStorageLocationInput
 {
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $code;
 
     /**

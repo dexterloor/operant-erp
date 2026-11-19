@@ -37,10 +37,10 @@ final class ChangePasswordInput
 {
     public function __construct(
         #[SerializedName('current_password')]
-        #[ApiProperty(required: true)]
+        #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
         public string $currentPassword,
         #[SerializedName('new_password')]
-        #[ApiProperty(required: true)]
+        #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
         public string $newPassword,
     ) {
     }

@@ -258,7 +258,7 @@ final class AdjustmentDecisionTest extends PurchaseOrderTestCase
             self::assertSame(422, $this->httpStatus(), $value.' was not refused.');
             self::assertSame(['?decided_since', 'not_a_timestamp'], [$this->json()['errors'][0]['pointer'], $this->json()['errors'][0]['code']], $value);
         }
-        foreach (['0001-01-01T00:00:00Z', '9999-12-31T23:59:59Z'] as $value) {
+        foreach (['0001-01-01T00:00:00Z', '2026-01-01T00:00:00-15:59', '9999-12-31T23:59:59Z'] as $value) {
             $this->send('GET', '/sales-returns?adjustment_decided=same&decided_since='.rawurlencode($value));
             self::assertSame(200, $this->httpStatus(), $value.' was refused.');
         }
