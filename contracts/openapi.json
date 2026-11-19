@@ -5307,7 +5307,7 @@
         "securitySchemes": {}
     },
     "info": {
-        "description": "Contract: docs/API.md. Paths in its §4.2 table omit the /api/v1 prefix.\n\nAny request can also be refused for how it was sent rather than what it asks, in the same refusal shape: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation's format (`application/json` for every operation except the export, which is `text/csv`; a refusal is always sent as `application/problem+json`, yet an `Accept` that names only that is answered 406, so name both, for example `Accept: application/json, application/problem+json`), and 415 when a body is sent with a `Content-Type` other than `application/json`. A request whose `Host` header is malformed is refused 400 before any operation runs, outside that shape. None of these is listed on each operation.",
+        "description": "Contract: docs/API.md. Paths in its §4.2 table omit the /api/v1 prefix.\n\nAny request can also be refused for how it was sent rather than what it asks: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation's format (`application/json` for every operation except the export, which is `text/csv`), and 415 when a body is sent with a `Content-Type` other than `application/json`. These three, like every refusal listed on an operation, are sent as `application/problem+json`. An `Accept` that names only `application/problem+json` is itself answered 406, so name the operation's format as well: `Accept: application/json, application/problem+json`, or `Accept: text/csv, application/problem+json` for the export. One refusal is outside that shape: a request whose `Host` header is malformed is refused 400 before any operation runs. None of these is listed on each operation.",
         "title": "ERP API",
         "version": "1.0.0"
     },
@@ -5679,7 +5679,7 @@
                 },
                 "responses": {
                     "202": {
-                        "description": "Accepted. If that email belongs to an active account in that workspace, a link to set a new password is sent to it, subject to a limit on how many links one account is sent in 24 hours. The answer is the same either way, so it does not say whether the account exists. The answer has no body.",
+                        "description": "Accepted. If that email belongs to an active account in that workspace, and the workspace allows signing in, a link to set a new password is sent to it, subject to a limit on how many links one account is sent in 24 hours. The answer is the same in every case, so it does not say whether the account exists or whether a link was sent. The answer has no body.",
                         "links": {}
                     },
                     "422": {
@@ -15208,7 +15208,7 @@
                                 }
                             }
                         },
-                        "description": "The sales return, as saved.",
+                        "description": "The sales return as it reads after the decision this request recorded. Each line lists its decisions in `adjustment_decisions`.",
                         "links": {}
                     },
                     "401": {

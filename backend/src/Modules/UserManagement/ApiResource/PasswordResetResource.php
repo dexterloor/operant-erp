@@ -33,7 +33,7 @@ use App\Platform\Security\PermissionGate;
             openapi: new OpenApiOperation(
                 operationId: 'CreatePasswordReset',
                 responses: [
-                    '202' => new OpenApiResponse(description: 'Accepted. If that email belongs to an active account in that workspace, a link to set a new password is sent to it, subject to a limit on how many links one account is sent in 24 hours. The answer is the same either way, so it does not say whether the account exists. The answer has no body.'),
+                    '202' => new OpenApiResponse(description: 'Accepted. If that email belongs to an active account in that workspace, and the workspace allows signing in, a link to set a new password is sent to it, subject to a limit on how many links one account is sent in 24 hours. The answer is the same in every case, so it does not say whether the account exists or whether a link was sent. The answer has no body.'),
                     '429' => new OpenApiResponse(description: 'Too many attempts from this network. This limit is shared with signing in. Wait before trying again; no wait time is given.'),
                 ],
             ),

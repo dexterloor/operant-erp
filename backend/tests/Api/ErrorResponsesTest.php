@@ -77,6 +77,20 @@ final class ErrorResponsesTest extends ApiTestCase
     ];
 
     /**
+     * Hand-written success descriptions held word for word to `UX`'s text, copied here on purpose: the attribute is
+     * compared with the metadata, which is the same text, so without this copy a change to the attribute alone is green.
+     *
+     * @var array<string, array<string, string>>
+     */
+    private const OWN_SUCCESS_WORDING = [
+        'CreateAdjustmentDecision' => ['200' => 'The sales return as it reads after the decision this request recorded. Each line lists its decisions in `adjustment_decisions`.'],
+        'CreatePasswordReset' => ['202' => 'Accepted. If that email belongs to an active account in that workspace, and the workspace allows signing in, a link to set a new password is sent to it, subject to a limit on how many links one account is sent in 24 hours. The answer is the same in every case, so it does not say whether the account exists or whether a link was sent. The answer has no body.'],
+    ];
+
+    /** The API description's paragraph on refusals for how a request was sent, word for word as `UX` wrote it. */
+    private const TRANSPORT_NOTE = 'Any request can also be refused for how it was sent rather than what it asks: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation\'s format (`application/json` for every operation except the export, which is `text/csv`), and 415 when a body is sent with a `Content-Type` other than `application/json`. These three, like every refusal listed on an operation, are sent as `application/problem+json`. An `Accept` that names only `application/problem+json` is itself answered 406, so name the operation\'s format as well: `Accept: application/json, application/problem+json`, or `Accept: text/csv, application/problem+json` for the export. One refusal is outside that shape: a request whose `Host` header is malformed is refused 400 before any operation runs. None of these is listed on each operation.';
+
+    /**
      * The hand-written descriptions that still end in a review id, kept until `PO` rules where it is dropped; the id is
      * the only one each may carry.
      */
@@ -273,6 +287,26 @@ final class ErrorResponsesTest extends ApiTestCase
         self::assertContains('GET /api/v1/items/{id} 200 is not the read template', self::successFaults($with($spec, '/api/v1/items/{id}', 'get', '200', 'The Item.'), $own));
 
         self::assertSame([], self::successFaults($spec, $own), 'A success answer does not say what comes back.');
+
+        $published = [];
+        foreach (GeneratedSpec::operations($spec) as $entry) {
+            foreach (self::OWN_SUCCESS_WORDING[$entry['operation']['operationId']] ?? [] as $status => $text) {
+                $published[$entry['operation']['operationId']][$status] = $entry['operation']['responses'][$status]['description'] ?? null;
+            }
+        }
+        ksort($published);
+        self::assertSame(self::OWN_SUCCESS_WORDING, $published, 'A hand-written success description is not the wording it was given.');
+    }
+
+    /**
+     * *fails if:* the API description's note on refusals for how a request was sent is not, word for word, the text
+     * given for it (one paragraph of the published `info.description`).
+     */
+    #[Test]
+    public function theNoteOnHowARequestWasSentIsWordForWord(): void
+    {
+        $paragraphs = explode("\n\n", (string) ($this->spec()['info']['description'] ?? ''));
+        self::assertContains(self::TRANSPORT_NOTE, $paragraphs, 'The note on refusals for how a request was sent is not the wording it was given.');
     }
 
     /**

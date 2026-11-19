@@ -10,6 +10,7 @@ use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Link;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\Sales\ApiResource\State\CreateAdjustmentDecisionProcessor;
 use App\Modules\Sales\ApiResource\State\CreateSalesReturnProcessor;
 use App\Modules\Sales\ApiResource\State\SalesReturnProvider;
@@ -84,7 +85,14 @@ use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
             uriTemplate: '/sales-returns/{id}/adjustment-decisions',
             name: 'CreateAdjustmentDecision',
             status: 200,
-            openapi: new OpenApiOperation(operationId: 'CreateAdjustmentDecision'),
+            // Its own success description: the request records decisions and never writes the return, so the "as saved"
+            // template is not true of it.
+            openapi: new OpenApiOperation(
+                operationId: 'CreateAdjustmentDecision',
+                responses: [
+                    '200' => new OpenApiResponse(description: 'The sales return as it reads after the decision this request recorded. Each line lists its decisions in `adjustment_decisions`.'),
+                ],
+            ),
             input: CreateAdjustmentDecisionInput::class,
             denormalizationContext: [
                 'allow_extra_attributes' => false,
