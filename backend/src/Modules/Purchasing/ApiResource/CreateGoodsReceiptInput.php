@@ -6,6 +6,7 @@ namespace App\Modules\Purchasing\ApiResource;
 
 use ApiPlatform\Metadata\ApiProperty;
 use App\Modules\Purchasing\Application\GoodsReceiptWriter;
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -23,6 +24,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreateGoodsReceiptInput
 {
     /** RFC 3339. Absent means "now". */
+    #[Instant(inRequest: true)]
     #[SerializedName('received_at')]
     public ?string $receivedAt = null;
 
@@ -37,7 +39,7 @@ final class CreateGoodsReceiptInput
             'required' => ['purchase_order_line_id', 'quantity', 'storage_location_id'],
             'properties' => [
                 'purchase_order_line_id' => ['type' => 'string', 'format' => 'uuid'],
-                'quantity' => ['type' => 'string'],
+                'quantity' => ['type' => 'string', 'minLength' => 1],
                 'storage_location_id' => ['type' => 'string', 'format' => 'uuid'],
             ],
         ],

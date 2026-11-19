@@ -92,6 +92,7 @@ final class CreateSalesOrderInput
      * be a second pricing policy with no owner. E4-3's workspace fallback is the one that is ruled.
      */
     #[SerializedName('currency_code')]
+    #[ApiProperty(schema: ['type' => ['string', 'null'], 'minLength' => 1])]
     public ?string $currencyCode = null;
 
     /** The `customer_address` row whose four address fields this order copies. See the class docblock. */
@@ -127,8 +128,8 @@ final class CreateSalesOrderInput
             'required' => ['inventory_item_id', 'quantity', 'unit_price'],
             'properties' => [
                 'inventory_item_id' => ['type' => 'string', 'format' => 'uuid'],
-                'quantity' => ['type' => 'string'],
-                'unit_price' => ['type' => 'string'],
+                'quantity' => ['type' => 'string', 'minLength' => 1],
+                'unit_price' => ['type' => 'string', 'minLength' => 1],
             ],
         ],
     ])]

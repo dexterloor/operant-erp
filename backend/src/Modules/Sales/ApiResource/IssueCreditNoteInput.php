@@ -34,7 +34,7 @@ final class IssueCreditNoteInput
             'required' => ['fulfilment_line_id', 'quantity'],
             'properties' => [
                 'fulfilment_line_id' => ['type' => 'string', 'format' => 'uuid'],
-                'quantity' => ['type' => 'string'],
+                'quantity' => ['type' => 'string', 'minLength' => 1],
             ],
         ],
     ])]

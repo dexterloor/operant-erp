@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\UserManagement\ApiResource\State\CreatePasswordResetRedemptionProcessor;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -45,6 +46,7 @@ final class PasswordResetRedemptionResource
 {
     public function __construct(
         /** RFC 3339, whole seconds — the instant the session floor was raised to. */
+        #[Instant]
         #[SerializedName('changed_at')]
         public string $changedAt,
     ) {

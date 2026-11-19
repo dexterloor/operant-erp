@@ -507,6 +507,15 @@ services:
         decoration_priority: 1
         arguments: ['@.inner']
 
+    # BK-18 R18-f + R18-g: every instant in a request or response body says `format: date-time` (and a request field the
+    # shape the server accepts), from its `#[Instant]` marker. Priority 1, beside AlwaysPresentMembers: outside the
+    # json-schema property factory (10), whose `type` it reads, inside the cache (-10). It sets the schema only and that
+    # one `required` only, so the two commute; no parameter is touched (see the class docblock).
+    App\Platform\Http\InstantMembers:
+        decorates: api_platform.metadata.property.metadata_factory
+        decoration_priority: 1
+        arguments: ['@.inner']
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test

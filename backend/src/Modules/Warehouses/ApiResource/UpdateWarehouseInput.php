@@ -14,14 +14,14 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateWarehouseInput
 {
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $code;
 
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $name;
 
     #[SerializedName('country_code')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $countryCode;
 
     private const WIRE = [

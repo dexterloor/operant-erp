@@ -37,10 +37,10 @@ final class CreatePurchaseOrderLineInput
     #[ApiProperty(required: true, schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $inventoryItemId = null;
 
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $quantity = null;
 
     #[SerializedName('unit_cost')]
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $unitCost = null;
 }

@@ -16,11 +16,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateUserInput
 {
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $email = null;
 
     #[SerializedName('display_name')]
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $displayName = null;
 
     /** @return array<string, mixed> wire name => value */

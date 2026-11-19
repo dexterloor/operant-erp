@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Customers\ApiResource;
 
 use ApiPlatform\Metadata\ApiProperty;
+use App\Modules\Customers\Application\CustomerAddressWriter;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -14,21 +15,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateCustomerAddressInput
 {
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'enum' => CustomerAddressWriter::KINDS])]
     public ?string $kind;
 
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $line;
 
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $city;
 
     #[SerializedName('postal_code')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $postalCode;
 
     #[SerializedName('country_code')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $countryCode;
 
     private const WIRE = [

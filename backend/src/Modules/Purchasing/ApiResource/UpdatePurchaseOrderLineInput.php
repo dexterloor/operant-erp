@@ -23,10 +23,10 @@ final class UpdatePurchaseOrderLineInput
 {
     use SubmittedFields;
 
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $quantity;
 
     #[SerializedName('unit_cost')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $unitCost;
 }

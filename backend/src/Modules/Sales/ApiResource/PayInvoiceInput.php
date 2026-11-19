@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Sales\ApiResource;
 
 use ApiPlatform\Metadata\ApiProperty;
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -17,6 +18,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class PayInvoiceInput
 {
+    #[Instant(inRequest: true)]
     #[SerializedName('paid_at')]
     public ?string $paidAt = null;
 

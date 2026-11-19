@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use ApiPlatform\Metadata\HttpOperation;
+use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\ContractDocument;
 use App\Tests\Support\GeneratedSpec;
@@ -845,6 +846,30 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
     private const NESTED_NODES_NO_RECIPE_REACHES = [];
 
     /**
+     * BK-18 R18-g T-G3, (f)'s exceptions: `format: date-time` members reachable from a 2xx schema that no driven body
+     * carries a non-null value for, each with its reason, so (d) never saw one. Pinned two-way. A recipe or an extra drive
+     * that reaches one is preferred over an entry; when one is reached, delete it.
+     *
+     * @var array<string, string>
+     */
+    private const INSTANTS_NO_DRIVEN_BODY_SHOWS = [
+        'Customer.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'Item.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'PurchaseOrder.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'PurchaseOrderLine.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'Role.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'SalesOrder.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'SalesOrderLine.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'StorageLocation.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'Supplier.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'User.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+        'Warehouse.archived_at' => self::ONLY_LIVE_ROWS_ARE_DRIVEN,
+    ];
+
+    /** The reason shared by every `archived_at` entry above (measured 2026-11-19, BK-18 R18-f/g C2). */
+    private const ONLY_LIVE_ROWS_ARE_DRIVEN = 'null in every driven body: the recipes and extra drives read live rows only, and no `?archived=true` view is driven (PO: whether to drive Archived views before 2b)';
+
+    /**
      * BK-18 R18-c T-C2. Every driven 2xx JSON body, walked together with its operation's 2xx schema (by operationId, from
      * the regenerated spec): at each object node that has `properties`, (a) every `required` name is a key of the value —
      * the description never promises a key the server omits; (b) every key of the value is in `properties`; (c) a `null`
@@ -860,6 +885,13 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * value checked; (b) every nested object node with `properties` reachable from a 2xx schema had a value checked,
      * except {@see self::NESTED_NODES_NO_RECIPE_REACHES}; (iii) {@see self::MEMBERS_ABSENT_FOR_SOME_CALLERS} == the
      * members of the served resource components that the spec leaves out of `required`.
+     *
+     * BK-18 R18-g, on the same walk (no second drive): (d) a value at a `format: date-time` member parses with
+     * `Rfc3339Timestamp::parse()` and keeps one of the two shapes the readers serve (`RFC3339_EXTENDED`, `RFC3339`); (e) a
+     * string at a member with no `format` that parses is an undeclared instant; (f) the date-time members never seen
+     * non-null equal {@see self::INSTANTS_NO_DRIVEN_BODY_SHOWS}, two-way. Controls on the planted `GetWarehouse` copy: an
+     * `archived_at` that parses but does not keep its shape, one that does not parse, and an instant planted at `name`, each
+     * reported by exactly its half.
      *
      * Not covered: completeness (that every always-present member is listed) is
      * `OpenApiContractTest::everyServedListOfObjectsIsItsElementClass`'s, by reflection — it is not observable here (a
@@ -902,7 +934,8 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             $defects = [];
             $components = [];
             $nodes = [];
-            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $defects, $components, $nodes);
+            $instants = [];
+            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $defects, $components, $nodes, $instants);
 
             return $defects;
         };
@@ -917,18 +950,26 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         self::assertNotSame([], $audit['items'] ?? [], 'Control (i): ListAuditLogEntries has a row to plant into.');
         $audit['items'][0]['metadata'] = ['zz' => 1];
         self::assertSame([], $check($audit, 'ListAuditLogEntries'), 'Control (i): a key under the opaque metadata object is not reported.');
+        // (i), BK-18 R18-g: (d)'s round-trip half, (d)'s parse half and (e), each alone.
+        self::assertSame(['$.archived_at: "2026-10-01T00:00:00+0000" is an instant that does not keep a served shape (RFC3339_EXTENDED or RFC3339)'],
+            $check(['archived_at' => '2026-10-01T00:00:00+0000'] + $warehouse, 'GetWarehouse'), 'Control (i): (d) round-trip half, parse half green.');
+        self::assertSame(['$.archived_at: "2026-02-30T00:00:00Z" is declared a date and time, but Rfc3339Timestamp::parse() refuses it'],
+            $check(['archived_at' => '2026-02-30T00:00:00Z'] + $warehouse, 'GetWarehouse'), 'Control (i): (d) parse half.');
+        self::assertSame(['$.name: "2026-11-18T09:30:00.000+00:00" is an instant, but the member is not declared format: date-time'],
+            $check(['name' => '2026-11-18T09:30:00.000+00:00'] + $warehouse, 'GetWarehouse'), 'Control (i): (e).');
 
         // The walk over every driven body.
         $defects = [];
         $components = [];
         $nodes = [];
+        $instants = [];
         foreach ($bodies as $name => $body) {
             $operation = self::operationOf((string) $name);
             if (null === $body || !isset($bodySchema[$operation])) {
                 continue;
             }
             $found = [];
-            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $found, $components, $nodes);
+            self::walkBody($body, $bodySchema[$operation], '', '$', $schemas, $found, $components, $nodes, $instants);
             foreach ($found as $defect) {
                 $defects[] = $name.' '.$defect;
             }
@@ -939,14 +980,23 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
 
         // (ii)(b) every reachable nested object node had a value checked, except the pin.
         $reachable = [];
+        $reachableInstants = [];
         foreach ($served as $component) {
-            self::reachableNodes($schemas[$component] ?? [], $component, $schemas, $served, $reachable);
+            self::reachableNodes($schemas[$component] ?? [], $component, $schemas, $served, $reachable, $reachableInstants);
         }
         $unreached = array_values(array_diff(array_keys($reachable), array_keys($nodes)));
         sort($unreached);
         $pinned = array_keys(self::NESTED_NODES_NO_RECIPE_REACHES);
         sort($pinned);
         self::assertSame($pinned, $unreached, 'Control (ii)(b): nested object nodes no driven body reaches (pinned two-way, each with a reason).');
+
+        // (f) BK-18 R18-g T-G3: every date-time member was seen non-null (so (d) checked it), except the pin.
+        self::assertGreaterThan(0, \count($instants), 'Anti-vacuity: (d) checked no date-time value.');
+        $unseen = array_values(array_diff(array_keys($reachableInstants), array_keys($instants)));
+        sort($unseen);
+        $pinnedInstants = array_keys(self::INSTANTS_NO_DRIVEN_BODY_SHOWS);
+        sort($pinnedInstants);
+        self::assertSame($pinnedInstants, $unseen, 'Control (f): date-time members no driven body shows non-null (pinned two-way, each with a reason).');
 
         // (iii) the sometimes-absent members, two-way.
         $notRequired = [];
@@ -1013,8 +1063,9 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * @param list<string>          $defects
      * @param array<string, true>   $components
      * @param array<string, true>   $nodes
+     * @param array<string, true>   $instants the `format: date-time` members a non-null value was checked at
      */
-    private static function walkBody(mixed $value, array $schema, string $key, string $where, array $schemas, array &$defects, array &$components, array &$nodes): void
+    private static function walkBody(mixed $value, array $schema, string $key, string $where, array $schemas, array &$defects, array &$components, array &$nodes, array &$instants): void
     {
         [$node, $key, $isComponent] = self::resolveNode($schema, $key, $schemas);
         $type = (array) ($node['type'] ?? []);
@@ -1031,12 +1082,16 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                     }
                     continue;
                 }
-                self::walkBody($element, (array) ($node['items'] ?? []), $key.'[]', $where.'['.$index.']', $schemas, $defects, $components, $nodes);
+                self::walkBody($element, (array) ($node['items'] ?? []), $key.'[]', $where.'['.$index.']', $schemas, $defects, $components, $nodes, $instants);
             }
 
             return;
         }
         if (!isset($node['properties'])) {
+            if (\is_string($value)) {
+                self::checkInstant($value, $node, $key, $where, $defects, $instants);
+            }
+
             return; // a scalar, or an opaque free-form object
         }
         if (!\is_array($value)) {
@@ -1065,7 +1120,32 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
                 }
                 continue;
             }
-            self::walkBody($memberValue, $memberNode, $key.'.'.$member, $where.'.'.$member, $schemas, $defects, $components, $nodes);
+            self::walkBody($memberValue, $memberNode, $key.'.'.$member, $where.'.'.$member, $schemas, $defects, $components, $nodes, $instants);
+        }
+    }
+
+    /**
+     * BK-18 R18-g: (d) a string at a `format: date-time` member parses with {@see Rfc3339Timestamp::parse()} (so a client
+     * can send it back) AND keeps one of the two shapes the readers serve — the parser alone accepts `+0000` and
+     * `…UTC`-free leniency a reader must not emit (RED M-1); (e) a string at a member with no `format` that parses is an
+     * instant nobody declared.
+     *
+     * @param array<mixed>        $node
+     * @param list<string>        $defects
+     * @param array<string, true> $instants
+     */
+    private static function checkInstant(string $value, array $node, string $key, string $where, array &$defects, array &$instants): void
+    {
+        $parsed = Rfc3339Timestamp::parse($value);
+        if ('date-time' === ($node['format'] ?? null)) {
+            $instants[$key] = true;
+            if (null === $parsed) {
+                $defects[] = $where.': '.json_encode($value).' is declared a date and time, but Rfc3339Timestamp::parse() refuses it';
+            } elseif ($value !== $parsed->format(\DateTimeInterface::RFC3339_EXTENDED) && $value !== $parsed->format(\DateTimeInterface::RFC3339)) {
+                $defects[] = $where.': '.json_encode($value).' is an instant that does not keep a served shape (RFC3339_EXTENDED or RFC3339)';
+            }
+        } elseif (!isset($node['format']) && null !== $parsed) {
+            $defects[] = $where.': '.json_encode($value).' is an instant, but the member is not declared format: date-time';
         }
     }
 
@@ -1077,8 +1157,9 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
      * @param array<string, mixed>  $schemas
      * @param list<string>          $served
      * @param array<string, true>   $reachable
+     * @param array<string, true>   $instants  the `format: date-time` members reached, keyed the same way
      */
-    private static function reachableNodes(array $schema, string $key, array $schemas, array $served, array &$reachable, bool $root = true): void
+    private static function reachableNodes(array $schema, string $key, array $schemas, array $served, array &$reachable, array &$instants, bool $root = true): void
     {
         [$node, $key, $isComponent] = self::resolveNode($schema, $key, $schemas);
         if (!$root && $isComponent && \in_array($key, $served, true)) {
@@ -1086,11 +1167,15 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
         }
         $type = (array) ($node['type'] ?? []);
         if (\in_array('array', $type, true) || isset($node['items'])) {
-            self::reachableNodes((array) ($node['items'] ?? []), $key.'[]', $schemas, $served, $reachable, false);
+            self::reachableNodes((array) ($node['items'] ?? []), $key.'[]', $schemas, $served, $reachable, $instants, false);
 
             return;
         }
         if (!isset($node['properties'])) {
+            if ('date-time' === ($node['format'] ?? null)) {
+                $instants[$key] = true;
+            }
+
             return;
         }
         if (!$root) {
@@ -1100,7 +1185,7 @@ final class ResponseShapeTest extends PurchaseOrderTestCase
             $reachable[$key] = true;
         }
         foreach ($node['properties'] as $member => $memberNode) {
-            self::reachableNodes((array) $memberNode, $key.'.'.$member, $schemas, $served, $reachable, false);
+            self::reachableNodes((array) $memberNode, $key.'.'.$member, $schemas, $served, $reachable, $instants, false);
         }
     }
 

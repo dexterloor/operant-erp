@@ -19,6 +19,7 @@ use App\Modules\Sales\Application\SalesActorRef;
 use App\Modules\Sales\Application\SalesReturnLineView;
 use App\Modules\Sales\Application\SalesReturnView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\Context;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -150,7 +151,7 @@ final class SalesReturnResource
                 'id' => ['type' => 'string', 'format' => 'uuid'],
                 'display_name' => ['type' => 'string'],
             ]],
-            'recorded_at' => ['type' => 'string'],
+            'recorded_at' => Instant::SCHEMA,
         ]]],
     ]];
 
@@ -163,6 +164,7 @@ final class SalesReturnResource
         #[SerializedName('sales_return_number')]
         public string $salesReturnNumber,
         public string $reason,
+        #[Instant]
         #[SerializedName('returned_at')]
         public string $returnedAt,
         #[ApiProperty(schema: SalesReferenceSchema::FULFILMENT)]
@@ -180,6 +182,7 @@ final class SalesReturnResource
         #[ApiProperty(schema: SalesReferenceSchema::ACTOR)]
         #[SerializedName('recorded_by')]
         public SalesActorRef $recordedBy,
+        #[Instant]
         #[SerializedName('created_at')]
         public string $createdAt,
         #[ApiProperty(schema: ['type' => 'array', 'items' => self::LINE_SCHEMA])]

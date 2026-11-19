@@ -19,6 +19,7 @@ use App\Modules\Sales\Application\InvoiceNumberRef;
 use App\Modules\Sales\Application\SalesActorRef;
 use App\Modules\Sales\Application\SalesReturnNumberRef;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -144,7 +145,7 @@ final class CreditNoteResource
                 'id' => ['type' => 'string', 'format' => 'uuid'],
                 'display_name' => ['type' => 'string'],
             ]],
-            'recorded_at' => ['type' => 'string'],
+            'recorded_at' => Instant::SCHEMA,
         ]]],
     ]];
 
@@ -167,6 +168,7 @@ final class CreditNoteResource
         public string $currencyCode,
         #[SerializedName('total_amount')]
         public string $totalAmount,
+        #[Instant]
         #[SerializedName('issued_at')]
         public string $issuedAt,
         /** PC-11 (4a): who issued it — SoD-5's evidence, not enforcement. */

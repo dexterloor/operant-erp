@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Customers\ApiResource;
 
 use ApiPlatform\Metadata\ApiProperty;
+use App\Modules\Customers\Application\CustomerAddressWriter;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -14,21 +15,21 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateCustomerAddressInput
 {
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'enum' => CustomerAddressWriter::KINDS])]
     public ?string $kind = null;
 
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $line = null;
 
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $city = null;
 
     #[SerializedName('postal_code')]
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $postalCode = null;
 
     #[SerializedName('country_code')]
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $countryCode = null;
 
     /** @return array<string, ?string> wire name => value */

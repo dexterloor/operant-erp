@@ -18,6 +18,7 @@ use App\Modules\Warehouses\ApiResource\State\UpdateWarehouseProcessor;
 use App\Modules\Warehouses\ApiResource\State\WarehouseProvider;
 use App\Modules\Warehouses\Application\WarehouseView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -134,6 +135,7 @@ final class WarehouseResource
         public string $name,
         #[SerializedName('country_code')]
         public string $countryCode,
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {

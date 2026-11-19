@@ -20,7 +20,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class UpdateUserInput
 {
     #[SerializedName('display_name')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $displayName;
 
     #[SerializedName('is_active')]

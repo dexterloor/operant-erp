@@ -17,6 +17,7 @@ use App\Modules\Sales\Application\FulfilmentView;
 use App\Modules\Sales\Application\SalesActorRef;
 use App\Modules\Sales\Application\SalesOrderRef;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -103,6 +104,7 @@ final class FulfilmentResource
         public string $id,
         #[SerializedName('fulfilment_number')]
         public string $fulfilmentNumber,
+        #[Instant]
         #[SerializedName('shipped_at')]
         public string $shippedAt,
         #[ApiProperty(schema: SalesReferenceSchema::ORDER)]

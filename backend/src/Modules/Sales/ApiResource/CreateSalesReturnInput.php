@@ -6,6 +6,7 @@ namespace App\Modules\Sales\ApiResource;
 
 use ApiPlatform\Metadata\ApiProperty;
 use App\Modules\Sales\Application\SalesReturnWriter;
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -18,6 +19,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 final class CreateSalesReturnInput
 {
     /** RFC 3339. Absent means "now". */
+    #[Instant(inRequest: true)]
     #[SerializedName('returned_at')]
     public ?string $returnedAt = null;
 
@@ -36,7 +38,7 @@ final class CreateSalesReturnInput
             'required' => ['fulfilment_line_id', 'quantity'],
             'properties' => [
                 'fulfilment_line_id' => ['type' => 'string', 'format' => 'uuid'],
-                'quantity' => ['type' => 'string'],
+                'quantity' => ['type' => 'string', 'minLength' => 1],
                 'storage_location_id' => ['type' => ['string', 'null'], 'format' => 'uuid'],
             ],
         ],

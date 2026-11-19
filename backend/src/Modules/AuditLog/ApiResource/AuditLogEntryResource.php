@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\AuditLog\ApiResource;
 
 use App\Modules\AuditLog\Application\AuditLogEntryView;
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\Context;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
@@ -35,7 +36,7 @@ final readonly class AuditLogEntryResource
         'required' => ['id', 'occurred_at', 'event_type', 'actor', 'actor_label', 'subject_type', 'subject_id', 'metadata', 'ip_address'],
         'properties' => [
             'id' => ['type' => 'string', 'format' => 'uuid'],
-            'occurred_at' => ['type' => 'string', 'format' => 'date-time'],
+            'occurred_at' => Instant::SCHEMA,
             'event_type' => ['type' => 'string'],
             'actor' => ['type' => ['object', 'null'], 'required' => ['id', 'display_name'], 'properties' => ['id' => ['type' => 'string', 'format' => 'uuid'], 'display_name' => ['type' => 'string']]],
             'actor_label' => ['type' => 'string'],

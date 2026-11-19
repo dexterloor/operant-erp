@@ -17,6 +17,7 @@ use App\Modules\Inventory\ApiResource\State\ItemProvider;
 use App\Modules\Inventory\ApiResource\State\RestoreItemProcessor;
 use App\Modules\Inventory\ApiResource\State\UpdateItemProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\Reference\UnitsOfMeasure;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -204,6 +205,7 @@ final class ItemResource
         #[SerializedName('safety_stock')]
         public string $safetyStock,
         /** Non-null iff the row is archived (ST-9). */
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
         /**

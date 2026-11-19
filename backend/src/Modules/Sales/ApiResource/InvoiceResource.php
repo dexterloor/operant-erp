@@ -20,6 +20,7 @@ use App\Modules\Sales\Application\InvoiceView;
 use App\Modules\Sales\Application\SalesActorRef;
 use App\Modules\Sales\Application\SalesNamedRef;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -149,10 +150,13 @@ final class InvoiceResource
         public string $totalAmount,
         #[SerializedName('currency_code')]
         public string $currencyCode,
+        #[Instant]
         #[SerializedName('issued_at')]
         public string $issuedAt,
+        #[Instant]
         #[SerializedName('due_at')]
         public string $dueAt,
+        #[Instant]
         #[SerializedName('paid_at')]
         public ?string $paidAt,
         #[ApiProperty(schema: SalesReferenceSchema::ACTOR_OR_NULL)]

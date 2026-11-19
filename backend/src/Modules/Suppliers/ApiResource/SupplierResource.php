@@ -18,6 +18,7 @@ use App\Modules\Suppliers\ApiResource\State\SupplierProvider;
 use App\Modules\Suppliers\ApiResource\State\UpdateSupplierProcessor;
 use App\Modules\Suppliers\Application\SupplierView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -136,6 +137,7 @@ final class SupplierResource
         public string $currencyCode,
         #[SerializedName('payment_terms_days')]
         public int $paymentTermsDays,
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {

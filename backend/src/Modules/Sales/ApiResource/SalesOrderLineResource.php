@@ -17,6 +17,7 @@ use App\Modules\Sales\ApiResource\State\RestoreSalesOrderLineProcessor;
 use App\Modules\Sales\ApiResource\State\SalesOrderLineProvider;
 use App\Modules\Sales\ApiResource\State\UpdateSalesOrderLineProcessor;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -205,6 +206,7 @@ final class SalesOrderLineResource
          * since `Version20260921000200` archives only LIVE lines — so a line discarded
          * on its own keeps the instant the user discarded it, not the order's.
          */
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {

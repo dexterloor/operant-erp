@@ -27,13 +27,13 @@ final class CreateStockAdjustmentInput
     public mixed $storageLocationId;
 
     #[SerializedName('counted_quantity')]
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $countedQuantity;
 
     #[ApiProperty(required: true, schema: ['type' => ['integer', 'null']])]
     public mixed $version;
 
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public mixed $note;
 
     /** @return array<string, mixed> wire name => value, for exactly the fields the body carried */

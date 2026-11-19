@@ -18,18 +18,18 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class CreateSupplierInput
 {
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $code = null;
 
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $name = null;
 
     #[SerializedName('country_code')]
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $countryCode = null;
 
     #[SerializedName('currency_code')]
-    #[ApiProperty(required: true, schema: ['type' => 'string'])]
+    #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $currencyCode = null;
 
     #[SerializedName('payment_terms_days')]

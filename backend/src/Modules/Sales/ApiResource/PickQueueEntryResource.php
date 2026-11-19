@@ -7,6 +7,7 @@ namespace App\Modules\Sales\ApiResource;
 use App\Modules\Sales\Application\PickQueueEntryView;
 use App\Modules\Sales\Application\SalesNamedRef;
 use App\Modules\Sales\Application\SalesOrderViews;
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -32,7 +33,7 @@ final readonly class PickQueueEntryResource
             'id' => ['type' => 'string', 'format' => 'uuid'],
             'order_number' => ['type' => 'string'],
             'status' => ['type' => 'string', 'enum' => SalesOrderViews::SEGMENTS['open']],
-            'ordered_at' => ['type' => 'string', 'format' => 'date-time'],
+            'ordered_at' => Instant::SCHEMA,
             'customer' => SalesReferenceSchema::NAMED,
             'warehouse' => SalesReferenceSchema::NAMED,
         ],

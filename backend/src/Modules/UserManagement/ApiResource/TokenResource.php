@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\UserManagement\ApiResource\State\IssueTokenProcessor;
+use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
@@ -84,6 +85,7 @@ final class TokenResource
         #[SerializedName('token_type')]
         public string $tokenType,
         /** RFC 3339. E-20: `iat` + 8h, and nothing extends it. */
+        #[Instant]
         #[SerializedName('expires_at')]
         public string $expiresAt,
     ) {

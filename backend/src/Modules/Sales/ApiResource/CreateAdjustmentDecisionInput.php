@@ -29,7 +29,7 @@ final class CreateAdjustmentDecisionInput
     #[ApiProperty(required: true, schema: ['type' => 'string', 'enum' => AdjustmentDecisionWriter::KINDS])]
     public mixed $kind = null;
 
-    #[ApiProperty(schema: ['type' => ['string', 'null']])]
+    #[ApiProperty(schema: ['type' => ['string', 'null'], 'minLength' => 1])]
     public mixed $quantity = null;
 
     #[SerializedName('reverses_decision_id')]

@@ -220,6 +220,7 @@
                         "uniqueItems": true
                     },
                     "resource": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -243,6 +244,7 @@
                         "uniqueItems": true
                     },
                     "resource": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -370,6 +372,7 @@
                         "type": "object"
                     },
                     "issued_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "issued_by": {
@@ -492,6 +495,7 @@
                                                 ]
                                             },
                                             "recorded_at": {
+                                                "format": "date-time",
                                                 "type": "string"
                                             },
                                             "recorded_by": {
@@ -621,6 +625,7 @@
                                     "type": "string"
                                 },
                                 "quantity": {
+                                    "minLength": 1,
                                     "type": "string"
                                 }
                             },
@@ -660,6 +665,7 @@
                                     "type": "string"
                                 },
                                 "quantity": {
+                                    "minLength": 1,
                                     "type": "string"
                                 }
                             },
@@ -773,6 +779,7 @@
             "Customer": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -813,15 +820,19 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "country_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "currency_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "payment_terms_days": {
@@ -840,15 +851,19 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "country_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "currency_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "payment_terms_days": {
@@ -893,18 +908,26 @@
                 "additionalProperties": false,
                 "properties": {
                     "city": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "country_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "kind": {
+                        "enum": [
+                            "billing",
+                            "shipping"
+                        ],
                         "type": "string"
                     },
                     "line": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "postal_code": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -921,18 +944,26 @@
                 "additionalProperties": false,
                 "properties": {
                     "city": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "country_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "kind": {
+                        "enum": [
+                            "billing",
+                            "shipping"
+                        ],
                         "type": "string"
                     },
                     "line": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "postal_code": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -1040,6 +1071,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "email": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
@@ -1049,9 +1081,11 @@
                         "type": "boolean"
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "phone": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
@@ -1067,6 +1101,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "email": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
@@ -1076,9 +1111,11 @@
                         "type": "boolean"
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "phone": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
@@ -1177,9 +1214,11 @@
                         ]
                     },
                     "resource": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "sort": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
@@ -1291,6 +1330,7 @@
                         "type": "object"
                     },
                     "shipped_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "shipped_by": {
@@ -1328,6 +1368,7 @@
                             "additionalProperties": false,
                             "properties": {
                                 "quantity": {
+                                    "minLength": 1,
                                     "type": "string"
                                 },
                                 "sales_order_line_id": {
@@ -1351,6 +1392,8 @@
                         "type": "array"
                     },
                     "shipped_at": {
+                        "description": "An RFC 3339 date and time, such as 2026-11-18T09:30:00Z or 2026-11-18T17:30:00.250+08:00: an uppercase T; seconds 00 to 59 (no leap second) with at most three decimal places; Z or an offset written ±hh:mm of at most ±15:59, with minutes 00 to 59, not a time-zone name; a year from 0001 to 9999, also once converted to UTC.",
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -1505,6 +1548,7 @@
                         "type": "string"
                     },
                     "received_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "received_by": {
@@ -1540,6 +1584,7 @@
                                     "type": "string"
                                 },
                                 "quantity": {
+                                    "minLength": 1,
                                     "type": "string"
                                 },
                                 "storage_location_id": {
@@ -1559,6 +1604,8 @@
                         "type": "array"
                     },
                     "received_at": {
+                        "description": "An RFC 3339 date and time, such as 2026-11-18T09:30:00Z or 2026-11-18T17:30:00.250+08:00: an uppercase T; seconds 00 to 59 (no leap second) with at most three decimal places; Z or an offset written ±hh:mm of at most ±15:59, with minutes 00 to 59, not a time-zone name; a year from 0001 to 9999, also once converted to UTC.",
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -1633,6 +1680,7 @@
                         "type": "object"
                     },
                     "due_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "fulfilment": {
@@ -1659,9 +1707,11 @@
                         "type": "string"
                     },
                     "issued_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "paid_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -1725,6 +1775,8 @@
                         ]
                     },
                     "paid_at": {
+                        "description": "An RFC 3339 date and time, such as 2026-11-18T09:30:00Z or 2026-11-18T17:30:00.250+08:00: an uppercase T; seconds 00 to 59 (no leap second) with at most three decimal places; Z or an offset written ±hh:mm of at most ±15:59, with minutes 00 to 59, not a time-zone name; a year from 0001 to 9999, also once converted to UTC.",
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -1929,6 +1981,7 @@
             "Item": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -1995,27 +2048,32 @@
                 "additionalProperties": false,
                 "properties": {
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "reorder_point": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
                         ]
                     },
                     "reorder_quantity": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
                         ]
                     },
                     "safety_stock": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
                         ]
                     },
                     "sku": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "supplier_id": {
@@ -2047,18 +2105,23 @@
                 "additionalProperties": false,
                 "properties": {
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "reorder_point": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "reorder_quantity": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "safety_stock": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "sku": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "supplier_id": {
@@ -2240,6 +2303,7 @@
             "Password": {
                 "properties": {
                     "changed_at": {
+                        "format": "date-time",
                         "type": "string"
                     }
                 },
@@ -2252,9 +2316,11 @@
                 "additionalProperties": false,
                 "properties": {
                     "current_password": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "new_password": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -2268,9 +2334,11 @@
                 "additionalProperties": false,
                 "properties": {
                     "email": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "workspace": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -2283,6 +2351,7 @@
             "PasswordResetRedemption": {
                 "properties": {
                     "changed_at": {
+                        "format": "date-time",
                         "type": "string"
                     }
                 },
@@ -2295,6 +2364,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "password": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "token": {
@@ -2636,6 +2706,7 @@
             "PurchaseOrder": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -2655,6 +2726,7 @@
                         "type": "string"
                     },
                     "expected_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -2668,6 +2740,7 @@
                         "type": "string"
                     },
                     "ordered_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -2705,6 +2778,8 @@
                 "additionalProperties": false,
                 "properties": {
                     "expected_at": {
+                        "description": "An RFC 3339 date and time, such as 2026-11-18T09:30:00Z or 2026-11-18T17:30:00.250+08:00: an uppercase T; seconds 00 to 59 (no leap second) with at most three decimal places; Z or an offset written ±hh:mm of at most ±15:59, with minutes 00 to 59, not a time-zone name; a year from 0001 to 9999, also once converted to UTC.",
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -2729,12 +2804,15 @@
                 "additionalProperties": false,
                 "properties": {
                     "currency_code": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
                         ]
                     },
                     "expected_at": {
+                        "description": "An RFC 3339 date and time, such as 2026-11-18T09:30:00Z or 2026-11-18T17:30:00.250+08:00: an uppercase T; seconds 00 to 59 (no leap second) with at most three decimal places; Z or an offset written ±hh:mm of at most ±15:59, with minutes 00 to 59, not a time-zone name; a year from 0001 to 9999, also once converted to UTC.",
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -2749,9 +2827,11 @@
                                     "type": "string"
                                 },
                                 "quantity": {
+                                    "minLength": 1,
                                     "type": "string"
                                 },
                                 "unit_cost": {
+                                    "minLength": 1,
                                     "type": "string"
                                 }
                             },
@@ -2788,6 +2868,8 @@
                 "additionalProperties": false,
                 "properties": {
                     "expected_at": {
+                        "description": "An RFC 3339 date and time, such as 2026-11-18T09:30:00Z or 2026-11-18T17:30:00.250+08:00: an uppercase T; seconds 00 to 59 (no leap second) with at most three decimal places; Z or an offset written ±hh:mm of at most ±15:59, with minutes 00 to 59, not a time-zone name; a year from 0001 to 9999, also once converted to UTC.",
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -2839,6 +2921,7 @@
             "PurchaseOrderLine": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -2915,9 +2998,11 @@
                         "type": "string"
                     },
                     "quantity": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "unit_cost": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -2932,9 +3017,11 @@
                 "additionalProperties": false,
                 "properties": {
                     "quantity": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "unit_cost": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -3109,6 +3196,7 @@
             "Role": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -3175,6 +3263,7 @@
                         ]
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "permission_codes": {
@@ -3200,6 +3289,7 @@
                         ]
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "permission_codes": {
@@ -3246,6 +3336,7 @@
             "RoleGrantProposal": {
                 "properties": {
                     "decided_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -3262,6 +3353,7 @@
                         ]
                     },
                     "expires_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "id": {
@@ -3284,6 +3376,7 @@
                         "type": "array"
                     },
                     "proposed_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "proposed_by": {
@@ -3450,6 +3543,7 @@
             "SalesOrder": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -3479,6 +3573,7 @@
                         "type": "string"
                     },
                     "ordered_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -3540,6 +3635,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "currency_code": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
@@ -3558,9 +3654,11 @@
                                     "type": "string"
                                 },
                                 "quantity": {
+                                    "minLength": 1,
                                     "type": "string"
                                 },
                                 "unit_price": {
+                                    "minLength": 1,
                                     "type": "string"
                                 }
                             },
@@ -3647,6 +3745,7 @@
             "SalesOrderLine": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -3695,9 +3794,11 @@
                         "type": "string"
                     },
                     "quantity": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "unit_price": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -3712,9 +3813,11 @@
                 "additionalProperties": false,
                 "properties": {
                     "quantity": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "unit_price": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -3758,6 +3861,7 @@
                         "type": "boolean"
                     },
                     "created_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "credit_blocked_by_payment": {
@@ -3860,6 +3964,7 @@
                                                 ]
                                             },
                                             "recorded_at": {
+                                                "format": "date-time",
                                                 "type": "string"
                                             },
                                             "recorded_by": {
@@ -4048,6 +4153,7 @@
                         "type": "object"
                     },
                     "returned_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "sales_return_number": {
@@ -4098,6 +4204,7 @@
                         "type": "string"
                     },
                     "quantity": {
+                        "minLength": 1,
                         "type": [
                             "string",
                             "null"
@@ -4135,6 +4242,7 @@
                                     "type": "string"
                                 },
                                 "quantity": {
+                                    "minLength": 1,
                                     "type": "string"
                                 },
                                 "storage_location_id": {
@@ -4167,6 +4275,8 @@
                         "type": "string"
                     },
                     "returned_at": {
+                        "description": "An RFC 3339 date and time, such as 2026-11-18T09:30:00Z or 2026-11-18T17:30:00.250+08:00: an uppercase T; seconds 00 to 59 (no leap second) with at most three decimal places; Z or an offset written ±hh:mm of at most ±15:59, with minutes 00 to 59, not a time-zone name; a year from 0001 to 9999, also once converted to UTC.",
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -4234,6 +4344,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "display_name": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -4370,6 +4481,7 @@
                         "type": "object"
                     },
                     "occurred_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "quantity": {
@@ -4423,6 +4535,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "counted_quantity": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "inventory_item_id": {
@@ -4430,6 +4543,7 @@
                         "type": "string"
                     },
                     "note": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "storage_location_id": {
@@ -4470,6 +4584,7 @@
                         ]
                     },
                     "quantity": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "source_storage_location_id": {
@@ -4520,6 +4635,7 @@
             "StorageLocation": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -4555,6 +4671,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "kind": {
@@ -4578,6 +4695,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "kind": {
@@ -4628,6 +4746,7 @@
             "Supplier": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -4668,15 +4787,19 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "country_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "currency_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "payment_terms_days": {
@@ -4695,15 +4818,19 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "country_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "currency_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "payment_terms_days": {
@@ -4822,12 +4949,15 @@
                         "type": "integer"
                     },
                     "minimum_order_quantity": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "supplier_sku": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "unit_cost": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -4846,12 +4976,15 @@
                         "type": "integer"
                     },
                     "minimum_order_quantity": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "supplier_sku": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "unit_cost": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -4911,6 +5044,7 @@
                         "type": "string"
                     },
                     "expires_at": {
+                        "format": "date-time",
                         "type": "string"
                     },
                     "token_type": {
@@ -4947,6 +5081,7 @@
             "User": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -5003,9 +5138,11 @@
                 "additionalProperties": false,
                 "properties": {
                     "display_name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "email": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -5019,6 +5156,7 @@
                 "additionalProperties": false,
                 "properties": {
                     "display_name": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "is_active": {
@@ -5078,6 +5216,7 @@
             "Warehouse": {
                 "properties": {
                     "archived_at": {
+                        "format": "date-time",
                         "type": [
                             "string",
                             "null"
@@ -5110,12 +5249,15 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "country_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },
@@ -5130,12 +5272,15 @@
                 "additionalProperties": false,
                 "properties": {
                     "code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "country_code": {
+                        "minLength": 1,
                         "type": "string"
                     },
                     "name": {
+                        "minLength": 1,
                         "type": "string"
                     }
                 },

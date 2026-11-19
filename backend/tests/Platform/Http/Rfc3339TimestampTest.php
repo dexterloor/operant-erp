@@ -96,6 +96,10 @@ final class Rfc3339TimestampTest extends TestCase
         yield 'offset with seconds' => ['2026-10-01T00:00:00+02:00:00'];
         yield 'offset with one minute digit' => ['2026-10-01T00:00:00+02:0'];
         yield 'three-digit offset' => ['2026-10-01T00:00:00+020'];
+        // Offset minutes 60 to 99: PHP rolls them over (`+02:99` is read as +03:39) and the instant stored was not the one
+        // written; RFC 3339 allows 00 to 59 (BK-18 R18-f/g C2).
+        yield 'offset minutes 99' => ['2026-10-01T00:00:00+02:99'];
+        yield 'offset minutes 60' => ['2026-10-01T00:00:00+00:60'];
         // Postgres stores year 10000; `new \DateTimeImmutable()` cannot read it back, so every later read was a 500.
         yield 'past 9999 in UTC by one minute' => ['9999-12-31T23:59:59-00:01'];
         yield 'past 9999 at the widest offset' => ['9999-12-31T23:59:59-15:59'];
@@ -106,6 +110,22 @@ final class Rfc3339TimestampTest extends TestCase
     public function anImpossibleOrMalformedTimestampIsRefusedRatherThanRolledOver(string $value): void
     {
         self::assertNull(Rfc3339Timestamp::parse($value));
+    }
+
+    /**
+     * BK-18 R18-f T-F3: the published shape is true. Every clause of {@see Rfc3339Timestamp::PROFILE} occurs in it (so a
+     * sentence edit that drops one is red) and its accepted and refused values are what {@see Rfc3339Timestamp::parse()}
+     * does (so a parser change the sentence does not follow is red).
+     */
+    #[Test]
+    public function thePublishedShapeIsWhatTheParserAccepts(): void
+    {
+        self::assertGreaterThanOrEqual(7, \count(Rfc3339Timestamp::PROFILE_CLAUSES), 'Anti-vacuity: the profile has its clauses.');
+        foreach (Rfc3339Timestamp::PROFILE_CLAUSES as [$clause, $accepted, $refused]) {
+            self::assertStringContainsString(mb_strtolower($clause), mb_strtolower(Rfc3339Timestamp::PROFILE), 'The profile no longer says: '.$clause);
+            self::assertNotNull(Rfc3339Timestamp::parse($accepted), $clause.': '.$accepted.' should be accepted');
+            self::assertNull(Rfc3339Timestamp::parse($refused), $clause.': '.$refused.' should be refused');
+        }
     }
 
     #[Test]

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Purchasing\ApiResource;
 
 use ApiPlatform\Metadata\ApiProperty;
+use App\Platform\Http\Instant;
 use Symfony\Component\Serializer\Attribute\SerializedName;
 
 /**
@@ -35,6 +36,8 @@ final class UpdatePurchaseOrderInput
     #[SerializedName('warehouse_id')]
     #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
     public ?string $warehouseId;
+
+    #[Instant(inRequest: true)]
 
     #[SerializedName('expected_at')]
     public ?string $expectedAt;

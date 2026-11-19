@@ -24,10 +24,10 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  */
 final class UpdateItemInput
 {
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $sku;
 
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $name;
 
     /**
@@ -44,15 +44,15 @@ final class UpdateItemInput
     public ?string $supplierId;
 
     #[SerializedName('reorder_point')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $reorderPoint;
 
     #[SerializedName('reorder_quantity')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $reorderQuantity;
 
     #[SerializedName('safety_stock')]
-    #[ApiProperty(schema: ['type' => 'string'])]
+    #[ApiProperty(schema: ['type' => 'string', 'minLength' => 1])]
     public ?string $safetyStock;
 
     /**

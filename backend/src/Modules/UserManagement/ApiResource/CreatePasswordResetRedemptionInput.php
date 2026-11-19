@@ -15,7 +15,7 @@ final class CreatePasswordResetRedemptionInput
     public function __construct(
         #[ApiProperty(required: true)]
         #[\SensitiveParameter] public string $token,
-        #[ApiProperty(required: true)]
+        #[ApiProperty(required: true, schema: ['type' => 'string', 'minLength' => 1])]
         #[\SensitiveParameter] public string $password,
     ) {
     }

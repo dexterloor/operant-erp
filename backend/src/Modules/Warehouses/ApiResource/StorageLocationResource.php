@@ -19,6 +19,7 @@ use App\Modules\Warehouses\ApiResource\State\UpdateStorageLocationProcessor;
 use App\Modules\Warehouses\Application\Contract\LocationKinds;
 use App\Modules\Warehouses\Application\StorageLocationView;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
+use App\Platform\Http\Instant;
 use App\Platform\Http\Location\CreatedRowLocation;
 use App\Platform\Security\PermissionGate;
 use Symfony\Component\Serializer\Attribute\SerializedName;
@@ -155,6 +156,7 @@ final class StorageLocationResource
         /** One of {@see LocationKinds::ALL}, served as that enum (BK-19). */
         #[ApiProperty(schema: ['type' => 'string', 'enum' => LocationKinds::ALL])]
         public string $kind,
+        #[Instant]
         #[SerializedName('archived_at')]
         public ?string $archivedAt,
     ) {
