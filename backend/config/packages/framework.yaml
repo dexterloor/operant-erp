@@ -2,6 +2,10 @@
 framework:
     secret: '%env(APP_SECRET)%'
 
+    # A `POST` is a `POST`: no header or `_method` parameter may turn it into another method (measured 2026-11-19: a
+    # `POST` carrying `X-HTTP-Method-Override` edited and archived an item). Held by `MethodOverrideTest`.
+    allowed_http_method_override: []
+
     # Note that the session will be started ONLY if you read or write from it.
     session: true
 
