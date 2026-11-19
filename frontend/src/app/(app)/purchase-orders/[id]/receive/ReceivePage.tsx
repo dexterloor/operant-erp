@@ -116,7 +116,7 @@ export function ReceivePage({ order: initial, lines, locations }: { order: Purch
         <>
           {changed === 'changed' ? <p>{RECEIVE.orderChanged(order.order_number, statusSpoken(order.status))}</p> : null}
           {changed === 'earlier-recorded' ? <p>{RECEIVE.earlierRecordedNoForm}</p> : null}
-          <p>{RECEIVE.nothingToReceive(order.order_number, statusSpoken(order.status))}</p>
+          <p>{RECEIVE.nothingToReceive(order.order_number, order.archived_at !== null ? RECEIVE.deletedDraftWords : statusSpoken(order.status))}</p>
           <p>
             <Link href={`/purchase-orders/${order.id}`}>{RECEIVE.backToOrder(order.order_number)}</Link>
           </p>

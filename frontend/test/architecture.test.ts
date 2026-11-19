@@ -2199,9 +2199,10 @@ describe('architecture — R10-2: route folders import only their own family’s
 
 // Goods receipts GR-1 (purchase-orders-plan.md §4 GR-1: "no money rendered on any receipt surface"; UX D-6), Revision 10
 // A-5 (gr-1-followups-arch.md item 6, as corrected by gr-1-followups-red.md M-1): no receipt surface — the receipt folder and
-// the order page's Receipts section — reaches `lib/format/money.ts` through ANY chain of imports. This holds the money
+// the order page's Receipts section, and the receive page (`purchase-orders/[id]/receive/`, `components/purchasing/ReceiveForm.tsx`;
+// GR-2, UX D-6; delete-swap-arch-red.md) — reaches `lib/format/money.ts` through ANY chain of imports. This holds the money
 // helper only; the receipt wire types carrying no cost is held by `wireParity.test.ts`.
-const RECEIPT_SURFACES = (files: readonly SourceFile[]) => files.filter((f) => under(f.file, RECEIPTS_ROUTE_DIR) || f.file === 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx');
+const RECEIPT_SURFACES = (files: readonly SourceFile[]) => files.filter((f) => under(f.file, RECEIPTS_ROUTE_DIR) || f.file === 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx' || under(f.file, 'src/app/(app)/purchase-orders/[id]/receive') || f.file === 'src/components/purchasing/ReceiveForm.tsx');
 const MONEY = 'src/lib/format/money.ts';
 /**
  * Every src file reachable from `from` through any import kind specifiersOf sees (type imports included: conservative).
@@ -2229,9 +2230,9 @@ function reachableFrom(files: readonly SourceFile[], from: SourceFile): Set<stri
 const moneyOnReceipts = (files: readonly SourceFile[]) => RECEIPT_SURFACES(files).filter((f) => reachableFrom(files, f).has(MONEY)).map((f) => f.file);
 
 describe('architecture — goods receipts GR-1: no money reachable from any receipt surface', () => {
-  it('no receipt surface reaches lib/format/money through any chain of imports (7 surfaces)', () => {
+  it('no receipt surface reaches lib/format/money through any chain of imports (10 surfaces)', () => {
     const files = walk('src'); // the closure leaves src/app
-    expect(RECEIPT_SURFACES(files).length).toBe(7);
+    expect(RECEIPT_SURFACES(files).length).toBe(10);
     expect(moneyOnReceipts(files)).toEqual([]);
     // Positive controls on real files: the closure is not empty, and it really follows chains.
     const section = files.find((f) => f.file === 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx')!;
@@ -2239,6 +2240,7 @@ describe('architecture — goods receipts GR-1: no money reachable from any rece
     const orderPage = files.find((f) => f.file === 'src/app/(app)/purchase-orders/[id]/page.tsx')!;
     expect(specifiersOf(orderPage).map((s) => targetOf(orderPage.file, s))).not.toContain('src/lib/format/money'); // not a direct import…
     expect(reachableFrom(files, orderPage).has(MONEY)).toBe(true); // …yet reached (page → PurchaseOrderPage → money)
+    expect([...reachableFrom(files, files.find((f) => f.file === 'src/app/(app)/purchase-orders/[id]/receive/page.tsx')!)]).toContain('src/components/purchasing/ReceiveForm.tsx');
   });
 
   /**
@@ -2256,8 +2258,9 @@ describe('architecture — goods receipts GR-1: no money reachable from any rece
       { file: 'src/components/purchasing/Two.tsx', source: "import { costText } from '@/lib/purchasing/costText';" },
       { file: 'src/app/(app)/goods-receipts/W.tsx', source: "import { Two } from '@/components/purchasing/Two';" },
       { file: 'src/app/(app)/goods-receipts/Z.tsx', source: "import { loadReceipts } from '@/lib/purchasing/load';\nimport { ArchivableList } from '../ArchivableList';" },
+      { file: 'src/app/(app)/purchase-orders/[id]/receive/Direct2.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
     ];
-    expect(moneyOnReceipts([...real, ...planted]).sort()).toEqual(['src/app/(app)/goods-receipts/W.tsx', 'src/app/(app)/goods-receipts/X.tsx', 'src/app/(app)/goods-receipts/Y.tsx', 'src/app/(app)/goods-receipts/[id]/Direct.tsx']);
+    expect(moneyOnReceipts([...real, ...planted]).sort()).toEqual(['src/app/(app)/goods-receipts/W.tsx', 'src/app/(app)/goods-receipts/X.tsx', 'src/app/(app)/goods-receipts/Y.tsx', 'src/app/(app)/goods-receipts/[id]/Direct.tsx', 'src/app/(app)/purchase-orders/[id]/receive/Direct2.tsx']);
   });
 });
 

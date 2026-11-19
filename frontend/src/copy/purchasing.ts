@@ -295,12 +295,10 @@ export const APPROVE_ORDER = {
   summaryTotal: (total: string) => `Total: ${total}`,
   summaryWarehouse: (name: string) => `Deliver to: ${name}`,
   unsavedHeader: 'Save or undo your change to Deliver to before approving.',
-  /**
-   * po-4b-red.md H-1 (PO-4b): Approve's visible reason while a line row holds a change not yet saved (`unsavedHeader`'s rule
-   * extended to the lines). NOT a UX key: PLACEHOLDER, UX TO CONFIRM — including its second case (po-4b-red.md S-2): typed
-   * line text hidden by a failed lines reading, which cannot be seen to undo it; the lines' Retry is beside it.
-   */
+  /** FINAL (UX, ux-batch C-1; po-4b-red.md H-1): Approve's visible reason while a line row on screen holds a change not yet saved. */
   unsavedLines: 'Save or undo your changes to the lines before approving.',
+  /** FINAL (UX, ux-batch C-2; po-4b-red.md S-2): typed line text hidden by a failed lines reading (no row to save or undo). Wins over `unsavedLines`. */
+  unsavedLinesHidden: "Your changes to the lines aren't saved, and the lines couldn't be loaded. Press Retry under Lines, then save or undo your changes before approving.",
   body: (supplier: string) => `Once it's approved it can't be changed or deleted, only cancelled, and deliveries can be received against it. You're recorded as the person who approved it. The app doesn't send it to ${supplier}: send it to them yourself.`,
   after: (number: string) => `${number} is approved and now ordered. Deliveries can be received against it.`,
   afterSupplier: (supplier: string) => `Remember to send the order to ${supplier}: the app doesn't.`,
@@ -693,8 +691,10 @@ export const RECEIVE = {
   receivingNowName: (n: number) => `Receiving now, line ${n}`,
   locationName: (n: number) => `Location, line ${n}`,
   location: 'Location',
-  /** PLACEHOLDER, UX TO CONFIRM (no R1-B key): the select's unchosen option (the `warehousePrompt` shape; no preselection). */
+  /** FINAL (UX, ux-batch-2026-11-19.md A-3): the select's unchosen option (the `warehousePrompt` shape; no preselection). */
   locationPrompt: 'Choose a location',
+  /** FINAL (UX, ux-batch B-3; gr-2-red.md L-6): beside a row whose chosen location the re-read after R2 no longer lists, when the server did not name it. */
+  locationReset: (n: number) => `The location chosen for line ${n} can no longer be used, so it was cleared. Choose another.`,
   locationHint: (warehouse: string) => `Only locations in ${warehouse} that aren't archived are listed.`,
   locationKind: (code: string, kind: string) => `${code} — ${kind}`,
   doneLinesNote: "Lines already received in full aren't listed.",
@@ -712,17 +712,22 @@ export const RECEIVE = {
   orderChanged: (number: string, statusWords: string) => `${number} changed while you were on this page: it's now ${statusWords}, so nothing was recorded.`,
   /** GR-2 H-1 (UX FINAL, gr-2-h1-ux.md §2): true only because the page holds one key for every press (`heldKey`). */
   interrupted: "We can't tell whether the receipt was recorded. Stay on this page and press Record receipt again: it won't be recorded twice.",
-  /** GR-2 H-1 (UX FINAL, gr-2-h1-ux.md §1): a key conflict over a still receivable order (lines re-read, entries kept). Never the server's detail. */
-  earlierRecorded: "Your earlier attempt was recorded, so this one wasn't. What's still to come has been updated, and your entries are kept, so check them before you record again.",
-  /** PLACEHOLDER, UX TO CONFIRM (gr-2-h1-spar.md CONVERGED, d2): UX's first sentence alone, above `nothingToReceive` in the no-form state. */
+  /** FINAL (UX, gr-2-h1-ux.md §1 as amended by ux-batch B-4): a key conflict over a still receivable order (lines re-read, entries kept on the lines still listed). Never the server's detail. */
+  earlierRecorded: "Your earlier attempt was recorded, so this one wasn't. What's still to come has been updated, and your entries are kept on the lines still listed, so check them before you record again.",
+  /** FINAL (UX, ux-batch A-1; d2): above `nothingToReceive` in the no-form state. */
   earlierRecordedNoForm: "Your earlier attempt was recorded, so this one wasn't.",
-  /** PLACEHOLDER, UX TO CONFIRM (gr-2-h1-spar.md CONVERGED, d3): UX's first sentence + a reload clause, when the re-read after the conflict failed. */
-  earlierRecordedReload: "Your earlier attempt was recorded, so this one wasn't. Reload the page to see where things stand.",
-  stalePrefill: "Another receipt was recorded on this order since you opened this page. What's still to come has been updated, and your entries are kept, so check them before you record again.",
+  /** FINAL (UX, ux-batch A-2; d3), reordered by copy-batch-red.md L-2 so the guard leads (UX may strike: then the A-2 order). The key is rotated, so the person must reload before pressing. */
+  earlierRecordedReload: "Your earlier attempt was recorded, so this one wasn't. Before you record anything else, reload the page to see what's still to come.",
+  /** FINAL (UX, ux-batch B-4; gr-2-red.md L-7): a line now received in full drops out with its entry, so "on the lines still listed". */
+  stalePrefill: "Another receipt was recorded on this order since you opened this page. What's still to come has been updated, and your entries are kept on the lines still listed, so check them before you record again.",
   nothingToReceive: (number: string, statusWords: string) => `There's nothing to receive on ${number}: it's ${statusWords}.`,
+  /** FINAL (UX, ux-batch B-2; gr-2-red.md L-4): `nothingToReceive`'s status words for a deleted draft. */
+  deletedDraftWords: 'a deleted draft',
   backToOrder: (number: string) => `Back to ${number}`,
-  /** PLACEHOLDER, UX TO CONFIRM (gr-2-red.md M-1; D-16): the receive page when the order's warehouse has no live location. */
-  noLocations: (warehouse: string) => `${warehouse} has no locations that can take goods, so nothing can be received into it yet.`,
+  /** FINAL (UX, ux-batch A-4; gr-2-red.md M-1; D-16): the receive page when the order's warehouse has no live location. */
+  noLocations: (warehouse: string) => `${warehouse} has no locations that aren't archived, so nothing can be received into it yet. A location can be added or restored on the warehouse's page.`,
   lineErrorUnplaced: (n: number, sentence: string) => `Line ${n}: ${sentence}`,
   onHandTooLarge: (n: string | number) => `Order line ${n}: receiving this would take the stock of this item in this location past the largest quantity that can be recorded. Nothing was received. The figure on record there may be wrong.`,
+  /** FINAL (UX, ux-batch B-1; gr-2-red.md L-3): R3 when the served sentence names no order line (D-1's fallback). */
+  onHandTooLargeUnnamed: 'Receiving this would take the stock of one of these items in its location past the largest quantity that can be recorded. Nothing was received. The figure on record there may be wrong.',
 } as const;

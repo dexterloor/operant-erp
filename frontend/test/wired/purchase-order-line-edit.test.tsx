@@ -494,6 +494,8 @@ describe('/purchase-orders/[id] — po-9-red.md R3-L-1: a held deleted line neve
 
 describe('/purchase-orders/[id] — po-4b-red.md fixes', () => {
   const UNSAVED = 'Save or undo your changes to the lines before approving.';
+  // ux-batch-2026-11-19.md C-2: typed text hidden by a failed lines reading gets its own sentence (no row to save or undo).
+  const UNSAVED_HIDDEN = "Your changes to the lines aren't saved, and the lines couldn't be loaded. Press Retry under Lines, then save or undo your changes before approving.";
   const approve = () => screen.getByRole('button', { name: 'Approve' });
 
   it('H-1: a row with a change not yet saved makes Approve unavailable with a reason; a press opens no dialog and sends nothing', async () => {
@@ -587,13 +589,14 @@ describe('/purchase-orders/[id] — po-4b-red.md fixes', () => {
     expect(screen.queryByRole('textbox', { name: 'Quantity, line 2' })).toBeNull();
     // Unavailable after the 503: the hidden row 2 still holds 9.
     expect(approve()).toHaveAttribute('aria-disabled', 'true');
-    expect(approve()).toHaveAccessibleDescription(UNSAVED);
+    expect(approve()).toHaveAccessibleDescription(UNSAVED_HIDDEN);
     await u.click(approve());
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(calls).toHaveLength(3);
     await u.click(retryButton);
     await waitFor(() => expect(qty(2)).toHaveValue('9'));
     expect(approve()).toHaveAttribute('aria-disabled', 'true');
+    expect(approve()).toHaveAccessibleDescription(UNSAVED);
     await u.clear(qty(2));
     await u.type(qty(2), '1.5');
     expect(approve()).not.toHaveAttribute('aria-disabled');

@@ -83,7 +83,8 @@ const bodyOf = (c: Recorded) => JSON.parse(c.body ?? 'null') as { lines: { purch
 const R1_SENTENCE = 'Order line 1 would reach 6 received of 5 ordered. Over-receipt is not accepted.';
 // GR-2 H-1 (UX FINAL, gr-2-h1-ux.md): the interrupted sentence offers pressing again — true only with the held key.
 const INTERRUPTED = "We can't tell whether the receipt was recorded. Stay on this page and press Record receipt again: it won't be recorded twice.";
-const EARLIER = "Your earlier attempt was recorded, so this one wasn't. What's still to come has been updated, and your entries are kept, so check them before you record again.";
+// ux-batch-2026-11-19.md B-4 (L-7): "kept on the lines still listed" (an earlier attempt may have finished some lines).
+const EARLIER = "Your earlier attempt was recorded, so this one wasn't. What's still to come has been updated, and your entries are kept on the lines still listed, so check them before you record again.";
 const CONFLICT_DETAIL = 'This Idempotency-Key was already used with a different request.';
 const conflict = () => problem(409, 'idempotency-key-conflict', { detail: CONFLICT_DETAIL });
 const keysOf = (calls: Recorded[]) => posts(calls).map((c) => c.headers.get('idempotency-key'));
@@ -145,6 +146,13 @@ describe('/purchase-orders/[id]/receive — the rows (D-12 items 1–2, 8; UX B-
   it('never a stock figure on the page (G-47): no "in stock", "on hand" or "available"', () => {
     show();
     expect(document.body.textContent ?? '').not.toMatch(/in stock|on hand|available/i);
+  });
+
+  it('never a cost or a total on the page (UX D-6): neither the lines\' unit cost nor the order total is rendered', () => {
+    // Distinctive values: textContent joins adjacent cells with no space, so the fixture's '12.5000' could be faked by
+    // "line 1" next to a quantity "2.5". 987.65 / 876.54 occur nowhere else in the fixture.
+    show({ order: { ...ORDER, total_amount: '876.5432' }, lines: LINES.map((l) => ({ ...l, unit_cost: '987.6543' })) });
+    expect(document.body.textContent ?? '').not.toMatch(/987\.65|876\.54/);
   });
 });
 
@@ -315,7 +323,7 @@ describe('refusals (plan §2.6; R1-5 GR-2)', () => {
     await enter(u, 2, '1');
     await confirmInDialog(u);
     await screen.findByText(R1_SENTENCE);
-    expect(screen.getByText("Another receipt was recorded on this order since you opened this page. What's still to come has been updated, and your entries are kept, so check them before you record again.")).toBeInTheDocument();
+    expect(screen.getByText("Another receipt was recorded on this order since you opened this page. What's still to come has been updated, and your entries are kept on the lines still listed, so check them before you record again.")).toBeInTheDocument();
     expect(screen.getByText('Not recorded')).toHaveFocus();
     const cells = [...qty(1).closest('tr')!.querySelectorAll('td')].map((td) => td.textContent);
     expect(cells.slice(2, 5)).toEqual(['5 EA', '3 EA', '2 EA']);
@@ -402,7 +410,7 @@ describe('the order page\'s Receive action (R1-3; R1a-1 row 11 "+ Receive")', ()
 });
 
 describe('gr-2-red.md round 1', () => {
-  const NO_LOCATIONS = 'Main warehouse has no locations that can take goods, so nothing can be received into it yet.';
+  const NO_LOCATIONS = "Main warehouse has no locations that aren't archived, so nothing can be received into it yet. A location can be added or restored on the warehouse's page.";
 
   it('M-1: a warehouse with no live location → noLocations and Back to {number}; no table, no Record receipt', () => {
     show({ locations: [] });
@@ -542,7 +550,7 @@ describe('GR-2 H-1: one key per page, held until it is consumed (gr-2-h1-spar.md
     await confirmInDialog(u);
     await screen.findByText(INTERRUPTED);
     await confirmInDialog(u);
-    await screen.findByText("Your earlier attempt was recorded, so this one wasn't. Reload the page to see where things stand.");
+    await screen.findByText("Your earlier attempt was recorded, so this one wasn't. Before you record anything else, reload the page to see what's still to come.");
     expect(screen.getByText('Not recorded')).toHaveFocus();
     expect(document.body.textContent ?? '').not.toContain("This change wasn't made.");
     expect(document.body.textContent ?? '').not.toContain(CONFLICT_DETAIL);
@@ -599,5 +607,85 @@ describe('GR-2 H-1: one key per page, held until it is consumed (gr-2-h1-spar.md
     await waitFor(() => expect(nav.push).toHaveBeenCalled());
     const [a, b] = keysOf(calls);
     expect(b).toBe(a);
+  });
+});
+
+describe('ux-batch-2026-11-19.md B (GR-2 RED lows): L-3, L-4, L-6', () => {
+  it('L-3: an R3 refusal whose sentence names no order line → onHandTooLargeUnnamed under Not recorded, focus on the banner; never the reload advice', async () => {
+    stubFetch([refused('stock_level.on_hand_fits', 'Receiving this would overflow the figure on record.')]);
+    const u = userEvent.setup();
+    show();
+    await enter(u, 1, '1');
+    await confirmInDialog(u);
+    await screen.findByText('Receiving this would take the stock of one of these items in its location past the largest quantity that can be recorded. Nothing was received. The figure on record there may be wrong.');
+    expect(screen.getByText('Not recorded')).toHaveFocus();
+    expect(document.body.textContent ?? '').not.toContain("This change wasn't made.");
+    expect(document.body.textContent ?? '').not.toContain('overflow');
+  });
+
+  it('L-4: a deleted draft\'s receive page says "a deleted draft", never only "a draft"', () => {
+    show({ order: { ...ORDER, status: 'draft', ordered_at: null, archived_at: '2026-03-05T09:00:00Z' }, lines: [], locations: [] });
+    expect(screen.getByText("There's nothing to receive on PO-000042: it's a deleted draft.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Record receipt' })).toBeNull();
+  });
+
+  it('L-6: after R2, every row whose chosen location the re-read no longer lists is cleared; a row the server did not name says locationReset(n), the named row keeps the server sentence, focus on the named row', async () => {
+    stubFetch([
+      problem(422, 'validation-failed', { errors: [{ pointer: '/lines/0/storage_location_id', code: 'storage_location.belongs_to_receiving_warehouse', message: "This location can't take goods for this order." }] }),
+      json(200, { items: [BIN_A] }),
+    ]);
+    const u = userEvent.setup();
+    show();
+    await enter(u, 1, '1', BIN_Q);
+    await enter(u, 2, '1', BIN_A);
+    await enter(u, 3, '1', BIN_Q);
+    await confirmInDialog(u);
+    await waitFor(() => expect(loc(3)).toHaveAccessibleDescription(expect.stringContaining('The location chosen for line 3 can no longer be used, so it was cleared. Choose another.')));
+    expect(loc(3)).toHaveValue('');
+    expect(loc(1)).toHaveValue('');
+    expect(loc(1)).toHaveAccessibleDescription(expect.stringContaining("This location can't take goods for this order."));
+    expect(loc(1)).not.toHaveAccessibleDescription(expect.stringContaining('can no longer be used'));
+    expect(loc(2)).toHaveValue(BIN_A.id);
+    expect(loc(2)).not.toHaveAccessibleDescription(expect.stringContaining('can no longer be used'));
+    expect(loc(1)).toHaveFocus();
+    expect(qty(3)).toHaveValue('1');
+  });
+
+  it('L-6: two rows the server did not name are both cleared, and each says locationReset with its own line number', async () => {
+    stubFetch([
+      problem(422, 'validation-failed', { errors: [{ pointer: '/lines/0/storage_location_id', code: 'storage_location.belongs_to_receiving_warehouse', message: "This location can't take goods for this order." }] }),
+      json(200, { items: [BIN_A] }),
+    ]);
+    const u = userEvent.setup();
+    show();
+    await enter(u, 1, '1', BIN_Q);
+    await enter(u, 2, '1', BIN_Q);
+    await enter(u, 3, '1', BIN_Q);
+    await confirmInDialog(u);
+    await waitFor(() => expect(loc(2)).toHaveAccessibleDescription(expect.stringContaining('The location chosen for line 2 can no longer be used, so it was cleared. Choose another.')));
+    expect(loc(3)).toHaveAccessibleDescription(expect.stringContaining('The location chosen for line 3 can no longer be used, so it was cleared. Choose another.'));
+    expect(loc(2)).toHaveValue('');
+    expect(loc(3)).toHaveValue('');
+    expect(loc(1)).toHaveFocus();
+  });
+
+  it('L-6: a location picked while the locations re-read is in flight is judged as picked: a still-listed pick keeps no locationReset', async () => {
+    const reread = held();
+    stubFetch([
+      problem(422, 'validation-failed', { errors: [{ pointer: '/lines/0/storage_location_id', code: 'storage_location.belongs_to_receiving_warehouse', message: "This location can't take goods for this order." }] }),
+      reread.reply,
+    ]);
+    const u = userEvent.setup();
+    show();
+    await enter(u, 1, '1', BIN_Q);
+    await enter(u, 3, '1', BIN_Q);
+    await confirmInDialog(u);
+    await waitFor(() => expect(loc(1)).toHaveAccessibleDescription(expect.stringContaining("This location can't take goods for this order.")));
+    await u.selectOptions(loc(3), BIN_A.id);
+    reread.release(json(200, { items: [BIN_A] }));
+    await waitFor(() => expect(within(loc(3)).getAllByRole('option').map((o) => o.textContent)).toEqual(['Choose a location', 'A-01 — Bin']));
+    expect(loc(3)).toHaveValue(BIN_A.id);
+    expect(loc(3)).not.toHaveAccessibleDescription(expect.stringContaining('can no longer be used'));
+    expect(loc(1)).toHaveFocus();
   });
 });

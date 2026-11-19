@@ -687,7 +687,7 @@ export function PurchaseOrderPage({ order: initial, lines: initialLines, viewerI
           </Button>
         ) : null}
         {canApprove && actionable ? (
-          <Button variant="primary" unavailableReason={headerDirty && editorShown ? APPROVE_ORDER.unsavedHeader : (dirtyLines.size > 0 || linesHiddenDirty) && lineEditShown ? APPROVE_ORDER.unsavedLines : undefined} onClick={openApprove}>
+          <Button variant="primary" unavailableReason={headerDirty && editorShown ? APPROVE_ORDER.unsavedHeader : linesHiddenDirty && lineEditShown ? APPROVE_ORDER.unsavedLinesHidden : dirtyLines.size > 0 && lineEditShown ? APPROVE_ORDER.unsavedLines : undefined} onClick={openApprove}>
             {APPROVE_ORDER.action}
           </Button>
         ) : null}

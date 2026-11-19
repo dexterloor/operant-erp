@@ -659,9 +659,9 @@ describe('/purchase-orders/[id] — the line writes and what else is on the page
 
 // delete-swap (delete-swap-final-red.md H-1 branch A1 + M-1; delete-swap-design.md Revision 1 (a) (f) (g) (h) (n) (r)): a 204 whose
 // own re-read answers 403/404 swaps the page to ST-4b/ST-5. Measured on the shipped code before this test was written (step 0):
-// focus moves ONCE, to the swapped h1 — `closeDelete`'s flushSync commits the pending swap together with the close (React's
-// unified sync lanes), so the page h1 is already gone when it would be focused — nothing says "was deleted" (as on the person
-// page; UX Q-UX-A open), and nothing refreshes the router (a line write never does). Pinned here; the page was not changed for it.
+// focus moves ONCE, to the swapped h1 — `settleDelete`'s `flushSync(() => setNotice(null))` commits the pending swap together with
+// the close (React's unified sync lanes; delete-swap-commit-red.md L-1), so the page h1 is already gone when it would be focused —
+// nothing says "was deleted" (as on the person page; UX Q-UX-A ruled A everywhere, frontend-residuals FE-R13), and nothing refreshes the router (a line write never does). Pinned here; the page was not changed for it.
 describe('Delete line — its own re-read hides the record (delete-swap, branch A1)', () => {
   for (const [st, answer, heading] of [
     [403, () => problem(403, 'permission-denied'), "You don't have access to purchase orders."],

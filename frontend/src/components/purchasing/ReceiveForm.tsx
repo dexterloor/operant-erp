@@ -79,7 +79,8 @@ const receivable = (lines: readonly PurchaseOrderLine[]) => lines.filter((l) => 
  * under the action's held key (GR-2 H-1: the same key until a receipt is recorded or a press is refused as already recorded). The rows sent are remembered in request order (M-6): a 422 `/lines/{i}/…` sentence is
  * put beside the row sent at `i`, never the `i`-th row on screen; one that maps to no row shown is `lineErrorUnplaced(n)` in
  * the banner. R2 (a location sentence) also re-reads the locations. R1 → the server's sentence + `stalePrefill`, the lines
- * as re-read, every typed value kept by line id (X-15). R3 → `onHandTooLarge(n)` (final RED M-1), never the served detail.
+ * as re-read, every typed value kept by line id (X-15). R3 → `onHandTooLarge(n)` (final RED M-1), or
+ * `onHandTooLargeUnnamed` when the sentence names no line (ux-batch B-1), never the served detail.
  * Typed text is never dropped by a refusal or a failed reading. Focus moves before a sentence is spoken (the banner or the
  * field takes focus in the commit that renders it). Props only; branches on `kind`, never on a code (architecture.test.ts).
  */
@@ -87,6 +88,12 @@ export function ReceiveForm({ order, lines: firstLines, locations: firstLocation
   const [lines, setLines] = useState<readonly PurchaseOrderLine[]>(firstLines);
   const [locations, setLocations] = useState(firstLocations);
   const [entries, setEntries] = useState<ReadonlyMap<string, Entry>>(new Map());
+  // The entries as last committed, for code that runs after an await (`settle`'s locations re-read): a pick made while the
+  // re-read was in flight must be judged, not the entries as they were when Confirm was pressed.
+  const entriesRef = useRef(entries);
+  useLayoutEffect(() => {
+    entriesRef.current = entries;
+  });
   const [errors, setErrors] = useState<ReadonlyMap<string, RowErrors>>(new Map());
   const [notice, setNotice] = useState<Notice | null>(null);
   const [confirming, setConfirming] = useState<ReceiveLineValues[] | null>(null);
@@ -196,10 +203,17 @@ export function ReceiveForm({ order, lines: firstLines, locations: firstLocation
           }
           if (fresh !== null && fresh.kind === 'ok') {
             setLocations(fresh.locations);
-            // A choice the re-read no longer lists (archived, or moved) cannot be sent again: it goes back to the prompt,
-            // with the server's sentence beside it. Typed quantities are never touched.
+            // A choice the re-read no longer lists (archived, or moved) cannot be sent again: it goes back to the prompt. The row the server
+            // named keeps the server's sentence; every other such row gets `locationReset` (below). Typed quantities are never touched.
             const listed = new Set(fresh.locations.map((l) => l.id));
             setEntries((cur) => new Map([...cur].map(([id, e]) => [id, listed.has(e.location) || e.location === '' ? e : { ...e, location: '' }] as const)));
+            // UX ux-batch B-3 (gr-2-red.md L-6): every other row whose choice was cleared says why, beside its Location.
+            const now = entriesRef.current;
+            const cleared = rows.filter((l) => {
+              const loc = (now.get(l.id) ?? EMPTY).location;
+              return loc !== '' && !listed.has(loc) && (next.get(l.id)?.storage_location_id ?? '') === '';
+            });
+            if (cleared.length > 0) setErrors((cur) => new Map([...cur, ...cleared.map((l) => [l.id, { ...cur.get(l.id), storage_location_id: RECEIVE.locationReset(l.line_number) }] as const)]));
           }
         }
         if (banner.length > 0) {
@@ -224,7 +238,7 @@ export function ReceiveForm({ order, lines: firstLines, locations: firstLocation
         );
         return;
       case 'on-hand-too-large':
-        show(NOT_RECORDED, r.lineNumber !== null ? RECEIVE.onHandTooLarge(r.lineNumber) : REFUSED_WITHOUT_MESSAGE);
+        show(NOT_RECORDED, r.lineNumber !== null ? RECEIVE.onHandTooLarge(r.lineNumber) : RECEIVE.onHandTooLargeUnnamed);
         return;
       case 'order-changed':
         onOrderChanged(r.order, 'changed');
