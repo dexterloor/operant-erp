@@ -8,6 +8,7 @@ use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\HttpOperation;
 use App\Modules\Sales\ApiResource\CreditNoteResource;
 use App\Platform\Http\Location\CreatedRowLocation;
+use App\Platform\Http\ProblemResponses;
 use App\Tests\Support\ContractDocument;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Uid\Uuid;
@@ -764,6 +765,29 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
     }
 
     /** A path template with every `{param}` read as `{}`, so parameter names never decide a comparison. */
+    /**
+     * **The operations that may not list the write-wide 409 are exactly branch 6's queued ones** (BK-18 R18-h C1, L-6).
+     *
+     * The published spec's refusal list reads {@see ProblemResponses::QUEUED} from the operation, never this class's private
+     * path list; this holds the two to one set, so a request queued here and not flagged (or flagged and not queued) is red.
+     */
+    #[Test]
+    public function theOperationsFlaggedQueuedAreExactlyTheQueuedPaths(): void
+    {
+        $flagged = [];
+        $queued = [];
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            if (true === ($operation->getExtraProperties()[ProblemResponses::QUEUED] ?? null)) {
+                $flagged[] = $name;
+            }
+            if ('POST' === $operation->getMethod() && \in_array(self::normalisedPath((string) $operation->getUriTemplate()), self::QUEUED_PATHS, true)) {
+                $queued[] = $name;
+            }
+        }
+        self::assertNotSame([], $queued, 'No operation sits at a queued path, so this compares nothing.');
+        self::assertSame($queued, $flagged, 'The operations flagged queued are not the ones at the queued paths.');
+    }
+
     private static function normalisedPath(string $path): string
     {
         return (string) preg_replace('/\{[^}]*\}/', '{}', $path);

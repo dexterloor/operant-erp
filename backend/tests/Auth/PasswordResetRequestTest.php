@@ -10,6 +10,7 @@ use App\Modules\UserManagement\Application\PasswordResetRequestCommand;
 use App\Modules\UserManagement\Application\PasswordResetRequestOutcome;
 use App\Modules\UserManagement\Infrastructure\PreAuthBudgets;
 use App\Platform\Tenancy\Entity\Tenant;
+use App\Tests\Support\DeclaredRefusals;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\AbstractLogger;
 use Symfony\Component\Clock\NativeClock;
@@ -29,6 +30,8 @@ use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
  */
 final class PasswordResetRequestTest extends AuthTestCase
 {
+    use DeclaredRefusals;
+
     private const CONNECTIONS = ['app', 'ai', 'auth', 'authlog', 'ratelimit', 'worker'];
 
     /**
@@ -188,6 +191,8 @@ final class PasswordResetRequestTest extends AuthTestCase
         $this->async()->reset();
         $this->ask(self::SLUG_PREFIX.'reset-busy', 'alice@example.test', '198.51.100.9');
         self::assertSame(429, $this->httpStatus(), 'A spent IP budget was not refused.');
+        // T-3 (BK-18 R18-h C1): the 429 just answered is listed on CreatePasswordReset in the published spec.
+        $this->assertSpecDeclaresRefusal('CreatePasswordReset', 429);
         self::assertSame([], $this->async()->getSent(), 'A throttled request queued an envelope.');
 
         for ($i = 0; $i < PreAuthBudgets::SLUG_CEILING; ++$i) {

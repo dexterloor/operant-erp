@@ -8,6 +8,7 @@ use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Problem\ApiProblem;
 use App\Platform\Http\Problem\FrameworkProblemTranslator;
 use App\Platform\Http\Problem\TransactionContention;
+use App\Tests\Support\DeclaredRefusals;
 use Doctrine\DBAL\Driver\AbstractException;
 use Doctrine\DBAL\Exception\DeadlockException;
 use Doctrine\DBAL\Exception\DriverException;
@@ -47,6 +48,8 @@ use Symfony\Component\Uid\Uuid;
  */
 final class TransactionContentionTest extends PurchaseOrderTestCase
 {
+    use DeclaredRefusals;
+
     private const PLANTED_FUNCTION = 'zz_g65_contention';
 
     #[Test]
@@ -74,7 +77,7 @@ final class TransactionContentionTest extends PurchaseOrderTestCase
             $this->send('POST', '/purchase-orders/'.$order.'/goods-receipts', $body, [IdempotencyKeyGuard::HEADER => $key]);
         });
 
-        $this->assertContention();
+        $this->assertContention('CreateGoodsReceipt');
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM goods_receipt WHERE purchase_order_id = ?::uuid', [$order]));
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM stock_level WHERE inventory_item_id = ?::uuid', [$item]));
         self::assertSame($audit, $this->auditRows(), 'The aborted receipt left an audit row behind.');
@@ -104,7 +107,7 @@ final class TransactionContentionTest extends PurchaseOrderTestCase
             ]], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
         });
 
-        $this->assertContention();
+        $this->assertContention('CreateFulfilment');
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM fulfilment WHERE sales_order_id = ?::uuid', [$order]));
         self::assertSame(5, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT qty_on_hand::int FROM stock_level WHERE inventory_item_id = ?::uuid', [$item]));
         self::assertSame($audit, $this->auditRows());
@@ -128,7 +131,7 @@ final class TransactionContentionTest extends PurchaseOrderTestCase
             ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
         });
 
-        $this->assertContention();
+        $this->assertContention('CreatePurchaseOrder');
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM purchase_order WHERE supplier_id = ?::uuid', [$supplier]));
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM purchase_order_line WHERE inventory_item_id = ?::uuid', [$first]));
         self::assertSame($audit, $this->auditRows());
@@ -147,7 +150,7 @@ final class TransactionContentionTest extends PurchaseOrderTestCase
             ], [IdempotencyKeyGuard::HEADER => Uuid::v4()->toRfc4122()]);
         });
 
-        $this->assertContention();
+        $this->assertContention('CreateStockAdjustment');
         self::assertSame(0, $this->countAsOwnerForTenant(self::TENANT_A, 'SELECT count(*) FROM stock_level WHERE inventory_item_id = ?::uuid', [$item]));
         self::assertSame($audit, $this->auditRows());
     }
@@ -197,11 +200,13 @@ final class TransactionContentionTest extends PurchaseOrderTestCase
         };
     }
 
-    private function assertContention(): void
+    private function assertContention(string $operationId): void
     {
         self::assertSame(409, $this->httpStatus(), $this->responseContent());
         self::assertSame(TransactionContention::RULE, $this->json()['rule'] ?? null, $this->responseContent());
         self::assertSame(TransactionContention::MESSAGE, $this->json()['detail'] ?? null, $this->responseContent());
+        // T-3 (BK-18 R18-h C1): the contention 409 is listed on the operation in the published spec.
+        $this->assertSpecDeclaresRefusal($operationId, 409);
     }
 
     /** @return array{0: string, 1: string, 2: string, 3: string} order, line, bin, item */

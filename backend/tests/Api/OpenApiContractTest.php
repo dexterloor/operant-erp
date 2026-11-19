@@ -18,6 +18,7 @@ use App\Modules\Sales\Application\SalesOrderWriter;
 use App\Modules\Sales\Application\SalesReturnWriter;
 use App\Modules\UserManagement\ApiResource\RoleReference;
 use App\Modules\Warehouses\Application\Contract\LocationKinds;
+use App\Platform\Http\ProblemResponses;
 use App\Platform\Http\Rfc3339Timestamp;
 use App\Platform\Security\PermissionGate;
 use App\SharedKernel\Reference\UnitsOfMeasure;
@@ -1130,7 +1131,7 @@ final class OpenApiContractTest extends ApiTestCase
 
         $minted = [];
         foreach (array_keys($spec['components']['schemas'] ?? []) as $name) {
-            if (!\in_array($name, self::apiResourceClasses(), true) && !str_contains((string) $name, '.') && !\in_array($name, ['Error', 'ConstraintViolation'], true)) {
+            if (!\in_array($name, self::apiResourceClasses(), true) && !str_contains((string) $name, '.') && !\in_array($name, [ProblemResponses::SCHEMA, ProblemResponses::FIELD_ERROR_SCHEMA], true)) {
                 $minted[] = (string) $name;
             }
         }

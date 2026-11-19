@@ -2,7 +2,13 @@
 # override below is one of them. Nothing here is a preference.
 api_platform:
     title: 'ERP API'
-    description: 'Contract: docs/API.md. Paths in its §4.2 table omit the /api/v1 prefix.'
+    # The second paragraph (BK-18 R18-h C1; wording owner UX): the refusals that answer how a request was sent are stated
+    # here once, not on each operation (`App\Platform\Http\ProblemResponses`). The first sentence is left to the static
+    # reference's scrub.
+    description: |-
+        Contract: docs/API.md. Paths in its §4.2 table omit the /api/v1 prefix.
+
+        Any request can also be refused for how it was sent rather than what it asks, in the same refusal shape: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation's format (JSON for every operation except the export, which is CSV), and 415 when a body is sent with a `Content-Type` other than `application/json`. A request whose `Host` header is malformed is refused 400 before any operation runs, outside that shape. None of these is listed on each operation.
     version: '1.0.0'
 
     # ------------------------------------------------------------------

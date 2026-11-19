@@ -7,7 +7,9 @@ namespace App\Modules\UserManagement\ApiResource;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\UserManagement\ApiResource\State\CreatePasswordResetProcessor;
+use App\Platform\Http\ProblemResponses;
 use App\Platform\Security\PermissionGate;
 
 /**
@@ -25,7 +27,14 @@ use App\Platform\Security\PermissionGate;
             uriTemplate: '/auth/password-resets',
             name: 'CreatePasswordReset',
             status: 202,
-            openapi: new OpenApiOperation(operationId: 'CreatePasswordReset'),
+            // BK-18 R18-h C1: this operation's own refusals beyond the derived set (its `Errors` cell). The decorator
+            // keeps each description and gives it the house problem shape (`App\Platform\Http\ProblemResponses`).
+            openapi: new OpenApiOperation(
+                operationId: 'CreatePasswordReset',
+                responses: [
+                    '429' => new OpenApiResponse(description: 'Too many attempts from this network. This limit is shared with signing in. Wait before trying again; no wait time is given.'),
+                ],
+            ),
             input: CreatePasswordResetInput::class,
             output: false,
             denormalizationContext: [
@@ -35,7 +44,8 @@ use App\Platform\Security\PermissionGate;
             ],
             read: false,
             processor: CreatePasswordResetProcessor::class,
-            extraProperties: [PermissionGate::OPERATION_PERMISSION => null],
+            // Queued, not performed: it cannot answer the write-wide 409 (`ProblemResponses::QUEUED`).
+            extraProperties: [PermissionGate::OPERATION_PERMISSION => null, ProblemResponses::QUEUED => true],
         ),
     ],
 )]

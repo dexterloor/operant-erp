@@ -7,6 +7,7 @@ namespace App\Tests\Auth;
 use App\Modules\UserManagement\Infrastructure\LockoutStore;
 use App\Modules\UserManagement\Infrastructure\PreAuthBudgets;
 use App\Platform\Tenancy\Entity\Tenant;
+use App\Tests\Support\DeclaredRefusals;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Clock\ClockInterface;
 
@@ -27,6 +28,8 @@ use Psr\Clock\ClockInterface;
  */
 final class RateLimitResponseTest extends AuthTestCase
 {
+    use DeclaredRefusals;
+
     private const PASSWORD = 'correct horse battery staple';
 
     private const EMAIL = 'alice@example.com';
@@ -58,6 +61,8 @@ final class RateLimitResponseTest extends AuthTestCase
         self::assertNull($this->client()->getResponse()->headers->get('Retry-After'));
         self::assertSame(['type', 'title', 'status'], array_keys($this->json()),
             'The 429 body carries a member beyond the three §5.2 declares — a count or a window is reconnaissance.');
+        // T-3 (BK-18 R18-h C1): the 429 just answered is listed on IssueToken in the published spec.
+        $this->assertSpecDeclaresRefusal('IssueToken', 429);
 
         // --- ST-8a, the budget --------------------------------------------
         $budgets = self::getContainer()->get('test.auth.budgets');
@@ -79,6 +84,8 @@ final class RateLimitResponseTest extends AuthTestCase
         self::assertSame('urn:erp:problem:too-many-attempts', $this->json()['type']);
         self::assertNull($this->client()->getResponse()->headers->get('Retry-After'));
         self::assertSame(['type', 'title', 'status'], array_keys($this->json()));
+        // T-3 (BK-18 R18-h C1): the 429 just answered is listed on IssueToken in the published spec.
+        $this->assertSpecDeclaresRefusal('IssueToken', 429);
     }
 
     /**
