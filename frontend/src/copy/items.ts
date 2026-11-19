@@ -149,46 +149,6 @@ export const NEW_ITEM = {
   unitHint: "Once stock, orders or supplier catalogues record quantities of this item, its unit can't be changed.",
 } as const;
 
-/**
- * R1-1 / B-6 U-C: each served unit code's option label, keys in served order (held equal to the served enum by T-1).
- * S-3 (FE-R5): `spoken` is the unit's name as read after a quantity, always plural, a bare word (items-i4-ux.md M-3;
- * fe-r8-s3-ux.md Revision 1 FINAL). Suppliers S-4 (bk31-placement-confirm.md Revision 1 — FINAL R1-D, per-unit branch;
- * bk31-cost-basis-po.md Revision 1 FINAL): `perSpoken` is read after a price of ONE of the unit ("per kilogram"; "each"
- * for EA), for a catalogue entry's unit cost; shown `per EA` vs spoken "each" is intended (R1-D L-7).
- *
- * Cross-family copy import (judge ruling 2, bk31-placement-confirm.md FINAL (b); suppliers-plan.md §R1-3, derived at
- * Suppliers S-5): `components/suppliers/EntryForm.tsx` imports `unitSuffixSpoken` and `unitPerSpoken` from here (its
- * `EntryFields`, shared by the catalogue's Edit and Add dialogs), and `app/(app)/suppliers/[id]/CatalogueSection.tsx`
- * imports `unitLabel` (the Add dialog's choice list, and the unit clause after an Add). Purchase orders PO-5:
- * `components/purchasing/AddLineRow.tsx` imports `unitSuffixSpoken` (the new line row's Quantity suffix, the R1-C rule).
- * Nothing moves `UNIT_LABELS`.
- */
-export const UNIT_LABELS: Readonly<Record<string, { label: string; spoken: string; perSpoken: string }>> = {
-  EA: { label: 'Each (EA)', spoken: 'each', perSpoken: 'each' },
-  BOX: { label: 'Box (BOX)', spoken: 'boxes', perSpoken: 'per box' },
-  KG: { label: 'Kilogram (KG)', spoken: 'kilograms', perSpoken: 'per kilogram' },
-  L: { label: 'Litre (L)', spoken: 'litres', perSpoken: 'per litre' },
-  M: { label: 'Metre (M)', spoken: 'metres', perSpoken: 'per metre' },
-};
-
-/** A served unit code's label; a code with no entry renders as sent (the `kindLabel` precedent). */
-export const unitLabel = (code: string): string => UNIT_LABELS[code]?.label ?? code;
-
-/** S-3: a unit's spoken word, bare (the read-only and archived numbers); a code with no entry is spoken as sent. */
-export const unitSpoken = (code: string): string => UNIT_LABELS[code]?.spoken ?? code;
-
-/**
- * S-3: the edit field's spoken suffix, full stop included, so the hint after it in the description starts a new
- * sentence (fe-r8-s3-ux.md B refinement).
- */
-export const unitSuffixSpoken = (code: string): string => `${unitSpoken(code)}.`;
-
-/**
- * Suppliers S-4 (R1-D): a price per ONE of the unit, spoken bare ("per kilogram", "each"); a code with no entry is
- * "per {code}". The caller adds the full stop when it is a field's suffix.
- */
-export const unitPerSpoken = (code: string): string => UNIT_LABELS[code]?.perSpoken ?? `per ${code}`;
-
 /** B-5 Restore rows + R1-17 "already live" (the W4 treatment). In the archived banner, no dialog. */
 export const RESTORE_ITEM = {
   action: 'Restore item',

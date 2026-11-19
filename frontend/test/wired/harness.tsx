@@ -5,7 +5,7 @@ import { BffProvider } from '@/app/(app)/BffProvider';
 import { TooltipProvider } from '@/components/ui/Tooltip';
 import { createApiCaller, type ApiCaller } from '@/lib/bff/apiCall';
 import type { User } from '@/lib/api/users';
-import { unitSuffixSpoken } from '@/copy/items';
+import { unitSuffixSpoken } from '@/copy/units';
 
 // Shared harness for the wired surfaces (b3b-design.md §14 "Wiring per surface"): a sequential fetch stub that records
 // every request and answers in order (or never, for a deadline case), problem documents shaped as the backend serves

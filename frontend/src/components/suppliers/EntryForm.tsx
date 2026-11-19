@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { TextField } from '@/components/ui/TextField';
 import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_SAVED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
-import { unitPerSpoken, unitSuffixSpoken } from '@/copy/items';
+import { unitPerSpoken, unitSuffixSpoken } from '@/copy/units';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import { EDIT_CATALOGUE_ITEM, ENTRY_FIELD_WORDS, SUPPLIER_FORBIDDEN } from '@/copy/suppliers';

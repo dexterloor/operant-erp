@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { SelectField } from '@/components/ui/SelectField';
 import { TextField } from '@/components/ui/TextField';
 import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_ADDED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
-import { unitPerSpoken, unitSuffixSpoken } from '@/copy/items';
+import { unitPerSpoken, unitSuffixSpoken } from '@/copy/units';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { ADD_LINE, EDIT_LINE, PURCHASE_ORDER_PAGE, PURCHASING_FORBIDDEN } from '@/copy/purchasing';
 import { PAGE_STATES } from '@/copy/shell';

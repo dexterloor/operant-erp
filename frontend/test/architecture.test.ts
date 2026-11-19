@@ -338,7 +338,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Items I-1 (Revision 8 R8-2) added: copy/items.ts.
   // Suppliers S-1 (Revision 8 R8-2) added: copy/suppliers.ts.
   // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: copy/purchasing.ts.
-  'src/copy': 12,
+  // delete-swap-arch-red.md H-1 added: copy/units.ts (the unit vocabulary, moved out of copy/items.ts).
+  'src/copy': 13,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
@@ -2193,6 +2194,77 @@ describe('architecture — R10-2: route folders import only their own family’s
       'src/app/(app)/K.tsx',
       'src/app/(app)/L.tsx',
       'src/app/(app)/goods-receipts/B.tsx',
+    ]);
+  });
+});
+
+// A-3 copy clause (delete-swap-arch-red.md H-1): a family's route folder(s) and components/<family>/ import only that family's
+// copy files and the shared ones; admin is one group (R8-2 is for non-admin families); foreign edges are named exceptions.
+// Scope: `src/app/(app)` and `src/components`; `(auth)`, `(dev)` and the `src/app` root files are outside it; `src/lib` imports no copy (A-6).
+const COPY_DIR = 'src/copy';
+const SHARED_COPY: readonly string[] = ['headings', 'shell', 'permissionLabels', 'units'];
+const COPY_GROUPS: Readonly<Record<string, readonly string[]>> = {
+  items: ['items'], warehouses: ['warehouses'], suppliers: ['suppliers'], purchasing: ['purchasing'],
+  account: ['password'], admin: ['people', 'roles', 'sod', 'bulk'],
+};
+const GROUP_OF_FOLDER: Readonly<Record<string, string>> = {
+  items: 'items', warehouses: 'warehouses', suppliers: 'suppliers', 'purchase-orders': 'purchasing', 'goods-receipts': 'purchasing',
+  account: 'account', 'admin/users': 'admin', 'admin/roles': 'admin',
+  'components/items': 'items', 'components/warehouses': 'warehouses', 'components/suppliers': 'suppliers',
+  'components/purchasing': 'purchasing', 'components/auth': 'account', 'components/people': 'admin', 'components/roles': 'admin',
+  'components/permissions': 'admin', 'components/preview': 'admin', 'components/bulk': 'admin',
+};
+/** One file → one foreign copy file, each a deliberate edit with its reason. */
+const COPY_EXCEPTIONS: readonly string[] = [
+  'src/components/purchasing/ReceiveForm.tsx -> src/copy/warehouses', // GR-2: a location's kind label (purchase-orders-plan.md §2.6, M-2)
+];
+function copyFolderKey(p: string): string | null {
+  if (under(p, APP_ROOT)) return routeFolderOf(p);
+  const m = /^src\/components\/([^/]+)\//.exec(p);
+  return m ? `components/${m[1]}` : null;
+}
+function copyViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, APP_ROOT) && !under(sf.file, 'src/components')) continue;
+    const key = copyFolderKey(sf.file);
+    const own = key !== null ? (COPY_GROUPS[GROUP_OF_FOLDER[key] ?? ''] ?? []) : [];
+    for (const spec of specifiersOf(sf)) {
+      const t = targetOf(sf.file, spec);
+      if (!under(t, COPY_DIR)) continue;
+      const name = t.slice(COPY_DIR.length + 1).replace(/\.tsx?$/, '');
+      if (SHARED_COPY.includes(name) || own.includes(name) || COPY_EXCEPTIONS.includes(`${sf.file} -> ${COPY_DIR}/${name}`)) continue;
+      out.push({ file: sf.file, detail: `imports another family's copy file (A-3 copy clause): '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — A-3 copy clause: a family imports only its own copy files and the shared ones', () => {
+  it('the real tree has no violation; each named exception is a real edge; the scan sees real copy edges', () => {
+    const files = walk('src');
+    expect(copyViolations(files)).toEqual([]);
+    const edges = new Set(files.flatMap((f) => specifiersOf(f).map((s) => `${f.file} -> ${targetOf(f.file, s)}`)));
+    for (const e of COPY_EXCEPTIONS) expect(edges.has(e)).toBe(true); // a stale exception is red
+    expect(edges.has('src/app/(app)/suppliers/[id]/CatalogueSection.tsx -> src/copy/units')).toBe(true); // the move landed and is seen
+  });
+
+  it('planted controls: foreign copy is red from a route folder, a component, a relative specifier and records/; the group and shared copy are not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/goods-receipts/P1.tsx', source: "import { ITEMS_LIST } from '@/copy/items';" }, // gr-1-followups L-7's case
+      { file: 'src/components/purchasing/P2.tsx', source: "import { ITEMS_LIST } from '@/copy/items';" }, // the component hop
+      { file: 'src/app/(app)/suppliers/P3.tsx', source: "import { X } from '../../../copy/purchasing';" }, // relative specifier
+      { file: 'src/components/records/P4.tsx', source: "import { X } from '@/copy/warehouses';" }, // no family
+      { file: 'src/app/(app)/items/P5.tsx', source: "import { X } from '@/copy/sod';" }, // admin copy outside admin
+      { file: 'src/app/(app)/admin/users/Ok.tsx', source: "import { X } from '@/copy/roles';\nimport { Y } from '@/copy/units';" },
+      { file: 'src/components/purchasing/Ok2.tsx', source: "import { X } from '@/copy/purchasing';\nimport { Y } from '@/copy/units';\nimport { Z } from '@/copy/headings';" },
+    ];
+    expect(copyViolations(planted).map((v) => v.file)).toEqual([
+      'src/app/(app)/goods-receipts/P1.tsx',
+      'src/components/purchasing/P2.tsx',
+      'src/app/(app)/suppliers/P3.tsx',
+      'src/components/records/P4.tsx',
+      'src/app/(app)/items/P5.tsx',
     ]);
   });
 });

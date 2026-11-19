@@ -7,7 +7,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { SelectField } from '@/components/ui/SelectField';
 import { TextField } from '@/components/ui/TextField';
 import { COULD_NOT_REACH, NOT_RECORDED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
-import { unitSuffixSpoken } from '@/copy/items';
+import { unitSuffixSpoken } from '@/copy/units';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PURCHASING_FORBIDDEN, RECEIVE } from '@/copy/purchasing';
 import { PAGE_STATES } from '@/copy/shell';

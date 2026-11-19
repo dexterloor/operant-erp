@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { UNIT_LABELS, unitLabel, unitPerSpoken, unitSpoken, unitSuffixSpoken } from '@/copy/items';
+import { UNIT_LABELS, unitLabel, unitPerSpoken, unitSpoken, unitSuffixSpoken } from '@/copy/units';
 import { wireEnum } from '@/lib/bff/surface';
 
 // Items I-2 (items-i2-design.md Revision 1 — FINAL T-1; b4-architecture.md Revision 8 R8-5; BK-22): the units of measure
@@ -147,6 +147,8 @@ describe('T-1 (d) — the unit-literal scan', () => {
     expect(unitLiteralViolations([plant('src/components/d.tsx', "const s = 'Measure it in Metres';")])).toEqual([]);
     expect(unitLiteralViolations([plant('src/components/preview/fixtures/items.ts', 'const u = "KG";')])).toEqual([]);
     expect(unitLiteralViolations([plant('src/copy/items.ts', 'const u = "KG";')])).toEqual([]);
+    // the unit vocabulary's home (copy/units.ts) is outside the scan, as copy/items.ts was
+    expect(unitLiteralViolations([plant('src/copy/units.ts', 'const u = "KG";')])).toEqual([]);
   });
 
   it('the matcher escapes each value: with a value holding a regex metacharacter ("M."), "M." is red and "MX" is not', () => {

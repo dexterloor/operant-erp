@@ -6,7 +6,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: nav.push, refresh:
 import { takeArrivalMessage } from '@/app/(app)/arrivalMessage';
 import { NewItemPage } from '@/app/(app)/items/new/NewItemPage';
 import type { Item } from '@/lib/api/items';
-import { unitSuffixSpoken } from '@/copy/items';
+import { unitSuffixSpoken } from '@/copy/units';
 import { wireEnum } from '@/lib/bff/surface';
 import { classify } from '@/lib/bff/problem';
 import { itemCreate } from '@/lib/items/wired';

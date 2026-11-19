@@ -9,7 +9,7 @@ import { EntryForm } from '@/components/suppliers/EntryForm';
 import { RegionError, Skeleton } from '@/components/states/PageStates';
 import { Button } from '@/components/ui/Button';
 import { COULD_NOT_REACH, NOT_REMOVED, WENT_WRONG } from '@/copy/headings';
-import { unitLabel } from '@/copy/items';
+import { unitLabel } from '@/copy/units';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { ADD_CATALOGUE_ITEM, CATALOGUE, EDIT_CATALOGUE_ITEM, ITEM_CHOICES, REMOVE_CATALOGUE_ITEM, SUPPLIER_FORBIDDEN } from '@/copy/suppliers';
 import type { SupplierProduct } from '@/lib/api/suppliers';
@@ -506,7 +506,7 @@ export function CatalogueSection({ supplierId, initial, supplierArchived, canOpe
  * switch — under its own heading (*Choose an item*), with the archived note above the rows, columns SKU · Name · Unit ·
  * **Choose**, and its own status region (the core's, inside the dialog). Its first page is the answer the open (or a
  * Change) read, whatever its kind: ok → the rows; a failure → the core's region error with Retry; a 403 → `denied`. The
- * unit cell is `unitLabel(code)` (the one `copy/items` import here, judge ruling 2 as derived at S-5).
+ * unit cell is `unitLabel(code)` (from `copy/units`, family-free).
  */
 /**
  * Renders nothing; while it is on screen the choice list is in a state with no item to choose, which it reports (UX U-1).
