@@ -41,7 +41,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
         new Get(
             uriTemplate: '/sales-orders/{id}/pick-list',
             name: 'GetPickList',
-            openapi: new OpenApiOperation(operationId: 'GetPickList'),
+            openapi: new OpenApiOperation(
+                operationId: 'GetPickList',
+                summary: 'Get pick list',
+                description: 'Returns the pick list for one sales order.',
+            ),
             provider: PickListProvider::class,
             // §4.2's `Perm` cell: `fulfilment.view` ALONE (V2-S-1b clause 3, ruling R7). Enforced by
             // `PermissionGate` on `kernel.controller`, before the provider loads anything — E-1.

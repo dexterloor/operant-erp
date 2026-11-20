@@ -29,6 +29,13 @@ use ApiPlatform\OpenApi\Factory\OpenApiFactory;
  * - **V** (vendor): a text the framework writes when nothing better is given — compared with the defaults generated from
  *   the installed `api-platform/openapi` ({@see self::vendorDefaults()}) and with their shapes ({@see self::VENDOR_SHAPES}),
  *   at the locations the caller names.
+ * - **S** (summary copied): an operation's description equals its summary, which is what the framework does when an
+ *   operation gives no description.
+ * - **R** (operation texts; {@see self::operationTextProblems()}): every operation's summary, description and request
+ *   body is its own attribute's text if it is on the hand lists, else the template its facts select from this class's
+ *   own copy of the selectors ({@see self::TEMPLATES}), two-way.
+ * - **H** (hard deletes): the `DELETE` operations that say "for good" are exactly the hand-checked list; every other
+ *   `Delete…` says "Archives" (a `DELETE` with another verb, `RevokeRole`, says what it does instead).
  * - **A** (sign-in, static): one `http`/`bearer` scheme; the top-level `security` names a declared scheme; an
  *   operation's own `security` is absent or exactly `[]`; at least one operation has `[]`. Whether the right operations
  *   carry `[]` is held to the server's behaviour, not here (`PermissionEnforcementTest`).
@@ -95,8 +102,37 @@ final class PublishedSpecText
         '2xx', '4xx', 'response header', 'schema', 'info', 'security scheme', 'server', 'tag', 'header parameter', 'other',
     ];
 
-    /** The rules, by letter. */
-    public const RULES = ['I', 'D', 'N', 'T', 'E', 'V', 'A'];
+    /** The rules {@see self::problems()} applies, by letter (R and H are {@see self::operationTextProblems()}'s). */
+    public const RULES = ['I', 'D', 'N', 'T', 'E', 'V', 'S', 'A'];
+
+    /**
+     * The operation templates, word for word, and the selector that picks one ({@see self::templateFor()}): a copy of
+     * `App\Platform\Http\OperationTexts`' on purpose, so a change to the decorator's copy alone is red. `{object}` is
+     * the operation's name less its verb, in words; `{Object}` the same in the name's own case.
+     *
+     * @var array<string, string>
+     */
+    public const TEMPLATES = [
+        'list paged' => 'Lists {object}, one page at a time.',
+        'list' => 'Lists {object}.',
+        'get one' => 'Returns one {object}.',
+        'get the' => 'Returns the {object}.',
+        'create' => 'Creates one {object}.',
+        'issue' => 'Issues one {object}.',
+        'update one' => 'Changes one {object}.',
+        'update the' => 'Changes the {object}.',
+        'archive' => 'Archives one {object}. `Restore{Object}` brings it back.',
+        'restore' => 'Restores one archived {object}.',
+        'act' => '{Verbs} one {object}.',
+    ];
+
+    /** The verbs the `act` template conjugates. */
+    public const ACTIONS = ['Approve' => 'Approves', 'Cancel' => 'Cancels', 'Confirm' => 'Confirms', 'Reject' => 'Rejects', 'Void' => 'Voids', 'Reverse' => 'Reverses'];
+
+    public const PATCH_BODY = 'Only the fields to change. A field left out is not changed.';
+
+    /** @var array<string, string> the create-body template by selected kind */
+    public const CREATE_BODIES = ['create' => 'The {object} to create.', 'issue' => 'The {object} to issue.'];
 
     private const METHODS = ['get', 'post', 'patch', 'put', 'delete'];
 
@@ -144,11 +180,147 @@ final class PublishedSpecText
             }
         }
 
+        if (\in_array('S', $rules, true)) {
+            foreach (GeneratedSpec::operations($spec) as $entry) {
+                $summary = $entry['operation']['summary'] ?? null;
+                if (null !== $summary && $summary === ($entry['operation']['description'] ?? null)) {
+                    $faults[] = '$.paths.'.$entry['path'].'.'.$entry['method'].' [S] its description copies its summary';
+                }
+            }
+        }
+
         if (\in_array('A', $rules, true)) {
             array_push($faults, ...self::signInFaults($spec));
         }
 
         return $faults;
+    }
+
+    /**
+     * Rules R and H: one line per (operation, rule), and one per operation whose request body is wrong.
+     *
+     * @param array<string, mixed>                                                              $spec
+     * @param array<string, array{summary: ?string, description: ?string, body: ?string}>       $own         operationId => the texts its own attribute gives (from metadata)
+     * @param list<string>                                                                      $fillIn      operations no selector matches, which must describe themselves
+     * @param list<string>                                                                      $override    operations a selector matches but whose template would be false
+     * @param list<string>                                                                      $ownBodies   operations whose request body describes itself
+     * @param list<string>                                                                      $hardDeletes the `DELETE` operations that really remove a row
+     *
+     * @return list<string>
+     */
+    public static function operationTextProblems(array $spec, array $own, array $fillIn, array $override, array $ownBodies, array $hardDeletes): array
+    {
+        $operations = GeneratedSpec::operations($spec);
+        $names = array_values(array_map(static fn (array $entry): string => (string) ($entry['operation']['operationId'] ?? ''), $operations));
+        $faults = [];
+        foreach ($operations as $entry) {
+            $operation = $entry['operation'];
+            $name = (string) ($operation['operationId'] ?? '');
+            $at = '$.paths.'.$entry['path'].'.'.$entry['method'];
+            $mine = $own[$name] ?? ['summary' => null, 'description' => null, 'body' => null];
+            $kind = self::templateFor($name, $operation, $entry['path'], $names);
+            $hand = \in_array($name, $fillIn, true) || \in_array($name, $override, true);
+
+            $wrong = match (true) {
+                \in_array($name, $fillIn, true) && null !== $kind => 'is on the fill-in list, but the "'.$kind.'" selector matches it',
+                \in_array($name, $override, true) && null === $kind => 'is on the override list, but no selector matches it',
+                !$hand && null === $kind => 'no selector matches it and it is not on a hand list',
+                !$hand && (null !== self::text($mine['summary']) || null !== self::text($mine['description'])) => 'gives its own text but is not on a hand list',
+                $hand && (null === self::text($mine['summary']) || null === self::text($mine['description'])) => 'is on a hand list but its attribute gives no summary or description',
+                $hand && ($operation['summary'] ?? null) !== $mine['summary'] => 'publishes a summary that is not its attribute\'s',
+                $hand && ($operation['description'] ?? null) !== $mine['description'] => 'publishes a description that is not its attribute\'s',
+                !$hand && ($operation['summary'] ?? null) !== self::summaryOf($name) => 'publishes a summary that is not its name in words',
+                !$hand && ($operation['description'] ?? null) !== self::fill(self::TEMPLATES[(string) $kind], $name) => 'publishes a description that is not the "'.$kind.'" template',
+                default => null,
+            };
+            if (null !== $wrong) {
+                $faults[] = $at.' [R] '.$name.' '.$wrong;
+            }
+
+            if (\is_array($operation['requestBody'] ?? null)) {
+                $published = $operation['requestBody']['description'] ?? null;
+                $expected = match (true) {
+                    \in_array($name, $ownBodies, true) => self::text($mine['body']) ?? '(an own text, but its attribute gives none)',
+                    'patch' === $entry['method'] => self::PATCH_BODY,
+                    !$hand && isset(self::CREATE_BODIES[(string) $kind]) => self::fill(self::CREATE_BODIES[(string) $kind], $name),
+                    default => null,
+                };
+                if (!\in_array($name, $ownBodies, true) && null !== self::text($mine['body'])) {
+                    $faults[] = $at.'.requestBody [R] '.$name.' gives its own body text but is not on the own-body list';
+                } elseif ($published !== $expected) {
+                    $faults[] = $at.'.requestBody [R] '.$name.' publishes '.json_encode($published).', not '.json_encode($expected);
+                }
+            }
+
+            if ('delete' === $entry['method']) {
+                $description = (string) ($operation['description'] ?? '');
+                $forGood = str_contains($description, 'for good');
+                if ($forGood !== \in_array($name, $hardDeletes, true) || (!$forGood && str_starts_with($name, 'Delete') && !str_starts_with($description, 'Archives'))) {
+                    $faults[] = $at.' [H] '.$name.($forGood ? ' says "for good" but is not a hand-checked hard delete' : ' is a hard delete, or does not say "Archives"');
+                }
+            }
+        }
+
+        return $faults;
+    }
+
+    /**
+     * The template an operation's facts in the spec select, or null. The facts: its verb; whether it declares a query
+     * `after` (it pages); whether its path names a record; whether it answers 201; for a `Delete…`, whether the spec has
+     * `Restore` of the same thing.
+     *
+     * @param array<string, mixed> $operation
+     * @param list<string>         $names     every operation id in the spec
+     */
+    public static function templateFor(string $name, array $operation, string $path, array $names): ?string
+    {
+        [$verb, $object] = self::split($name);
+        $pages = false;
+        foreach ($operation['parameters'] ?? [] as $parameter) {
+            $pages = $pages || ('after' === ($parameter['name'] ?? null) && 'query' === ($parameter['in'] ?? null));
+        }
+        $namesARecord = str_contains($path, '{');
+        $answers201 = isset($operation['responses']['201']);
+
+        return match (true) {
+            'List' === $verb => $pages ? 'list paged' : 'list',
+            'Get' === $verb => $namesARecord ? 'get one' : 'get the',
+            'Create' === $verb && $answers201 => 'create',
+            'Issue' === $verb && $answers201 => 'issue',
+            'Update' === $verb => $namesARecord ? 'update one' : 'update the',
+            'Delete' === $verb && \in_array('Restore'.$object, $names, true) => 'archive',
+            'Restore' === $verb => 'restore',
+            isset(self::ACTIONS[$verb]) => 'act',
+            default => null,
+        };
+    }
+
+    public static function fill(string $template, string $name): string
+    {
+        [$verb, $object] = self::split($name);
+
+        return strtr($template, ['{object}' => self::words($object), '{Object}' => $object, '{Verbs}' => self::ACTIONS[$verb] ?? $verb]);
+    }
+
+    public static function summaryOf(string $name): string
+    {
+        return ucfirst(self::words($name));
+    }
+
+    private static function words(string $camel): string
+    {
+        return strtolower(trim((string) preg_replace('/(?<!^)([A-Z])/', ' $1', $camel)));
+    }
+
+    /** @return array{0: string, 1: string} */
+    private static function split(string $name): array
+    {
+        return 1 === preg_match('/^([A-Z][a-z]+)(.*)\z/', $name, $m) ? [$m[1], $m[2]] : [$name, ''];
+    }
+
+    private static function text(?string $text): ?string
+    {
+        return null === $text || '' === trim($text) ? null : $text;
     }
 
     /**

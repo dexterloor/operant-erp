@@ -5321,7 +5321,7 @@
     "paths": {
         "/api/v1/audit-log": {
             "get": {
-                "description": "Retrieves a AuditLogEntryCollection resource.",
+                "description": "Lists audit log entries, one page at a time.",
                 "operationId": "ListAuditLogEntries",
                 "parameters": [
                     {
@@ -5514,7 +5514,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a AuditLogEntryCollection resource.",
+                "summary": "List audit log entries",
                 "tags": [
                     "AuditLogEntryCollection"
                 ]
@@ -5522,7 +5522,7 @@
         },
         "/api/v1/audit-log/records": {
             "get": {
-                "description": "Retrieves a AuditRecordCollection resource.",
+                "description": "Lists audit records, one page at a time.",
                 "operationId": "ListAuditRecords",
                 "parameters": [
                     {
@@ -5661,7 +5661,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a AuditRecordCollection resource.",
+                "summary": "List audit records",
                 "tags": [
                     "AuditRecordCollection"
                 ]
@@ -5669,7 +5669,7 @@
         },
         "/api/v1/auth/password-resets": {
             "post": {
-                "description": "Creates a PasswordReset resource.",
+                "description": "Asks for a link to set a new password to be emailed. The answer never says whether an account was found.",
                 "operationId": "CreatePasswordReset",
                 "parameters": [],
                 "requestBody": {
@@ -5680,7 +5680,6 @@
                             }
                         }
                     },
-                    "description": "The new PasswordReset resource",
                     "required": true
                 },
                 "responses": {
@@ -5710,7 +5709,7 @@
                     }
                 },
                 "security": [],
-                "summary": "Creates a PasswordReset resource.",
+                "summary": "Request a password reset",
                 "tags": [
                     "PasswordReset"
                 ]
@@ -5718,7 +5717,7 @@
         },
         "/api/v1/auth/password-resets/redemption": {
             "post": {
-                "description": "Creates a PasswordResetRedemption resource.",
+                "description": "Sets a new password using the token from a reset link, and signs the account out everywhere.",
                 "operationId": "CreatePasswordResetRedemption",
                 "parameters": [],
                 "requestBody": {
@@ -5729,7 +5728,6 @@
                             }
                         }
                     },
-                    "description": "The new PasswordResetRedemption resource",
                     "required": true
                 },
                 "responses": {
@@ -5794,7 +5792,7 @@
                     }
                 },
                 "security": [],
-                "summary": "Creates a PasswordResetRedemption resource.",
+                "summary": "Set a new password",
                 "tags": [
                     "PasswordResetRedemption"
                 ]
@@ -5802,7 +5800,7 @@
         },
         "/api/v1/auth/token": {
             "post": {
-                "description": "Creates a Token resource.",
+                "description": "Signs in to one workspace with an email and a password, and returns an access token.",
                 "operationId": "IssueToken",
                 "parameters": [],
                 "requestBody": {
@@ -5813,7 +5811,7 @@
                             }
                         }
                     },
-                    "description": "The new Token resource",
+                    "description": "The workspace, email and password to sign in with.",
                     "required": true
                 },
                 "responses": {
@@ -5878,7 +5876,7 @@
                     }
                 },
                 "security": [],
-                "summary": "Creates a Token resource.",
+                "summary": "Sign in",
                 "tags": [
                     "Token"
                 ]
@@ -5886,7 +5884,7 @@
         },
         "/api/v1/bulk/archivals": {
             "post": {
-                "description": "Creates a BulkArchival resource.",
+                "description": "Archives several records of one kind in one request.",
                 "operationId": "CreateBulkArchival",
                 "parameters": [],
                 "requestBody": {
@@ -5897,7 +5895,6 @@
                             }
                         }
                     },
-                    "description": "The new BulkArchival resource",
                     "required": true
                 },
                 "responses": {
@@ -5988,7 +5985,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a BulkArchival resource.",
+                "summary": "Archive in bulk",
                 "tags": [
                     "BulkArchival"
                 ]
@@ -5996,7 +5993,7 @@
         },
         "/api/v1/bulk/restorations": {
             "post": {
-                "description": "Creates a BulkRestoration resource.",
+                "description": "Restores several archived records of one kind in one request.",
                 "operationId": "CreateBulkRestoration",
                 "parameters": [],
                 "requestBody": {
@@ -6007,7 +6004,6 @@
                             }
                         }
                     },
-                    "description": "The new BulkRestoration resource",
                     "required": true
                 },
                 "responses": {
@@ -6098,7 +6094,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a BulkRestoration resource.",
+                "summary": "Restore in bulk",
                 "tags": [
                     "BulkRestoration"
                 ]
@@ -6106,7 +6102,7 @@
         },
         "/api/v1/bulk/role-assignments": {
             "post": {
-                "description": "Creates a BulkRoleAssignment resource.",
+                "description": "Gives one role to several people in one request.",
                 "operationId": "CreateBulkRoleAssignment",
                 "parameters": [],
                 "requestBody": {
@@ -6117,7 +6113,6 @@
                             }
                         }
                     },
-                    "description": "The new BulkRoleAssignment resource",
                     "required": true
                 },
                 "responses": {
@@ -6212,7 +6207,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a BulkRoleAssignment resource.",
+                "summary": "Give a role in bulk",
                 "tags": [
                     "BulkRoleAssignment"
                 ]
@@ -6220,7 +6215,7 @@
         },
         "/api/v1/credit-notes": {
             "get": {
-                "description": "Retrieves a CreditNoteCollection resource.",
+                "description": "Lists credit notes, one page at a time.",
                 "operationId": "ListCreditNotes",
                 "parameters": [
                     {
@@ -6364,7 +6359,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a CreditNoteCollection resource.",
+                "summary": "List credit notes",
                 "tags": [
                     "CreditNoteCollection"
                 ]
@@ -6372,7 +6367,7 @@
         },
         "/api/v1/credit-notes/{id}": {
             "get": {
-                "description": "Retrieves a CreditNote resource.",
+                "description": "Returns one credit note.",
                 "operationId": "GetCreditNote",
                 "parameters": [
                     {
@@ -6449,7 +6444,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a CreditNote resource.",
+                "summary": "Get credit note",
                 "tags": [
                     "CreditNote"
                 ]
@@ -6457,7 +6452,7 @@
         },
         "/api/v1/customers": {
             "get": {
-                "description": "Retrieves a CustomerCollection resource.",
+                "description": "Lists customers, one page at a time.",
                 "operationId": "ListCustomers",
                 "parameters": [
                     {
@@ -6592,13 +6587,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a CustomerCollection resource.",
+                "summary": "List customers",
                 "tags": [
                     "CustomerCollection"
                 ]
             },
             "post": {
-                "description": "Creates a Customer resource.",
+                "description": "Creates one customer.",
                 "operationId": "CreateCustomer",
                 "parameters": [],
                 "requestBody": {
@@ -6609,7 +6604,7 @@
                             }
                         }
                     },
-                    "description": "The new Customer resource",
+                    "description": "The customer to create.",
                     "required": true
                 },
                 "responses": {
@@ -6691,7 +6686,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a Customer resource.",
+                "summary": "Create customer",
                 "tags": [
                     "Customer"
                 ]
@@ -6699,7 +6694,7 @@
         },
         "/api/v1/customers/{id}": {
             "delete": {
-                "description": "Removes the Customer resource.",
+                "description": "Archives one customer. `RestoreCustomer` brings it back.",
                 "operationId": "DeleteCustomer",
                 "parameters": [
                     {
@@ -6779,13 +6774,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the Customer resource.",
+                "summary": "Delete customer",
                 "tags": [
                     "Customer"
                 ]
             },
             "get": {
-                "description": "Retrieves a Customer resource.",
+                "description": "Returns one customer.",
                 "operationId": "GetCustomer",
                 "parameters": [
                     {
@@ -6862,13 +6857,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a Customer resource.",
+                "summary": "Get customer",
                 "tags": [
                     "Customer"
                 ]
             },
             "patch": {
-                "description": "Updates the Customer resource.",
+                "description": "Changes one customer.",
                 "operationId": "UpdateCustomer",
                 "parameters": [
                     {
@@ -6893,7 +6888,7 @@
                             }
                         }
                     },
-                    "description": "The updated Customer resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -6967,7 +6962,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the Customer resource.",
+                "summary": "Update customer",
                 "tags": [
                     "Customer"
                 ]
@@ -6975,7 +6970,7 @@
         },
         "/api/v1/customers/{id}/addresses": {
             "get": {
-                "description": "Retrieves a CustomerAddressCollection resource.",
+                "description": "Lists customer addresses.",
                 "operationId": "ListCustomerAddresses",
                 "parameters": [
                     {
@@ -7052,13 +7047,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a CustomerAddressCollection resource.",
+                "summary": "List customer addresses",
                 "tags": [
                     "CustomerAddressCollection"
                 ]
             },
             "post": {
-                "description": "Creates a CustomerAddress resource.",
+                "description": "Creates one customer address.",
                 "operationId": "CreateCustomerAddress",
                 "parameters": [
                     {
@@ -7083,7 +7078,7 @@
                             }
                         }
                     },
-                    "description": "The new CustomerAddress resource",
+                    "description": "The customer address to create.",
                     "required": true
                 },
                 "responses": {
@@ -7175,7 +7170,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a CustomerAddress resource.",
+                "summary": "Create customer address",
                 "tags": [
                     "CustomerAddress"
                 ]
@@ -7183,7 +7178,7 @@
         },
         "/api/v1/customers/{id}/addresses/{addressId}": {
             "delete": {
-                "description": "Removes the CustomerAddress resource.",
+                "description": "Removes one customer address for good.",
                 "operationId": "DeleteCustomerAddress",
                 "parameters": [
                     {
@@ -7276,13 +7271,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the CustomerAddress resource.",
+                "summary": "Delete customer address",
                 "tags": [
                     "CustomerAddress"
                 ]
             },
             "patch": {
-                "description": "Updates the CustomerAddress resource.",
+                "description": "Changes one customer address.",
                 "operationId": "UpdateCustomerAddress",
                 "parameters": [
                     {
@@ -7320,7 +7315,7 @@
                             }
                         }
                     },
-                    "description": "The updated CustomerAddress resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -7394,7 +7389,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the CustomerAddress resource.",
+                "summary": "Update customer address",
                 "tags": [
                     "CustomerAddress"
                 ]
@@ -7402,7 +7397,7 @@
         },
         "/api/v1/customers/{id}/contacts": {
             "get": {
-                "description": "Retrieves a CustomerContactCollection resource.",
+                "description": "Lists customer contacts.",
                 "operationId": "ListCustomerContacts",
                 "parameters": [
                     {
@@ -7479,13 +7474,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a CustomerContactCollection resource.",
+                "summary": "List customer contacts",
                 "tags": [
                     "CustomerContactCollection"
                 ]
             },
             "post": {
-                "description": "Creates a CustomerContact resource.",
+                "description": "Creates one customer contact.",
                 "operationId": "CreateCustomerContact",
                 "parameters": [
                     {
@@ -7510,7 +7505,7 @@
                             }
                         }
                     },
-                    "description": "The new CustomerContact resource",
+                    "description": "The customer contact to create.",
                     "required": true
                 },
                 "responses": {
@@ -7602,7 +7597,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a CustomerContact resource.",
+                "summary": "Create customer contact",
                 "tags": [
                     "CustomerContact"
                 ]
@@ -7610,7 +7605,7 @@
         },
         "/api/v1/customers/{id}/contacts/{contactId}": {
             "delete": {
-                "description": "Removes the CustomerContact resource.",
+                "description": "Removes one customer contact for good.",
                 "operationId": "DeleteCustomerContact",
                 "parameters": [
                     {
@@ -7703,13 +7698,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the CustomerContact resource.",
+                "summary": "Delete customer contact",
                 "tags": [
                     "CustomerContact"
                 ]
             },
             "patch": {
-                "description": "Updates the CustomerContact resource.",
+                "description": "Changes one customer contact.",
                 "operationId": "UpdateCustomerContact",
                 "parameters": [
                     {
@@ -7747,7 +7742,7 @@
                             }
                         }
                     },
-                    "description": "The updated CustomerContact resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -7821,7 +7816,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the CustomerContact resource.",
+                "summary": "Update customer contact",
                 "tags": [
                     "CustomerContact"
                 ]
@@ -7829,7 +7824,7 @@
         },
         "/api/v1/customers/{id}/restoration": {
             "post": {
-                "description": "Creates a Customer resource.",
+                "description": "Restores one archived customer.",
                 "operationId": "RestoreCustomer",
                 "parameters": [
                     {
@@ -7917,7 +7912,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a Customer resource.",
+                "summary": "Restore customer",
                 "tags": [
                     "Customer"
                 ]
@@ -7925,7 +7920,7 @@
         },
         "/api/v1/exports": {
             "post": {
-                "description": "Creates a Export resource.",
+                "description": "Returns one list, filtered and sorted as asked, as a CSV file.",
                 "operationId": "CreateExport",
                 "parameters": [],
                 "requestBody": {
@@ -7936,7 +7931,7 @@
                             }
                         }
                     },
-                    "description": "The new Export resource",
+                    "description": "Which list to export, and its filters and order.",
                     "required": true
                 },
                 "responses": {
@@ -8000,7 +7995,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a Export resource.",
+                "summary": "Export a list",
                 "tags": [
                     "Export"
                 ]
@@ -8008,7 +8003,7 @@
         },
         "/api/v1/forecast/reorder": {
             "get": {
-                "description": "Retrieves a ReorderSuggestionCollection resource.",
+                "description": "Lists reorder suggestions.",
                 "operationId": "ListReorderSuggestions",
                 "parameters": [],
                 "responses": {
@@ -8061,7 +8056,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a ReorderSuggestionCollection resource.",
+                "summary": "List reorder suggestions",
                 "tags": [
                     "ReorderSuggestionCollection"
                 ]
@@ -8069,7 +8064,7 @@
         },
         "/api/v1/forecast/reorder/summary": {
             "get": {
-                "description": "Retrieves a ReorderSummary resource.",
+                "description": "Returns the reorder summary.",
                 "operationId": "GetReorderSummary",
                 "parameters": [],
                 "responses": {
@@ -8122,7 +8117,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a ReorderSummary resource.",
+                "summary": "Get reorder summary",
                 "tags": [
                     "ReorderSummary"
                 ]
@@ -8130,7 +8125,7 @@
         },
         "/api/v1/fulfilments": {
             "get": {
-                "description": "Retrieves a FulfilmentCollection resource.",
+                "description": "Lists fulfilments, one page at a time.",
                 "operationId": "ListFulfilments",
                 "parameters": [
                     {
@@ -8248,7 +8243,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a FulfilmentCollection resource.",
+                "summary": "List fulfilments",
                 "tags": [
                     "FulfilmentCollection"
                 ]
@@ -8256,7 +8251,7 @@
         },
         "/api/v1/fulfilments/{id}": {
             "get": {
-                "description": "Retrieves a Fulfilment resource.",
+                "description": "Returns one fulfilment.",
                 "operationId": "GetFulfilment",
                 "parameters": [
                     {
@@ -8333,7 +8328,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a Fulfilment resource.",
+                "summary": "Get fulfilment",
                 "tags": [
                     "Fulfilment"
                 ]
@@ -8341,7 +8336,7 @@
         },
         "/api/v1/fulfilments/{id}/invoices": {
             "post": {
-                "description": "Creates a Invoice resource.",
+                "description": "Issues one invoice.",
                 "operationId": "IssueInvoice",
                 "parameters": [
                     {
@@ -8447,7 +8442,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a Invoice resource.",
+                "summary": "Issue invoice",
                 "tags": [
                     "Invoice"
                 ]
@@ -8455,7 +8450,7 @@
         },
         "/api/v1/fulfilments/{id}/sales-returns": {
             "post": {
-                "description": "Creates a SalesReturn resource.",
+                "description": "Creates one sales return.",
                 "operationId": "CreateSalesReturn",
                 "parameters": [
                     {
@@ -8480,7 +8475,7 @@
                             }
                         }
                     },
-                    "description": "The new SalesReturn resource",
+                    "description": "The sales return to create.",
                     "required": true
                 },
                 "responses": {
@@ -8572,7 +8567,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a SalesReturn resource.",
+                "summary": "Create sales return",
                 "tags": [
                     "SalesReturn"
                 ]
@@ -8580,7 +8575,7 @@
         },
         "/api/v1/goods-receipts": {
             "get": {
-                "description": "Retrieves a GoodsReceiptCollection resource.",
+                "description": "Lists goods receipts, one page at a time.",
                 "operationId": "ListGoodsReceipts",
                 "parameters": [
                     {
@@ -8698,7 +8693,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a GoodsReceiptCollection resource.",
+                "summary": "List goods receipts",
                 "tags": [
                     "GoodsReceiptCollection"
                 ]
@@ -8706,7 +8701,7 @@
         },
         "/api/v1/goods-receipts/{id}": {
             "get": {
-                "description": "Retrieves a GoodsReceipt resource.",
+                "description": "Returns one goods receipt.",
                 "operationId": "GetGoodsReceipt",
                 "parameters": [
                     {
@@ -8783,7 +8778,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a GoodsReceipt resource.",
+                "summary": "Get goods receipt",
                 "tags": [
                     "GoodsReceipt"
                 ]
@@ -8791,7 +8786,7 @@
         },
         "/api/v1/invoices": {
             "get": {
-                "description": "Retrieves a InvoiceCollection resource.",
+                "description": "Lists invoices, one page at a time.",
                 "operationId": "ListInvoices",
                 "parameters": [
                     {
@@ -8957,7 +8952,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a InvoiceCollection resource.",
+                "summary": "List invoices",
                 "tags": [
                     "InvoiceCollection"
                 ]
@@ -8965,7 +8960,7 @@
         },
         "/api/v1/invoices/{id}": {
             "get": {
-                "description": "Retrieves a Invoice resource.",
+                "description": "Returns one invoice.",
                 "operationId": "GetInvoice",
                 "parameters": [
                     {
@@ -9042,7 +9037,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a Invoice resource.",
+                "summary": "Get invoice",
                 "tags": [
                     "Invoice"
                 ]
@@ -9050,7 +9045,7 @@
         },
         "/api/v1/invoices/{id}/credit-note-adjustments": {
             "post": {
-                "description": "Creates a CreditNote resource.",
+                "description": "Issues one adjustment credit note.",
                 "operationId": "IssueAdjustmentCreditNote",
                 "parameters": [
                     {
@@ -9075,7 +9070,7 @@
                             }
                         }
                     },
-                    "description": "The new CreditNote resource",
+                    "description": "The adjustment credit note to issue.",
                     "required": true
                 },
                 "responses": {
@@ -9167,7 +9162,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a CreditNote resource.",
+                "summary": "Issue adjustment credit note",
                 "tags": [
                     "CreditNote"
                 ]
@@ -9175,7 +9170,7 @@
         },
         "/api/v1/invoices/{id}/credit-notes": {
             "post": {
-                "description": "Creates a CreditNote resource.",
+                "description": "Issues one credit note.",
                 "operationId": "IssueCreditNote",
                 "parameters": [
                     {
@@ -9200,7 +9195,7 @@
                             }
                         }
                     },
-                    "description": "The new CreditNote resource",
+                    "description": "The credit note to issue.",
                     "required": true
                 },
                 "responses": {
@@ -9292,7 +9287,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a CreditNote resource.",
+                "summary": "Issue credit note",
                 "tags": [
                     "CreditNote"
                 ]
@@ -9300,7 +9295,7 @@
         },
         "/api/v1/invoices/{id}/lines": {
             "get": {
-                "description": "Retrieves a InvoiceLineCollection resource.",
+                "description": "Lists invoice lines.",
                 "operationId": "ListInvoiceLines",
                 "parameters": [
                     {
@@ -9377,7 +9372,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a InvoiceLineCollection resource.",
+                "summary": "List invoice lines",
                 "tags": [
                     "InvoiceLineCollection"
                 ]
@@ -9385,7 +9380,7 @@
         },
         "/api/v1/invoices/{id}/payment": {
             "post": {
-                "description": "Creates a Invoice resource.",
+                "description": "Records that one invoice was paid.",
                 "operationId": "PayInvoice",
                 "parameters": [
                     {
@@ -9410,7 +9405,6 @@
                             }
                         }
                     },
-                    "description": "The new Invoice resource",
                     "required": true
                 },
                 "responses": {
@@ -9484,7 +9478,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a Invoice resource.",
+                "summary": "Record invoice payment",
                 "tags": [
                     "Invoice"
                 ]
@@ -9492,7 +9486,7 @@
         },
         "/api/v1/invoices/{id}/payment-reversal": {
             "post": {
-                "description": "Creates a Invoice resource.",
+                "description": "Reverses one invoice payment.",
                 "operationId": "ReverseInvoicePayment",
                 "parameters": [
                     {
@@ -9517,7 +9511,6 @@
                             }
                         }
                     },
-                    "description": "The new Invoice resource",
                     "required": true
                 },
                 "responses": {
@@ -9591,7 +9584,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a Invoice resource.",
+                "summary": "Reverse invoice payment",
                 "tags": [
                     "Invoice"
                 ]
@@ -9599,7 +9592,7 @@
         },
         "/api/v1/invoices/{id}/void": {
             "post": {
-                "description": "Creates a Invoice resource.",
+                "description": "Voids one invoice.",
                 "operationId": "VoidInvoice",
                 "parameters": [
                     {
@@ -9624,7 +9617,6 @@
                             }
                         }
                     },
-                    "description": "The new Invoice resource",
                     "required": true
                 },
                 "responses": {
@@ -9698,7 +9690,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a Invoice resource.",
+                "summary": "Void invoice",
                 "tags": [
                     "Invoice"
                 ]
@@ -9706,7 +9698,7 @@
         },
         "/api/v1/items": {
             "get": {
-                "description": "Retrieves a ItemCollection resource.",
+                "description": "Lists items, one page at a time.",
                 "operationId": "ListItems",
                 "parameters": [
                     {
@@ -9837,13 +9829,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a ItemCollection resource.",
+                "summary": "List items",
                 "tags": [
                     "ItemCollection"
                 ]
             },
             "post": {
-                "description": "Creates a Item resource.",
+                "description": "Creates one item.",
                 "operationId": "CreateItem",
                 "parameters": [],
                 "requestBody": {
@@ -9854,7 +9846,7 @@
                             }
                         }
                     },
-                    "description": "The new Item resource",
+                    "description": "The item to create.",
                     "required": true
                 },
                 "responses": {
@@ -9936,7 +9928,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a Item resource.",
+                "summary": "Create item",
                 "tags": [
                     "Item"
                 ]
@@ -9944,7 +9936,7 @@
         },
         "/api/v1/items/{id}": {
             "delete": {
-                "description": "Removes the Item resource.",
+                "description": "Archives one item. `RestoreItem` brings it back.",
                 "operationId": "DeleteItem",
                 "parameters": [
                     {
@@ -10024,13 +10016,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the Item resource.",
+                "summary": "Delete item",
                 "tags": [
                     "Item"
                 ]
             },
             "get": {
-                "description": "Retrieves a Item resource.",
+                "description": "Returns one item.",
                 "operationId": "GetItem",
                 "parameters": [
                     {
@@ -10107,13 +10099,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a Item resource.",
+                "summary": "Get item",
                 "tags": [
                     "Item"
                 ]
             },
             "patch": {
-                "description": "Updates the Item resource.",
+                "description": "Changes one item.",
                 "operationId": "UpdateItem",
                 "parameters": [
                     {
@@ -10138,7 +10130,7 @@
                             }
                         }
                     },
-                    "description": "The updated Item resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -10212,7 +10204,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the Item resource.",
+                "summary": "Update item",
                 "tags": [
                     "Item"
                 ]
@@ -10220,7 +10212,7 @@
         },
         "/api/v1/items/{id}/restoration": {
             "post": {
-                "description": "Creates a Item resource.",
+                "description": "Restores one archived item.",
                 "operationId": "RestoreItem",
                 "parameters": [
                     {
@@ -10308,7 +10300,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a Item resource.",
+                "summary": "Restore item",
                 "tags": [
                     "Item"
                 ]
@@ -10316,7 +10308,7 @@
         },
         "/api/v1/me": {
             "get": {
-                "description": "Retrieves a CurrentUser resource.",
+                "description": "Returns the current user.",
                 "operationId": "GetCurrentUser",
                 "parameters": [],
                 "responses": {
@@ -10359,7 +10351,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a CurrentUser resource.",
+                "summary": "Get current user",
                 "tags": [
                     "CurrentUser"
                 ]
@@ -10367,7 +10359,7 @@
         },
         "/api/v1/me/password": {
             "post": {
-                "description": "Creates a Password resource.",
+                "description": "Changes the signed-in person's password. Every session of the account ends, this one included.",
                 "operationId": "ChangePassword",
                 "parameters": [],
                 "requestBody": {
@@ -10378,7 +10370,6 @@
                             }
                         }
                     },
-                    "description": "The new Password resource",
                     "required": true
                 },
                 "responses": {
@@ -10442,7 +10433,7 @@
                         "description": "This account's password was changed too many times recently. Wait before changing it again; no wait time is given."
                     }
                 },
-                "summary": "Creates a Password resource.",
+                "summary": "Change password",
                 "tags": [
                     "Password"
                 ]
@@ -10450,7 +10441,7 @@
         },
         "/api/v1/permissions": {
             "get": {
-                "description": "Retrieves a PermissionCollection resource.",
+                "description": "Lists permissions.",
                 "operationId": "ListPermissions",
                 "parameters": [],
                 "responses": {
@@ -10503,7 +10494,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a PermissionCollection resource.",
+                "summary": "List permissions",
                 "tags": [
                     "PermissionCollection"
                 ]
@@ -10511,7 +10502,7 @@
         },
         "/api/v1/pick-queue": {
             "get": {
-                "description": "Retrieves a PickQueueEntryCollection resource.",
+                "description": "Lists pick queue entries, one page at a time.",
                 "operationId": "ListPickQueueEntries",
                 "parameters": [
                     {
@@ -10629,7 +10620,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a PickQueueEntryCollection resource.",
+                "summary": "List pick queue entries",
                 "tags": [
                     "PickQueueEntryCollection"
                 ]
@@ -10637,7 +10628,7 @@
         },
         "/api/v1/purchase-orders": {
             "get": {
-                "description": "Retrieves a PurchaseOrderCollection resource.",
+                "description": "Lists purchase orders, one page at a time.",
                 "operationId": "ListPurchaseOrders",
                 "parameters": [
                     {
@@ -10803,13 +10794,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a PurchaseOrderCollection resource.",
+                "summary": "List purchase orders",
                 "tags": [
                     "PurchaseOrderCollection"
                 ]
             },
             "post": {
-                "description": "Creates a PurchaseOrder resource.",
+                "description": "Creates one purchase order.",
                 "operationId": "CreatePurchaseOrder",
                 "parameters": [],
                 "requestBody": {
@@ -10820,7 +10811,7 @@
                             }
                         }
                     },
-                    "description": "The new PurchaseOrder resource",
+                    "description": "The purchase order to create.",
                     "required": true
                 },
                 "responses": {
@@ -10902,7 +10893,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a PurchaseOrder resource.",
+                "summary": "Create purchase order",
                 "tags": [
                     "PurchaseOrder"
                 ]
@@ -10910,7 +10901,7 @@
         },
         "/api/v1/purchase-orders/{id}": {
             "delete": {
-                "description": "Removes the PurchaseOrder resource.",
+                "description": "Archives one purchase order. `RestorePurchaseOrder` brings it back.",
                 "operationId": "DeletePurchaseOrder",
                 "parameters": [
                     {
@@ -10990,13 +10981,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the PurchaseOrder resource.",
+                "summary": "Delete purchase order",
                 "tags": [
                     "PurchaseOrder"
                 ]
             },
             "get": {
-                "description": "Retrieves a PurchaseOrder resource.",
+                "description": "Returns one purchase order.",
                 "operationId": "GetPurchaseOrder",
                 "parameters": [
                     {
@@ -11073,13 +11064,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a PurchaseOrder resource.",
+                "summary": "Get purchase order",
                 "tags": [
                     "PurchaseOrder"
                 ]
             },
             "patch": {
-                "description": "Updates the PurchaseOrder resource.",
+                "description": "Changes one purchase order.",
                 "operationId": "UpdatePurchaseOrder",
                 "parameters": [
                     {
@@ -11104,7 +11095,7 @@
                             }
                         }
                     },
-                    "description": "The updated PurchaseOrder resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -11178,7 +11169,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the PurchaseOrder resource.",
+                "summary": "Update purchase order",
                 "tags": [
                     "PurchaseOrder"
                 ]
@@ -11186,7 +11177,7 @@
         },
         "/api/v1/purchase-orders/{id}/approval": {
             "post": {
-                "description": "Creates a PurchaseOrder resource.",
+                "description": "Approves one purchase order.",
                 "operationId": "ApprovePurchaseOrder",
                 "parameters": [
                     {
@@ -11211,7 +11202,6 @@
                             }
                         }
                     },
-                    "description": "The new PurchaseOrder resource",
                     "required": true
                 },
                 "responses": {
@@ -11285,7 +11275,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a PurchaseOrder resource.",
+                "summary": "Approve purchase order",
                 "tags": [
                     "PurchaseOrder"
                 ]
@@ -11293,7 +11283,7 @@
         },
         "/api/v1/purchase-orders/{id}/cancellation": {
             "post": {
-                "description": "Creates a PurchaseOrder resource.",
+                "description": "Cancels one purchase order.",
                 "operationId": "CancelPurchaseOrder",
                 "parameters": [
                     {
@@ -11318,7 +11308,6 @@
                             }
                         }
                     },
-                    "description": "The new PurchaseOrder resource",
                     "required": true
                 },
                 "responses": {
@@ -11392,7 +11381,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a PurchaseOrder resource.",
+                "summary": "Cancel purchase order",
                 "tags": [
                     "PurchaseOrder"
                 ]
@@ -11400,7 +11389,7 @@
         },
         "/api/v1/purchase-orders/{id}/goods-receipts": {
             "post": {
-                "description": "Creates a GoodsReceipt resource.",
+                "description": "Creates one goods receipt.",
                 "operationId": "CreateGoodsReceipt",
                 "parameters": [
                     {
@@ -11425,7 +11414,7 @@
                             }
                         }
                     },
-                    "description": "The new GoodsReceipt resource",
+                    "description": "The goods receipt to create.",
                     "required": true
                 },
                 "responses": {
@@ -11517,7 +11506,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a GoodsReceipt resource.",
+                "summary": "Create goods receipt",
                 "tags": [
                     "GoodsReceipt"
                 ]
@@ -11525,7 +11514,7 @@
         },
         "/api/v1/purchase-orders/{id}/lines": {
             "get": {
-                "description": "Retrieves a PurchaseOrderLineCollection resource.",
+                "description": "Lists purchase order lines.",
                 "operationId": "ListPurchaseOrderLines",
                 "parameters": [
                     {
@@ -11615,13 +11604,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a PurchaseOrderLineCollection resource.",
+                "summary": "List purchase order lines",
                 "tags": [
                     "PurchaseOrderLineCollection"
                 ]
             },
             "post": {
-                "description": "Creates a PurchaseOrderLine resource.",
+                "description": "Creates one purchase order line.",
                 "operationId": "CreatePurchaseOrderLine",
                 "parameters": [
                     {
@@ -11646,7 +11635,7 @@
                             }
                         }
                     },
-                    "description": "The new PurchaseOrderLine resource",
+                    "description": "The purchase order line to create.",
                     "required": true
                 },
                 "responses": {
@@ -11738,7 +11727,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a PurchaseOrderLine resource.",
+                "summary": "Create purchase order line",
                 "tags": [
                     "PurchaseOrderLine"
                 ]
@@ -11746,7 +11735,7 @@
         },
         "/api/v1/purchase-orders/{id}/lines/{lineId}": {
             "delete": {
-                "description": "Removes the PurchaseOrderLine resource.",
+                "description": "Archives one purchase order line. `RestorePurchaseOrderLine` brings it back.",
                 "operationId": "DeletePurchaseOrderLine",
                 "parameters": [
                     {
@@ -11839,13 +11828,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the PurchaseOrderLine resource.",
+                "summary": "Delete purchase order line",
                 "tags": [
                     "PurchaseOrderLine"
                 ]
             },
             "patch": {
-                "description": "Updates the PurchaseOrderLine resource.",
+                "description": "Changes one purchase order line.",
                 "operationId": "UpdatePurchaseOrderLine",
                 "parameters": [
                     {
@@ -11883,7 +11872,7 @@
                             }
                         }
                     },
-                    "description": "The updated PurchaseOrderLine resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -11957,7 +11946,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the PurchaseOrderLine resource.",
+                "summary": "Update purchase order line",
                 "tags": [
                     "PurchaseOrderLine"
                 ]
@@ -11965,7 +11954,7 @@
         },
         "/api/v1/purchase-orders/{id}/lines/{lineId}/restoration": {
             "post": {
-                "description": "Creates a PurchaseOrderLine resource.",
+                "description": "Restores one archived purchase order line.",
                 "operationId": "RestorePurchaseOrderLine",
                 "parameters": [
                     {
@@ -12066,7 +12055,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a PurchaseOrderLine resource.",
+                "summary": "Restore purchase order line",
                 "tags": [
                     "PurchaseOrderLine"
                 ]
@@ -12074,7 +12063,7 @@
         },
         "/api/v1/purchase-orders/{id}/restoration": {
             "post": {
-                "description": "Creates a PurchaseOrder resource.",
+                "description": "Restores one archived purchase order.",
                 "operationId": "RestorePurchaseOrder",
                 "parameters": [
                     {
@@ -12162,7 +12151,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a PurchaseOrder resource.",
+                "summary": "Restore purchase order",
                 "tags": [
                     "PurchaseOrder"
                 ]
@@ -12170,7 +12159,7 @@
         },
         "/api/v1/role-grant-proposals": {
             "get": {
-                "description": "Retrieves a RoleGrantProposalCollection resource.",
+                "description": "Lists role grant proposals, one page at a time.",
                 "operationId": "ListRoleGrantProposals",
                 "parameters": [
                     {
@@ -12308,7 +12297,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a RoleGrantProposalCollection resource.",
+                "summary": "List role grant proposals",
                 "tags": [
                     "RoleGrantProposalCollection"
                 ]
@@ -12316,7 +12305,7 @@
         },
         "/api/v1/role-grant-proposals/{id}": {
             "get": {
-                "description": "Retrieves a RoleGrantProposal resource.",
+                "description": "Returns one role grant proposal.",
                 "operationId": "GetRoleGrantProposal",
                 "parameters": [
                     {
@@ -12393,7 +12382,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a RoleGrantProposal resource.",
+                "summary": "Get role grant proposal",
                 "tags": [
                     "RoleGrantProposal"
                 ]
@@ -12401,7 +12390,7 @@
         },
         "/api/v1/role-grant-proposals/{id}/cancellation": {
             "post": {
-                "description": "Creates a RoleGrantProposal resource.",
+                "description": "Cancels one role grant proposal.",
                 "operationId": "CancelRoleGrantProposal",
                 "parameters": [
                     {
@@ -12489,7 +12478,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a RoleGrantProposal resource.",
+                "summary": "Cancel role grant proposal",
                 "tags": [
                     "RoleGrantProposal"
                 ]
@@ -12497,7 +12486,7 @@
         },
         "/api/v1/role-grant-proposals/{id}/confirmation": {
             "post": {
-                "description": "Creates a RoleGrantProposal resource.",
+                "description": "Confirms one role grant proposal.",
                 "operationId": "ConfirmRoleGrantProposal",
                 "parameters": [
                     {
@@ -12585,7 +12574,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a RoleGrantProposal resource.",
+                "summary": "Confirm role grant proposal",
                 "tags": [
                     "RoleGrantProposal"
                 ]
@@ -12593,7 +12582,7 @@
         },
         "/api/v1/role-grant-proposals/{id}/rejection": {
             "post": {
-                "description": "Creates a RoleGrantProposal resource.",
+                "description": "Rejects one role grant proposal.",
                 "operationId": "RejectRoleGrantProposal",
                 "parameters": [
                     {
@@ -12618,7 +12607,6 @@
                             }
                         }
                     },
-                    "description": "The new RoleGrantProposal resource",
                     "required": true
                 },
                 "responses": {
@@ -12692,7 +12680,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a RoleGrantProposal resource.",
+                "summary": "Reject role grant proposal",
                 "tags": [
                     "RoleGrantProposal"
                 ]
@@ -12700,7 +12688,7 @@
         },
         "/api/v1/roles": {
             "get": {
-                "description": "Retrieves a RoleCollection resource.",
+                "description": "Lists roles.",
                 "operationId": "ListRoles",
                 "parameters": [
                     {
@@ -12779,13 +12767,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a RoleCollection resource.",
+                "summary": "List roles",
                 "tags": [
                     "RoleCollection"
                 ]
             },
             "post": {
-                "description": "Creates a Role resource.",
+                "description": "Creates one role.",
                 "operationId": "CreateRole",
                 "parameters": [],
                 "requestBody": {
@@ -12796,7 +12784,7 @@
                             }
                         }
                     },
-                    "description": "The new Role resource",
+                    "description": "The role to create.",
                     "required": true
                 },
                 "responses": {
@@ -12878,7 +12866,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a Role resource.",
+                "summary": "Create role",
                 "tags": [
                     "Role"
                 ]
@@ -12886,7 +12874,7 @@
         },
         "/api/v1/roles/{id}": {
             "delete": {
-                "description": "Removes the Role resource.",
+                "description": "Archives one role. `RestoreRole` brings it back.",
                 "operationId": "DeleteRole",
                 "parameters": [
                     {
@@ -12966,13 +12954,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the Role resource.",
+                "summary": "Delete role",
                 "tags": [
                     "Role"
                 ]
             },
             "get": {
-                "description": "Retrieves a Role resource.",
+                "description": "Returns one role.",
                 "operationId": "GetRole",
                 "parameters": [
                     {
@@ -13049,13 +13037,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a Role resource.",
+                "summary": "Get role",
                 "tags": [
                     "Role"
                 ]
             },
             "patch": {
-                "description": "Updates the Role resource.",
+                "description": "Changes one role.",
                 "operationId": "UpdateRole",
                 "parameters": [
                     {
@@ -13080,7 +13068,7 @@
                             }
                         }
                     },
-                    "description": "The updated Role resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -13154,7 +13142,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the Role resource.",
+                "summary": "Update role",
                 "tags": [
                     "Role"
                 ]
@@ -13162,7 +13150,7 @@
         },
         "/api/v1/roles/{id}/restoration": {
             "post": {
-                "description": "Creates a Role resource.",
+                "description": "Restores one archived role.",
                 "operationId": "RestoreRole",
                 "parameters": [
                     {
@@ -13250,7 +13238,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a Role resource.",
+                "summary": "Restore role",
                 "tags": [
                     "Role"
                 ]
@@ -13258,7 +13246,7 @@
         },
         "/api/v1/sales-orders": {
             "get": {
-                "description": "Retrieves a SalesOrderCollection resource.",
+                "description": "Lists sales orders, one page at a time.",
                 "operationId": "ListSalesOrders",
                 "parameters": [
                     {
@@ -13424,13 +13412,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a SalesOrderCollection resource.",
+                "summary": "List sales orders",
                 "tags": [
                     "SalesOrderCollection"
                 ]
             },
             "post": {
-                "description": "Creates a SalesOrder resource.",
+                "description": "Creates one sales order.",
                 "operationId": "CreateSalesOrder",
                 "parameters": [],
                 "requestBody": {
@@ -13441,7 +13429,7 @@
                             }
                         }
                     },
-                    "description": "The new SalesOrder resource",
+                    "description": "The sales order to create.",
                     "required": true
                 },
                 "responses": {
@@ -13523,7 +13511,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a SalesOrder resource.",
+                "summary": "Create sales order",
                 "tags": [
                     "SalesOrder"
                 ]
@@ -13531,7 +13519,7 @@
         },
         "/api/v1/sales-orders/{id}": {
             "delete": {
-                "description": "Removes the SalesOrder resource.",
+                "description": "Archives one sales order. `RestoreSalesOrder` brings it back.",
                 "operationId": "DeleteSalesOrder",
                 "parameters": [
                     {
@@ -13611,13 +13599,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the SalesOrder resource.",
+                "summary": "Delete sales order",
                 "tags": [
                     "SalesOrder"
                 ]
             },
             "get": {
-                "description": "Retrieves a SalesOrder resource.",
+                "description": "Returns one sales order.",
                 "operationId": "GetSalesOrder",
                 "parameters": [
                     {
@@ -13694,13 +13682,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a SalesOrder resource.",
+                "summary": "Get sales order",
                 "tags": [
                     "SalesOrder"
                 ]
             },
             "patch": {
-                "description": "Updates the SalesOrder resource.",
+                "description": "Changes one sales order.",
                 "operationId": "UpdateSalesOrder",
                 "parameters": [
                     {
@@ -13725,7 +13713,7 @@
                             }
                         }
                     },
-                    "description": "The updated SalesOrder resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -13799,7 +13787,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the SalesOrder resource.",
+                "summary": "Update sales order",
                 "tags": [
                     "SalesOrder"
                 ]
@@ -13807,7 +13795,7 @@
         },
         "/api/v1/sales-orders/{id}/cancellation": {
             "post": {
-                "description": "Creates a SalesOrder resource.",
+                "description": "Cancels one sales order.",
                 "operationId": "CancelSalesOrder",
                 "parameters": [
                     {
@@ -13832,7 +13820,6 @@
                             }
                         }
                     },
-                    "description": "The new SalesOrder resource",
                     "required": true
                 },
                 "responses": {
@@ -13906,7 +13893,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a SalesOrder resource.",
+                "summary": "Cancel sales order",
                 "tags": [
                     "SalesOrder"
                 ]
@@ -13914,7 +13901,7 @@
         },
         "/api/v1/sales-orders/{id}/confirmation": {
             "post": {
-                "description": "Creates a SalesOrder resource.",
+                "description": "Confirms one sales order.",
                 "operationId": "ConfirmSalesOrder",
                 "parameters": [
                     {
@@ -14002,7 +13989,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a SalesOrder resource.",
+                "summary": "Confirm sales order",
                 "tags": [
                     "SalesOrder"
                 ]
@@ -14010,7 +13997,7 @@
         },
         "/api/v1/sales-orders/{id}/fulfilments": {
             "post": {
-                "description": "Creates a Fulfilment resource.",
+                "description": "Creates one fulfilment.",
                 "operationId": "CreateFulfilment",
                 "parameters": [
                     {
@@ -14035,7 +14022,7 @@
                             }
                         }
                     },
-                    "description": "The new Fulfilment resource",
+                    "description": "The fulfilment to create.",
                     "required": true
                 },
                 "responses": {
@@ -14127,7 +14114,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a Fulfilment resource.",
+                "summary": "Create fulfilment",
                 "tags": [
                     "Fulfilment"
                 ]
@@ -14135,7 +14122,7 @@
         },
         "/api/v1/sales-orders/{id}/lines": {
             "get": {
-                "description": "Retrieves a SalesOrderLineCollection resource.",
+                "description": "Lists sales order lines.",
                 "operationId": "ListSalesOrderLines",
                 "parameters": [
                     {
@@ -14225,13 +14212,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a SalesOrderLineCollection resource.",
+                "summary": "List sales order lines",
                 "tags": [
                     "SalesOrderLineCollection"
                 ]
             },
             "post": {
-                "description": "Creates a SalesOrderLine resource.",
+                "description": "Creates one sales order line.",
                 "operationId": "CreateSalesOrderLine",
                 "parameters": [
                     {
@@ -14256,7 +14243,7 @@
                             }
                         }
                     },
-                    "description": "The new SalesOrderLine resource",
+                    "description": "The sales order line to create.",
                     "required": true
                 },
                 "responses": {
@@ -14348,7 +14335,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a SalesOrderLine resource.",
+                "summary": "Create sales order line",
                 "tags": [
                     "SalesOrderLine"
                 ]
@@ -14356,7 +14343,7 @@
         },
         "/api/v1/sales-orders/{id}/lines/{lineId}": {
             "delete": {
-                "description": "Removes the SalesOrderLine resource.",
+                "description": "Archives one sales order line. `RestoreSalesOrderLine` brings it back.",
                 "operationId": "DeleteSalesOrderLine",
                 "parameters": [
                     {
@@ -14449,13 +14436,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the SalesOrderLine resource.",
+                "summary": "Delete sales order line",
                 "tags": [
                     "SalesOrderLine"
                 ]
             },
             "patch": {
-                "description": "Updates the SalesOrderLine resource.",
+                "description": "Changes one sales order line.",
                 "operationId": "UpdateSalesOrderLine",
                 "parameters": [
                     {
@@ -14493,7 +14480,7 @@
                             }
                         }
                     },
-                    "description": "The updated SalesOrderLine resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -14567,7 +14554,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the SalesOrderLine resource.",
+                "summary": "Update sales order line",
                 "tags": [
                     "SalesOrderLine"
                 ]
@@ -14575,7 +14562,7 @@
         },
         "/api/v1/sales-orders/{id}/lines/{lineId}/restoration": {
             "post": {
-                "description": "Creates a SalesOrderLine resource.",
+                "description": "Restores one archived sales order line.",
                 "operationId": "RestoreSalesOrderLine",
                 "parameters": [
                     {
@@ -14676,7 +14663,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a SalesOrderLine resource.",
+                "summary": "Restore sales order line",
                 "tags": [
                     "SalesOrderLine"
                 ]
@@ -14684,7 +14671,7 @@
         },
         "/api/v1/sales-orders/{id}/pick-list": {
             "get": {
-                "description": "Retrieves a PickList resource.",
+                "description": "Returns the pick list for one sales order.",
                 "operationId": "GetPickList",
                 "parameters": [
                     {
@@ -14761,7 +14748,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a PickList resource.",
+                "summary": "Get pick list",
                 "tags": [
                     "PickList"
                 ]
@@ -14769,7 +14756,7 @@
         },
         "/api/v1/sales-orders/{id}/restoration": {
             "post": {
-                "description": "Creates a SalesOrder resource.",
+                "description": "Restores one archived sales order.",
                 "operationId": "RestoreSalesOrder",
                 "parameters": [
                     {
@@ -14857,7 +14844,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a SalesOrder resource.",
+                "summary": "Restore sales order",
                 "tags": [
                     "SalesOrder"
                 ]
@@ -14865,7 +14852,7 @@
         },
         "/api/v1/sales-returns": {
             "get": {
-                "description": "Retrieves a SalesReturnCollection resource.",
+                "description": "Lists sales returns, one page at a time.",
                 "operationId": "ListSalesReturns",
                 "parameters": [
                     {
@@ -15087,7 +15074,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a SalesReturnCollection resource.",
+                "summary": "List sales returns",
                 "tags": [
                     "SalesReturnCollection"
                 ]
@@ -15095,7 +15082,7 @@
         },
         "/api/v1/sales-returns/{id}": {
             "get": {
-                "description": "Retrieves a SalesReturn resource.",
+                "description": "Returns one sales return.",
                 "operationId": "GetSalesReturn",
                 "parameters": [
                     {
@@ -15172,7 +15159,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a SalesReturn resource.",
+                "summary": "Get sales return",
                 "tags": [
                     "SalesReturn"
                 ]
@@ -15180,7 +15167,7 @@
         },
         "/api/v1/sales-returns/{id}/adjustment-decisions": {
             "post": {
-                "description": "Creates a SalesReturn resource.",
+                "description": "Records, or reverses, a decision about one line of one sales return.",
                 "operationId": "CreateAdjustmentDecision",
                 "parameters": [
                     {
@@ -15205,7 +15192,6 @@
                             }
                         }
                     },
-                    "description": "The new SalesReturn resource",
                     "required": true
                 },
                 "responses": {
@@ -15289,7 +15275,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a SalesReturn resource.",
+                "summary": "Record an adjustment decision",
                 "tags": [
                     "SalesReturn"
                 ]
@@ -15297,7 +15283,7 @@
         },
         "/api/v1/settings": {
             "get": {
-                "description": "Retrieves a Settings resource.",
+                "description": "Returns the settings.",
                 "operationId": "GetSettings",
                 "parameters": [],
                 "responses": {
@@ -15350,13 +15336,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a Settings resource.",
+                "summary": "Get settings",
                 "tags": [
                     "Settings"
                 ]
             },
             "patch": {
-                "description": "Updates the Settings resource.",
+                "description": "Changes the settings.",
                 "operationId": "UpdateSettings",
                 "parameters": [],
                 "requestBody": {
@@ -15367,7 +15353,7 @@
                             }
                         }
                     },
-                    "description": "The updated Settings resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -15431,7 +15417,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the Settings resource.",
+                "summary": "Update settings",
                 "tags": [
                     "Settings"
                 ]
@@ -15439,7 +15425,7 @@
         },
         "/api/v1/stock": {
             "get": {
-                "description": "Retrieves a StockLevelCollection resource.",
+                "description": "Lists stock levels.",
                 "operationId": "ListStockLevels",
                 "parameters": [
                     {
@@ -15519,7 +15505,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a StockLevelCollection resource.",
+                "summary": "List stock levels",
                 "tags": [
                     "StockLevelCollection"
                 ]
@@ -15527,7 +15513,7 @@
         },
         "/api/v1/stock-movements": {
             "get": {
-                "description": "Retrieves a StockMovementCollection resource.",
+                "description": "Lists stock movements, one page at a time.",
                 "operationId": "ListStockMovements",
                 "parameters": [
                     {
@@ -15633,7 +15619,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a StockMovementCollection resource.",
+                "summary": "List stock movements",
                 "tags": [
                     "StockMovementCollection"
                 ]
@@ -15641,7 +15627,7 @@
         },
         "/api/v1/stock-movements/adjustments": {
             "post": {
-                "description": "Creates a StockMovement resource.",
+                "description": "Counts one item in one location. If the count differs from the stock on record, the difference is recorded as a movement; a count that matches is refused.",
                 "operationId": "CreateStockAdjustment",
                 "parameters": [],
                 "requestBody": {
@@ -15652,7 +15638,7 @@
                             }
                         }
                     },
-                    "description": "The new StockMovement resource",
+                    "description": "The count to record, and the version of the stock it was counted against.",
                     "required": true
                 },
                 "responses": {
@@ -15734,7 +15720,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a StockMovement resource.",
+                "summary": "Record a stock count",
                 "tags": [
                     "StockMovement"
                 ]
@@ -15742,7 +15728,7 @@
         },
         "/api/v1/stock-movements/transfers": {
             "post": {
-                "description": "Creates a StockMovement resource.",
+                "description": "Moves stock of one item from one location to another, recording a movement out and a movement in.",
                 "operationId": "CreateStockTransfer",
                 "parameters": [],
                 "requestBody": {
@@ -15753,7 +15739,7 @@
                             }
                         }
                     },
-                    "description": "The new StockMovement resource",
+                    "description": "The item, how much of it, and the locations to move it from and to.",
                     "required": true
                 },
                 "responses": {
@@ -15835,7 +15821,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a StockMovement resource.",
+                "summary": "Transfer stock",
                 "tags": [
                     "StockMovement"
                 ]
@@ -15843,7 +15829,7 @@
         },
         "/api/v1/stock-movements/{id}": {
             "get": {
-                "description": "Retrieves a StockMovement resource.",
+                "description": "Returns one stock movement.",
                 "operationId": "GetStockMovement",
                 "parameters": [
                     {
@@ -15920,7 +15906,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a StockMovement resource.",
+                "summary": "Get stock movement",
                 "tags": [
                     "StockMovement"
                 ]
@@ -15928,7 +15914,7 @@
         },
         "/api/v1/suppliers": {
             "get": {
-                "description": "Retrieves a SupplierCollection resource.",
+                "description": "Lists suppliers, one page at a time.",
                 "operationId": "ListSuppliers",
                 "parameters": [
                     {
@@ -16063,13 +16049,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a SupplierCollection resource.",
+                "summary": "List suppliers",
                 "tags": [
                     "SupplierCollection"
                 ]
             },
             "post": {
-                "description": "Creates a Supplier resource.",
+                "description": "Creates one supplier.",
                 "operationId": "CreateSupplier",
                 "parameters": [],
                 "requestBody": {
@@ -16080,7 +16066,7 @@
                             }
                         }
                     },
-                    "description": "The new Supplier resource",
+                    "description": "The supplier to create.",
                     "required": true
                 },
                 "responses": {
@@ -16162,7 +16148,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a Supplier resource.",
+                "summary": "Create supplier",
                 "tags": [
                     "Supplier"
                 ]
@@ -16170,7 +16156,7 @@
         },
         "/api/v1/suppliers/{id}": {
             "delete": {
-                "description": "Removes the Supplier resource.",
+                "description": "Archives one supplier. `RestoreSupplier` brings it back.",
                 "operationId": "DeleteSupplier",
                 "parameters": [
                     {
@@ -16250,13 +16236,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the Supplier resource.",
+                "summary": "Delete supplier",
                 "tags": [
                     "Supplier"
                 ]
             },
             "get": {
-                "description": "Retrieves a Supplier resource.",
+                "description": "Returns one supplier.",
                 "operationId": "GetSupplier",
                 "parameters": [
                     {
@@ -16333,13 +16319,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a Supplier resource.",
+                "summary": "Get supplier",
                 "tags": [
                     "Supplier"
                 ]
             },
             "patch": {
-                "description": "Updates the Supplier resource.",
+                "description": "Changes one supplier.",
                 "operationId": "UpdateSupplier",
                 "parameters": [
                     {
@@ -16364,7 +16350,7 @@
                             }
                         }
                     },
-                    "description": "The updated Supplier resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -16438,7 +16424,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the Supplier resource.",
+                "summary": "Update supplier",
                 "tags": [
                     "Supplier"
                 ]
@@ -16446,7 +16432,7 @@
         },
         "/api/v1/suppliers/{id}/products": {
             "get": {
-                "description": "Retrieves a SupplierProductCollection resource.",
+                "description": "Lists supplier products.",
                 "operationId": "ListSupplierProducts",
                 "parameters": [
                     {
@@ -16523,13 +16509,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a SupplierProductCollection resource.",
+                "summary": "List supplier products",
                 "tags": [
                     "SupplierProductCollection"
                 ]
             },
             "post": {
-                "description": "Creates a SupplierProduct resource.",
+                "description": "Creates one supplier product.",
                 "operationId": "CreateSupplierProduct",
                 "parameters": [
                     {
@@ -16554,7 +16540,7 @@
                             }
                         }
                     },
-                    "description": "The new SupplierProduct resource",
+                    "description": "The supplier product to create.",
                     "required": true
                 },
                 "responses": {
@@ -16646,7 +16632,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a SupplierProduct resource.",
+                "summary": "Create supplier product",
                 "tags": [
                     "SupplierProduct"
                 ]
@@ -16654,7 +16640,7 @@
         },
         "/api/v1/suppliers/{id}/products/{productId}": {
             "delete": {
-                "description": "Removes the SupplierProduct resource.",
+                "description": "Removes one supplier's catalogue entry for good.",
                 "operationId": "DeleteSupplierProduct",
                 "parameters": [
                     {
@@ -16747,13 +16733,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the SupplierProduct resource.",
+                "summary": "Delete supplier product",
                 "tags": [
                     "SupplierProduct"
                 ]
             },
             "patch": {
-                "description": "Updates the SupplierProduct resource.",
+                "description": "Changes one supplier product.",
                 "operationId": "UpdateSupplierProduct",
                 "parameters": [
                     {
@@ -16791,7 +16777,7 @@
                             }
                         }
                     },
-                    "description": "The updated SupplierProduct resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -16865,7 +16851,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the SupplierProduct resource.",
+                "summary": "Update supplier product",
                 "tags": [
                     "SupplierProduct"
                 ]
@@ -16873,7 +16859,7 @@
         },
         "/api/v1/suppliers/{id}/restoration": {
             "post": {
-                "description": "Creates a Supplier resource.",
+                "description": "Restores one archived supplier.",
                 "operationId": "RestoreSupplier",
                 "parameters": [
                     {
@@ -16961,7 +16947,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a Supplier resource.",
+                "summary": "Restore supplier",
                 "tags": [
                     "Supplier"
                 ]
@@ -16969,7 +16955,7 @@
         },
         "/api/v1/users": {
             "get": {
-                "description": "Retrieves a UserCollection resource.",
+                "description": "Lists users.",
                 "operationId": "ListUsers",
                 "parameters": [
                     {
@@ -17048,13 +17034,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a UserCollection resource.",
+                "summary": "List users",
                 "tags": [
                     "UserCollection"
                 ]
             },
             "post": {
-                "description": "Creates a User resource.",
+                "description": "Creates one user.",
                 "operationId": "CreateUser",
                 "parameters": [],
                 "requestBody": {
@@ -17065,7 +17051,7 @@
                             }
                         }
                     },
-                    "description": "The new User resource",
+                    "description": "The user to create.",
                     "required": true
                 },
                 "responses": {
@@ -17147,7 +17133,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a User resource.",
+                "summary": "Create user",
                 "tags": [
                     "User"
                 ]
@@ -17155,7 +17141,7 @@
         },
         "/api/v1/users/{id}": {
             "delete": {
-                "description": "Removes the User resource.",
+                "description": "Archives one person: every role they hold is taken away and their sessions end. `RestoreUser` brings the account back, with no roles.",
                 "operationId": "DeleteUser",
                 "parameters": [
                     {
@@ -17235,13 +17221,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the User resource.",
+                "summary": "Delete user",
                 "tags": [
                     "User"
                 ]
             },
             "get": {
-                "description": "Retrieves a User resource.",
+                "description": "Returns one user.",
                 "operationId": "GetUser",
                 "parameters": [
                     {
@@ -17318,13 +17304,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a User resource.",
+                "summary": "Get user",
                 "tags": [
                     "User"
                 ]
             },
             "patch": {
-                "description": "Updates the User resource.",
+                "description": "Changes one person's name, or switches their account off or on. Switching it off takes away every role they hold and ends their sessions; switching it back on gives no role back.",
                 "operationId": "UpdateUser",
                 "parameters": [
                     {
@@ -17349,7 +17335,7 @@
                             }
                         }
                     },
-                    "description": "The updated User resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -17423,7 +17409,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the User resource.",
+                "summary": "Update user",
                 "tags": [
                     "User"
                 ]
@@ -17431,7 +17417,7 @@
         },
         "/api/v1/users/{id}/offered-roles": {
             "get": {
-                "description": "Retrieves a OfferedRoleCollection resource.",
+                "description": "Lists offered roles.",
                 "operationId": "ListOfferedRoles",
                 "parameters": [
                     {
@@ -17533,7 +17519,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a OfferedRoleCollection resource.",
+                "summary": "List offered roles",
                 "tags": [
                     "OfferedRoleCollection"
                 ]
@@ -17541,7 +17527,7 @@
         },
         "/api/v1/users/{id}/restoration": {
             "post": {
-                "description": "Creates a User resource.",
+                "description": "Restores one archived person, with no roles.",
                 "operationId": "RestoreUser",
                 "parameters": [
                     {
@@ -17629,7 +17615,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a User resource.",
+                "summary": "Restore user",
                 "tags": [
                     "User"
                 ]
@@ -17637,7 +17623,7 @@
         },
         "/api/v1/users/{id}/role-grant-proposals": {
             "post": {
-                "description": "Creates a RoleGrantProposal resource.",
+                "description": "Creates one role grant proposal.",
                 "operationId": "CreateRoleGrantProposal",
                 "parameters": [
                     {
@@ -17662,7 +17648,7 @@
                             }
                         }
                     },
-                    "description": "The new RoleGrantProposal resource",
+                    "description": "The role grant proposal to create.",
                     "required": true
                 },
                 "responses": {
@@ -17754,7 +17740,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a RoleGrantProposal resource.",
+                "summary": "Create role grant proposal",
                 "tags": [
                     "RoleGrantProposal"
                 ]
@@ -17762,7 +17748,7 @@
         },
         "/api/v1/users/{id}/roles": {
             "post": {
-                "description": "Creates a Role resource.",
+                "description": "Gives one role to one person.",
                 "operationId": "AssignRole",
                 "parameters": [
                     {
@@ -17787,7 +17773,6 @@
                             }
                         }
                     },
-                    "description": "The new Role resource",
                     "required": true
                 },
                 "responses": {
@@ -17879,7 +17864,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a Role resource.",
+                "summary": "Give role",
                 "tags": [
                     "Role"
                 ]
@@ -17887,7 +17872,7 @@
         },
         "/api/v1/users/{id}/roles/{roleId}": {
             "delete": {
-                "description": "Removes the Role resource.",
+                "description": "Takes one role away from one person.",
                 "operationId": "RevokeRole",
                 "parameters": [
                     {
@@ -17980,7 +17965,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the Role resource.",
+                "summary": "Take role away",
                 "tags": [
                     "Role"
                 ]
@@ -17988,7 +17973,7 @@
         },
         "/api/v1/warehouses": {
             "get": {
-                "description": "Retrieves a WarehouseCollection resource.",
+                "description": "Lists warehouses.",
                 "operationId": "ListWarehouses",
                 "parameters": [
                     {
@@ -18067,13 +18052,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a WarehouseCollection resource.",
+                "summary": "List warehouses",
                 "tags": [
                     "WarehouseCollection"
                 ]
             },
             "post": {
-                "description": "Creates a Warehouse resource.",
+                "description": "Creates one warehouse.",
                 "operationId": "CreateWarehouse",
                 "parameters": [],
                 "requestBody": {
@@ -18084,7 +18069,7 @@
                             }
                         }
                     },
-                    "description": "The new Warehouse resource",
+                    "description": "The warehouse to create.",
                     "required": true
                 },
                 "responses": {
@@ -18166,7 +18151,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a Warehouse resource.",
+                "summary": "Create warehouse",
                 "tags": [
                     "Warehouse"
                 ]
@@ -18174,7 +18159,7 @@
         },
         "/api/v1/warehouses/{id}": {
             "delete": {
-                "description": "Removes the Warehouse resource.",
+                "description": "Archives one warehouse. `RestoreWarehouse` brings it back.",
                 "operationId": "DeleteWarehouse",
                 "parameters": [
                     {
@@ -18254,13 +18239,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the Warehouse resource.",
+                "summary": "Delete warehouse",
                 "tags": [
                     "Warehouse"
                 ]
             },
             "get": {
-                "description": "Retrieves a Warehouse resource.",
+                "description": "Returns one warehouse.",
                 "operationId": "GetWarehouse",
                 "parameters": [
                     {
@@ -18337,13 +18322,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a Warehouse resource.",
+                "summary": "Get warehouse",
                 "tags": [
                     "Warehouse"
                 ]
             },
             "patch": {
-                "description": "Updates the Warehouse resource.",
+                "description": "Changes one warehouse.",
                 "operationId": "UpdateWarehouse",
                 "parameters": [
                     {
@@ -18368,7 +18353,7 @@
                             }
                         }
                     },
-                    "description": "The updated Warehouse resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -18442,7 +18427,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the Warehouse resource.",
+                "summary": "Update warehouse",
                 "tags": [
                     "Warehouse"
                 ]
@@ -18450,7 +18435,7 @@
         },
         "/api/v1/warehouses/{id}/locations": {
             "get": {
-                "description": "Retrieves a StorageLocationCollection resource.",
+                "description": "Lists storage locations.",
                 "operationId": "ListStorageLocations",
                 "parameters": [
                     {
@@ -18540,13 +18525,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Retrieves a StorageLocationCollection resource.",
+                "summary": "List storage locations",
                 "tags": [
                     "StorageLocationCollection"
                 ]
             },
             "post": {
-                "description": "Creates a StorageLocation resource.",
+                "description": "Creates one storage location.",
                 "operationId": "CreateStorageLocation",
                 "parameters": [
                     {
@@ -18571,7 +18556,7 @@
                             }
                         }
                     },
-                    "description": "The new StorageLocation resource",
+                    "description": "The storage location to create.",
                     "required": true
                 },
                 "responses": {
@@ -18663,7 +18648,7 @@
                         "description": "This request needs an `Idempotency-Key` header, and it was missing or empty. The key lets the request be sent again safely: a repeat with the same key and the same body is not carried out twice."
                     }
                 },
-                "summary": "Creates a StorageLocation resource.",
+                "summary": "Create storage location",
                 "tags": [
                     "StorageLocation"
                 ]
@@ -18671,7 +18656,7 @@
         },
         "/api/v1/warehouses/{id}/locations/{locationId}": {
             "delete": {
-                "description": "Removes the StorageLocation resource.",
+                "description": "Archives one storage location. `RestoreStorageLocation` brings it back.",
                 "operationId": "DeleteStorageLocation",
                 "parameters": [
                     {
@@ -18764,13 +18749,13 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Removes the StorageLocation resource.",
+                "summary": "Delete storage location",
                 "tags": [
                     "StorageLocation"
                 ]
             },
             "patch": {
-                "description": "Updates the StorageLocation resource.",
+                "description": "Changes one storage location.",
                 "operationId": "UpdateStorageLocation",
                 "parameters": [
                     {
@@ -18808,7 +18793,7 @@
                             }
                         }
                     },
-                    "description": "The updated StorageLocation resource",
+                    "description": "Only the fields to change. A field left out is not changed.",
                     "required": true
                 },
                 "responses": {
@@ -18882,7 +18867,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Updates the StorageLocation resource.",
+                "summary": "Update storage location",
                 "tags": [
                     "StorageLocation"
                 ]
@@ -18890,7 +18875,7 @@
         },
         "/api/v1/warehouses/{id}/locations/{locationId}/restoration": {
             "post": {
-                "description": "Creates a StorageLocation resource.",
+                "description": "Restores one archived storage location.",
                 "operationId": "RestoreStorageLocation",
                 "parameters": [
                     {
@@ -18991,7 +18976,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a StorageLocation resource.",
+                "summary": "Restore storage location",
                 "tags": [
                     "StorageLocation"
                 ]
@@ -18999,7 +18984,7 @@
         },
         "/api/v1/warehouses/{id}/restoration": {
             "post": {
-                "description": "Creates a Warehouse resource.",
+                "description": "Restores one archived warehouse.",
                 "operationId": "RestoreWarehouse",
                 "parameters": [
                     {
@@ -19087,7 +19072,7 @@
                         "description": "Something in the request cannot be accepted as sent. `errors` lists what was refused, each with where it is (`pointer`), a code (`code`) and a sentence (`message`). It may not list every problem at once."
                     }
                 },
-                "summary": "Creates a Warehouse resource.",
+                "summary": "Restore warehouse",
                 "tags": [
                     "Warehouse"
                 ]

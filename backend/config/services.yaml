@@ -532,6 +532,15 @@ services:
         arguments:
             $inner: '@.inner'
 
+    # 2b S2: every operation's summary, description and request-body text says what it does (its own attribute's
+    # text, else the one template its facts select), instead of the framework's "Creates a X resource.". It decorates the
+    # OpenAPI factory only: the docs endpoint and the contract export read it, nothing at runtime does (see the class
+    # docblock).
+    App\Platform\Http\OperationTexts:
+        decorates: api_platform.openapi.factory
+        arguments:
+            $inner: '@.inner'
+
 when@test:
     services:
         # T-1 / API-7: nothing in the request may carry a tenant, and the test

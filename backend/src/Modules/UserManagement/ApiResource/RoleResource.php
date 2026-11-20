@@ -82,7 +82,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             ],
             name: 'RevokeRole',
             status: 204,
-            openapi: new OpenApiOperation(operationId: 'RevokeRole'),
+            openapi: new OpenApiOperation(
+                operationId: 'RevokeRole',
+                summary: 'Take role away',
+                description: 'Takes one role away from one person.',
+            ),
             read: false,
             processor: RevokeRoleProcessor::class,
             extraProperties: [
@@ -108,6 +112,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // what this request created).
             openapi: new OpenApiOperation(
                 operationId: 'AssignRole',
+                summary: 'Give role',
+                description: 'Gives one role to one person.',
                 responses: ['201' => new OpenApiResponse(description: 'The role, now held by this person. `Location` gives the address of the grant; it is the address `DELETE` uses to take the role away.')],
             ),
             input: AssignRoleInput::class,

@@ -36,6 +36,8 @@ use App\Platform\Security\PermissionGate;
             status: 200,
             openapi: new OpenApiOperation(
                 operationId: 'CreateBulkArchival',
+                summary: 'Archive in bulk',
+                description: 'Archives several records of one kind in one request.',
                 responses: [
                     '200' => new OpenApiResponse(
                         description: 'How many records were asked for and how many were archived. Which ones, and why the rest were not, is never said.',

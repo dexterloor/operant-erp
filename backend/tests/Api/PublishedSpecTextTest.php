@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Api;
 
+use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\UserManagement\Domain\PermissionCatalogue;
 use App\Platform\Tenancy\SchemaManifest;
 use App\Tests\Support\CanonicalJson;
@@ -27,8 +28,48 @@ use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
  */
 final class PublishedSpecTextTest extends KernelTestCase
 {
-    /** The locations rule V applies to in this commit; the operation texts and request bodies follow with their own. */
-    private const VENDOR_LOCATIONS = ['tag', 'security scheme', 'query parameter', 'path parameter', 'server'];
+    /** Rule V holds everywhere a text can be. */
+    private const VENDOR_LOCATIONS = PublishedSpecText::KINDS;
+
+    /**
+     * The operations no selector matches, so each must give its own summary and description on its attribute (the
+     * decorator fails closed otherwise). Hand-checked; held two-way to the selectors' output.
+     *
+     * @var list<string>
+     */
+    private const FILL_IN = [
+        'IssueToken', 'CreatePasswordReset', 'CreatePasswordResetRedemption', 'ChangePassword', 'CreateBulkArchival',
+        'CreateBulkRestoration', 'CreateBulkRoleAssignment', 'CreateExport', 'CreateAdjustmentDecision', 'PayInvoice',
+        'AssignRole', 'RevokeRole', 'DeleteCustomerAddress', 'DeleteCustomerContact', 'DeleteSupplierProduct',
+    ];
+
+    /**
+     * The operations a selector matches but whose template would be false, each with the reason, so each gives its own:
+     *
+     * @var list<string>
+     */
+    private const OVERRIDE = [
+        'DeleteUser',            // archiving a person takes every role away (`UserLiveness::STRIP`); "brings it back" would be false
+        'RestoreUser',           // the person comes back with no roles
+        'UpdateUser',            // switching an account off takes every role away and ends its sessions
+        'CreateStockTransfer',   // records two movements, an out and an in
+        'CreateStockAdjustment', // records a count; a matching count is refused and nothing is created
+        'GetPickList',           // returns the pick list of a sales order, not "one pick list" of its own
+    ];
+
+    /** @var list<string> the operations whose request body describes itself on its attribute */
+    private const OWN_BODIES = ['IssueToken', 'CreateExport', 'CreateStockAdjustment', 'CreateStockTransfer'];
+
+    /**
+     * The `DELETE` operations that remove a row for good, each read in its writer, not derived:
+     *
+     * @var list<string>
+     */
+    private const HARD_DELETES = [
+        'DeleteCustomerAddress', // CustomerAddressWriter::DELETE: DELETE FROM customer_address WHERE id = ?::uuid AND customer_id = ?::uuid
+        'DeleteCustomerContact', // CustomerContactWriter::DELETE: DELETE FROM customer_contact WHERE id = ?::uuid AND customer_id = ?::uuid
+        'DeleteSupplierProduct', // SupplierProductWriter::DELETE: DELETE FROM supplier_product WHERE id = ?::uuid AND supplier_id = ?::uuid
+    ];
 
     /** The kinds of text the walk must reach on the real spec. */
     private const KINDS_REACHED = [
@@ -74,14 +115,14 @@ final class PublishedSpecTextTest extends KernelTestCase
     }
 
     /**
-     * *fails if:* a tag, the security scheme, a query or path parameter, or the server keeps a text the framework writes
-     * when it is given none.
+     * *fails if:* any text keeps what the framework writes when it is given none, or an operation's description copies
+     * its summary.
      *
      * The defaults are generated from the installed vendor, so the pin on its version comes first: a vendor update fails
      * here, with the lines to re-read, before any reflection on it can fail with a less useful message.
      */
     #[Test]
-    public function noTextIsAFrameworkDefaultYet(): void
+    public function noTextIsAFrameworkDefault(): void
     {
         self::assertSame(PublishedSpecText::VENDOR_VERSION, self::installedVersion('api-platform/openapi'),
             'api-platform/openapi moved: re-read `OpenApiFactory` :240-260, :299, :368, :426-453, :491-492, :609-631, :921-926, then move this pin.');
@@ -90,9 +131,53 @@ final class PublishedSpecTextTest extends KernelTestCase
             $context = self::context($spec) + ['vendorDefaults' => PublishedSpecText::vendorDefaults($spec), 'vendorLocations' => self::VENDOR_LOCATIONS];
             self::assertContains("Resource 'Customer' operations.", $context['vendorDefaults'], 'Anti-vacuity: the generated defaults miss the tag template.');
             self::assertContains('Retrieves a Customer resource.', $context['vendorDefaults'], 'Anti-vacuity: the generated defaults miss the operation template.');
-            $faults = PublishedSpecText::problems($spec, $context, ['V']);
+            $faults = PublishedSpecText::problems($spec, $context, ['V', 'S']);
             self::assertSame([], $faults, $label.' keeps the framework\'s own text:'."\n".implode("\n", $faults));
         }
+    }
+
+    /**
+     * *fails if:* an operation's summary, description or request body is neither its own attribute's text (for the
+     * hand lists) nor the template its facts select (for every other), or the hand lists and the selectors disagree.
+     * The selectors and templates are `PublishedSpecText`'s copy, not the decorator's: two copies, on purpose.
+     */
+    #[Test]
+    public function everyOperationSaysWhatItDoes(): void
+    {
+        $spec = self::documents()['the generated spec'];
+        $own = self::ownTexts();
+        $faults = array_values(array_filter(
+            PublishedSpecText::operationTextProblems($spec, $own, self::FILL_IN, self::OVERRIDE, self::OWN_BODIES, self::HARD_DELETES),
+            static fn (string $line): bool => str_contains($line, ' [R] '),
+        ));
+        self::assertSame([], $faults, "An operation does not say what it does:\n".implode("\n", $faults));
+
+        $names = array_map(static fn (array $entry): string => (string) $entry['operation']['operationId'], GeneratedSpec::operations($spec));
+        $used = [];
+        foreach (GeneratedSpec::operations($spec) as $entry) {
+            $name = (string) $entry['operation']['operationId'];
+            if (!\in_array($name, self::FILL_IN, true) && !\in_array($name, self::OVERRIDE, true)) {
+                $used[(string) PublishedSpecText::templateFor($name, $entry['operation'], $entry['path'], $names)] = true;
+            }
+        }
+        self::assertSame([], array_values(array_diff(array_keys(PublishedSpecText::TEMPLATES), array_keys($used))), 'A template lands on no operation, so it is untested.');
+        foreach ([...self::FILL_IN, ...self::OVERRIDE] as $name) {
+            self::assertContains($name, $names, $name.' is on a hand list but not in the spec.');
+        }
+    }
+
+    /** *fails if:* the deletes said to remove for good are not exactly the hand-checked ones, or another delete does not say it archives. */
+    #[Test]
+    public function onlyTheHandCheckedDeletesRemoveForGood(): void
+    {
+        $spec = self::documents()['the generated spec'];
+        $faults = array_values(array_filter(
+            PublishedSpecText::operationTextProblems($spec, self::ownTexts(), self::FILL_IN, self::OVERRIDE, self::OWN_BODIES, self::HARD_DELETES),
+            static fn (string $line): bool => str_contains($line, ' [H] '),
+        ));
+        self::assertSame([], $faults, implode("\n", $faults));
+        $deletes = array_filter(GeneratedSpec::operations($spec), static fn (array $entry): bool => 'delete' === $entry['method']);
+        self::assertGreaterThan(\count(self::HARD_DELETES), \count($deletes), 'Anti-vacuity: no soft delete in the spec, so the "Archives" half holds over nothing.');
     }
 
     /**
@@ -132,7 +217,21 @@ final class PublishedSpecTextTest extends KernelTestCase
                     'security' => [['other' => []]],
                 ]],
                 '/api/v1/auth/token' => ['post' => ['operationId' => 'IssueToken', 'tags' => ['IssueTokenTag'], 'summary' => 'Sign in', 'description' => 'Signs in.', 'security' => [], 'responses' => []]],
+                '/api/v1/thing-items' => ['post' => [
+                    'operationId' => 'CreateThing', 'tags' => ['Thing'], 'summary' => 'Create thing', 'description' => 'Creates a Thing resource.',
+                    'requestBody' => ['description' => 'The new Thing resource', 'content' => []], 'responses' => ['201' => ['description' => 'The thing this request created. `Location` gives its address.']],
+                ]],
+                '/api/v1/things/{id}' => [
+                    'get' => ['operationId' => 'GetThing', 'tags' => ['Thing'], 'summary' => 'Get thing', 'description' => 'Get thing', 'responses' => []],
+                    'patch' => ['operationId' => 'UpdateThing', 'tags' => ['Thing'], 'summary' => 'Update thing', 'description' => 'Changes one thing.', 'requestBody' => ['content' => []], 'responses' => []],
+                    'delete' => ['operationId' => 'DeleteThing', 'tags' => ['Thing'], 'summary' => 'Delete thing', 'description' => 'Removes one thing for good.', 'responses' => []],
+                ],
+                '/api/v1/things/{id}/restoration' => ['post' => ['operationId' => 'RestoreThing', 'tags' => ['Thing'], 'summary' => 'Restore thing', 'description' => 'Restores one archived thing.', 'responses' => []]],
             ],
+        ];
+        $own = [
+            'IssueToken' => ['summary' => 'Sign in', 'description' => 'Signs in.', 'body' => null],
+            'DeleteThing' => ['summary' => 'Delete thing', 'description' => 'Removes one thing for good.', 'body' => null],
         ];
         $context = [
             'permissionCodes' => ['invoice.view'],
@@ -161,9 +260,22 @@ final class PublishedSpecTextTest extends KernelTestCase
             '$.components.securitySchemes [A]',
             '$.security [A]',
             '$.paths./api/v1/things.get.security [A]',
+            '$.paths./api/v1/thing-items.post.description [V]',
+            '$.paths./api/v1/thing-items.post.requestBody.description [V]',
+            '$.paths./api/v1/things/{id}.get [S]',
+            '$.paths./api/v1/things.get [R] ListThings publishes a summary',
+            '$.paths./api/v1/thing-items.post [R] CreateThing publishes a description that is not',
+            '$.paths./api/v1/thing-items.post.requestBody [R] CreateThing',
+            '$.paths./api/v1/things/{id}.get [R] GetThing publishes a description that is not',
+            '$.paths./api/v1/things/{id}.patch.requestBody [R] UpdateThing',
+            '$.paths./api/v1/things/{id}.delete [R] DeleteThing is on the fill-in list, but the "archive" selector matches it',
+            '$.paths./api/v1/things/{id}.delete [H] DeleteThing says "for good"',
         ];
 
-        $reported = PublishedSpecText::problems($spec, $context, PublishedSpecText::RULES);
+        $reported = [
+            ...PublishedSpecText::problems($spec, $context, PublishedSpecText::RULES),
+            ...PublishedSpecText::operationTextProblems($spec, $own, ['IssueToken', 'DeleteThing'], [], [], ['DeleteSomethingElse']),
+        ];
         foreach ($expected as $fault) {
             self::assertNotEmpty(array_filter($reported, static fn (string $line): bool => str_starts_with($line, $fault)), 'The checker did not report: '.$fault."\nIt reported:\n".implode("\n", $reported));
         }
@@ -212,6 +324,24 @@ final class PublishedSpecTextTest extends KernelTestCase
         $allowed = PublishedSpecText::DOCUMENT_NUMBER_PREFIXES;
         sort($allowed);
         self::assertSame($minted, $allowed, 'The document-number prefixes rule I allows are not, both ways, the ones src/ mints.');
+    }
+
+    /**
+     * The texts each operation's own `openapi` attribute gives, read from the metadata (never from the spec under test).
+     *
+     * @return array<string, array{summary: ?string, description: ?string, body: ?string}>
+     */
+    private static function ownTexts(): array
+    {
+        $own = [];
+        foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
+            $openapi = $operation->getOpenapi();
+            if ($openapi instanceof OpenApiOperation) {
+                $own[(string) $name] = ['summary' => $openapi->getSummary(), 'description' => $openapi->getDescription(), 'body' => $openapi->getRequestBody()?->getDescription()];
+            }
+        }
+
+        return $own;
     }
 
     /** @return array<string, array<string, mixed>> label => document */

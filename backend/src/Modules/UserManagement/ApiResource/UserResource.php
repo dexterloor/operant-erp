@@ -81,7 +81,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/users/{id}',
             name: 'UpdateUser',
             status: 200,
-            openapi: new OpenApiOperation(operationId: 'UpdateUser'),
+            openapi: new OpenApiOperation(
+                operationId: 'UpdateUser',
+                summary: 'Update user',
+                description: 'Changes one person\'s name, or switches their account off or on. Switching it off takes away every role they hold and ends their sessions; switching it back on gives no role back.',
+            ),
             input: UpdateUserInput::class,
             denormalizationContext: [
                 'allow_extra_attributes' => false,
@@ -100,7 +104,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/users/{id}',
             name: 'DeleteUser',
             status: 204,
-            openapi: new OpenApiOperation(operationId: 'DeleteUser'),
+            openapi: new OpenApiOperation(
+                operationId: 'DeleteUser',
+                summary: 'Delete user',
+                description: 'Archives one person: every role they hold is taken away and their sessions end. `RestoreUser` brings the account back, with no roles.',
+            ),
             read: false,
             processor: DeleteUserProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'app_user.delete'],
@@ -113,7 +121,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/users/{id}/restoration',
             name: 'RestoreUser',
             status: 200,
-            openapi: new OpenApiOperation(operationId: 'RestoreUser'),
+            openapi: new OpenApiOperation(
+                operationId: 'RestoreUser',
+                summary: 'Restore user',
+                description: 'Restores one archived person, with no roles.',
+            ),
             input: false,
             deserialize: false,
             read: false,
