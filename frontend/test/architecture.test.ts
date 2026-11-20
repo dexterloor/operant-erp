@@ -2594,8 +2594,9 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
 //   T ⇒ C1′ (plan §5.3–§5.4), one bracketed rule letter per defect line, rules in this order, files in byte order:
 //   (a0) a page at /stock exists (fail closed); (a1) no /stock page is a client file; (a2) the page itself calls
 //   stockRowsVisible( and imports lib/stock/visibility; (a3) some file of its import closure that is the page or lies under
-//   app/(app)/stock/ calls stockRowMarker( and imports lib/stock/marker; (a4) any other page whose closure reaches a row file
-//   (a file naming the read or the path, other than the two helpers) owes (a1)–(a3), lettered a4.aN; (b) a row file lives
+//   app/(app)/stock/ calls stockRowMarker( and imports lib/stock/marker;
+//   (a4) any other entry file (plan §5.4: a Next convention file, or a code file under app/ that nothing imports) whose closure reaches a row file (a file naming the read or the path, other than the two helpers) owes (a1)–(a3), lettered a4.aN; a route handler, metadata route or instrumentation file that does is refused under (b);
+//   (b) a row file lives
 //   only under app/(app)/stock/ (never as a route handler or a 'use server' file) or is lib/stock/levels.ts; (c1)
 //   lib/stock/visibility.ts spells the four viewerMay( gates and holds nothing else (imports only the contract reader,
 //   exports only stockRowsVisible / missingMarkerCodes, names ListStockLevels only inside its gate, never the stock path);
@@ -2604,7 +2605,7 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
 //   frontend/test/stock/marker.test.ts exist, read by fixed path only while T holds, name their cases and preconditions,
 //   and mock or spy on no G-47 input; (f) copy/stock.ts holds STOCK_LOCATION_MARKER with quarantine/archived/unknown
 //   (closed by `} as const;` or `} as const satisfies …;`), and a file under app/(app)/stock/ that each /stock page reaches
-//   uses it. The planted controls P-0…P-38b each assert their exact rule-letter set, identical in both twins.
+//   uses it. The planted controls P-0…P-41 each assert their exact rule-letter set, identical in both twins.
 // Limits (plan §5.7, stated in both docblocks):
 //   1. Presence, not behaviour: a page that calls the helpers and shows rows anyway passes (P-30, P-31, P-31b are pinned as
 //      passing). The gate test and the ten hand checks in the screen's commit carry behaviour.
@@ -2626,9 +2627,16 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
 //      deriveNavigation() without the built filter is not watched; this walk refuses every symlink under src (the backend
 //      reads file links and does not descend into directory links).
 //   9. Nothing compares the two twins' planted controls mechanically; the commit review compares their letter sets. P-20,
-//      P-29, P-40, P-41 and P-41b pin exact defect lines, so the text and order of those lines are held in each twin.
-//  10. (a4) checks page files only; a layout, template, loading, error, not-found, default or global-error file that
-//      reaches a row file is not seen (P-39).
+//      P-29, P-39d…P-39l, P-40, P-41 and P-41b pin exact defect lines, so the text and order of those lines are held in each twin.
+//      NEXT_ENTRY_NAMES and NEXT_ROUTE_NAMES must be identical in both twins; until the G-47 message-parity test covers
+//      them, the commit review compares them.
+//  10. (a4) checks entry files: a code file under src/app (.ts, .tsx, .js or .jsx, outside `_` folders) whose name is a Next
+//      convention (NEXT_ENTRY_NAMES) or that nothing under src imports. A route handler, metadata route or instrumentation
+//      file that reaches a row file is refused under (b). A segment file under app/(app)/stock/ (layout, loading, error,
+//      not-found, template, default) is an entry: it must not import StockStates.tsx or any other file naming the stock read,
+//      or it owes (a1)-(a3); an error file never can (P-39c). Not seen: a convention newer than NEXT_ENTRY_NAMES, or a
+//      numbered metadata file (icon1.tsx), that something imports; a frontend/instrumentation-client.* outside src, which
+//      Next's webpack build loads when src/ has none (create-compiler-aliases.js:181-183) and neither walk reads.
 //  11. Patterns read \s, which in JS matches Unicode spaces and in PHP matches ASCII only (byte mode) or Unicode spaces
 //      but not U+FEFF (/u); a file holding one where a pattern reads whitespace may get different letters in the twins;
 //      no control plants it (P-41 pins only the exports text).
@@ -2784,6 +2792,53 @@ const asciiTrim = (text: string): string => text.replace(/^[ \t\n\r\v\f]+|[ \t\n
 /** `pattern` must be global. */
 const countOf = (text: string, pattern: RegExp): number => (text.match(pattern) ?? []).length;
 
+/** (a4), (b) (stock-st2-a4-recommendation.md R1.1): the files Next loads by name (Next 16.4.5 next-app-loader), in order. */
+const NEXT_ENTRY_NAMES: readonly string[] = [
+  'page',
+  'layout',
+  'template',
+  'loading',
+  'error',
+  'global-error',
+  'not-found',
+  'global-not-found',
+  'forbidden',
+  'unauthorized',
+  'default',
+  'route',
+  'opengraph-image',
+  'twitter-image',
+  'icon',
+  'apple-icon',
+  'sitemap',
+  'robots',
+  'manifest',
+];
+/** The subset that serves a response, not a rendered segment: refused under (b) when it reaches a row file. */
+const NEXT_ROUTE_NAMES: readonly string[] = ['route', 'opengraph-image', 'twitter-image', 'icon', 'apple-icon', 'sitemap', 'robots', 'manifest'];
+/** An instrumentation file at the top of src (L-2): refused under (b) when it reaches a row file. */
+const INSTRUMENTATION_FILE = /^instrumentation(?:-client)?\.(?:ts|tsx|js|jsx)$/;
+/** The name of a key: after its last `/`, minus one final .ts/.tsx/.js/.jsx (so `page.test.tsx` is `page.test`). */
+const stockFileName = (f: string): string => f.slice(f.lastIndexOf('/') + 1).replace(/\.(?:ts|tsx|js|jsx)$/, '');
+/** A code file under app/, outside `_` folders. */
+const isAppCodeFile = (f: string): boolean => f.startsWith('app/') && /\.(?:ts|tsx|js|jsx)$/.test(f) && !/(?:^|\/)_/.test(f);
+
+/**
+ * The entry files of `sources`, byte order: code files under app/ that are (i) named by a Next convention, or (ii) imported
+ * by no other key of `sources` (directImports, the existing text resolver). `named` and `unimported` are the two halves.
+ */
+function stockEntryHalves(sources: Readonly<Record<string, string>>): { entries: string[]; named: string[]; unimported: string[] } {
+  const imported = new Set<string>();
+  for (const [g, text] of Object.entries(sources)) {
+    for (const target of directImports(g, text)) if (target !== g) imported.add(target);
+  }
+  const code = Object.keys(sources).filter(isAppCodeFile).sort(byteOrder);
+  const named = code.filter((f) => NEXT_ENTRY_NAMES.includes(stockFileName(f)));
+  const unimported = code.filter((f) => !imported.has(f));
+  const entries = code.filter((f) => NEXT_ENTRY_NAMES.includes(stockFileName(f)) || !imported.has(f));
+  return { entries, named, unimported };
+}
+
 /**
  * The transitive set of files reached from `file` through `directImports` (resolved by text, one hop at a time), with a
  * visited set, following only keys present in `sources`; includes `file` itself. Byte order.
@@ -2860,11 +2915,16 @@ function stockRowDefects(
     }
   }
 
-  // (a4) any other page whose closure reaches a row file (the two helper files do not count) owes the same.
-  for (const page of pages.filter((p) => pageUrl(p) !== null && !stock.includes(p)).sort(byteOrder)) {
-    const reached = importClosure(`app/${page}`, sources).filter((file) => rowFiles.includes(file));
+  // (a4) every other entry file (a Next convention file, or a code file under app/ that nothing imports) that is not a
+  // route or metadata file and whose closure reaches a row file (the two helper files do not count) owes the same.
+  const entries = stockEntryHalves(sources).entries;
+  const stockKeys = stock.map((page) => `app/${page}`);
+  for (const entry of entries.filter((e) => !stockKeys.includes(e) && !NEXT_ROUTE_NAMES.includes(stockFileName(e)))) {
+    const reached = importClosure(entry, sources).filter((file) => rowFiles.includes(file));
     if (reached.length === 0) continue;
-    for (const [letter, text] of stockPageBreaches(page, sources)) defects.push(`[a4.${letter}] src/app/${page} reaches the row file src/${reached[0]} and ${text}`);
+    for (const [letter, text] of stockPageBreaches(entry.slice('app/'.length), sources)) {
+      defects.push(`[a4.${letter}] src/${entry} reaches the row file src/${reached[0]} and ${text}`);
+    }
   }
 
   // (b) the stock read lives only in its homes, and never in a route handler or server action there.
@@ -2877,6 +2937,18 @@ function stockRowDefects(
       );
     } else if (file.startsWith(STOCK_ROW_DIR) && (/(?:^|\/)route\.[^/]+$/.test(file) || isServerDirectiveText(own(sources, file)))) {
       defects.push(`[b] src/${file} is a route handler or server action naming the stock read; no route serves stock rows`);
+    }
+  }
+  // (b), branch 1: no route handler or metadata route reaches a row file (an entry that is itself a row file prints both lines).
+  for (const route of entries.filter((e) => NEXT_ROUTE_NAMES.includes(stockFileName(e)))) {
+    const routeReached = importClosure(route, sources).filter((file) => rowFiles.includes(file));
+    if (routeReached.length > 0) defects.push(`[b] src/${route} is a route handler or metadata route that reaches the row file src/${routeReached[0]}; no route serves stock rows`);
+  }
+  // (b), branch 2: no instrumentation file reaches a row file.
+  for (const instrumentation of Object.keys(sources).filter((f) => INSTRUMENTATION_FILE.test(f)).sort(byteOrder)) {
+    const instrumentationReached = importClosure(instrumentation, sources).filter((file) => rowFiles.includes(file));
+    if (instrumentationReached.length > 0) {
+      defects.push(`[b] src/${instrumentation} is an instrumentation file that reaches the row file src/${instrumentationReached[0]}; no route serves stock rows`);
     }
   }
 
@@ -2986,13 +3058,15 @@ const G47_MESSAGE =
   'FAIL CLOSED: a row whose marker reads did not all load, whose bin is in neither loaded location list, or\n' +
   "whose warehouse was not read, is never shown as pickable ('Status unknown').\n" +
   '\n' +
-  'While the trigger holds, this check requires: (a) every page at /stock, and every page whose imports reach a\n' +
-  'file naming the stock read (the two helper files do not count), is a server page that calls\n' +
-  'stockRowsVisible( itself (from lib/stock/visibility) and reaches a call of stockRowMarker( (from\n' +
+  'While the trigger holds, this check requires: (a) every page at /stock, and every other page, layout,\n' +
+  'template, loading, error, not-found or default file, or any file under src/app that nothing imports, whose\n' +
+  'imports reach a file naming the stock read (the two helper files do not count), is a server file that\n' +
+  'calls stockRowsVisible( itself (from lib/stock/visibility) and reaches a call of stockRowMarker( (from\n' +
   'lib/stock/marker) under app/(app)/stock/; a page at /stock exists; (b) the stock read is named only in\n' +
   'lib/stock/levels.ts, under app/(app)/stock/ (never in a route handler or server action), or in the gate\n' +
-  'helper; (c) lib/stock/visibility.ts spells the gates of ListStockLevels, ListStorageLocations, GetWarehouse\n' +
-  'and ListWarehouses, holds nothing else, and is the only lib/stock file reading the contract;\n' +
+  'helper, and no route handler, metadata route or instrumentation file reaches it; (c)\n' +
+  'lib/stock/visibility.ts spells the gates of ListStockLevels, ListStorageLocations, GetWarehouse and\n' +
+  'ListWarehouses, holds nothing else, and is the only lib/stock file reading the contract;\n' +
   'lib/stock/marker.ts is pure; (d) frontend/test/wired/stock-gate.test.ts and (e)\n' +
   'frontend/test/stock/marker.test.ts exist, name their cases and preconditions, and mock or spy on none of\n' +
   'the helpers, the contract reader or the generated surface; (f) copy/stock.ts holds STOCK_LOCATION_MARKER\n' +
@@ -3118,6 +3192,7 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
     const T = H_TESTS;
     const NO_TESTS = { [STOCK_GATE_TEST]: null, [STOCK_MARKER_TEST]: null };
     const PAGE_IMPORTS = swap(S[PAGE], "if (!viewerMay('ListStockLevels', codes)) deny(); if (!stockRowsVisible(codes)) withhold(); rows.map((row) => stockRowMarker(row, inputs));", '');
+    const LV = "import { loadStockForItem } from '@/lib/stock/levels';\nexport default async function X() { return loadStockForItem(read, id); }";
     const P3 = {
       [PAGE]: swap(S[PAGE], ' rows.map((row) => stockRowMarker(row, inputs));', ''),
       [VIEW]: swap(S[VIEW], 'retry(() => stockRowMarker(row, inputs));', 'retry(() => null);'),
@@ -3125,7 +3200,11 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
     const controls: [string, Change, string[]][] = [
       ['P-0 H itself', {}, []],
       ['P-1 the page drops its stockRowsVisible call', { sources: { [PAGE]: swap(S[PAGE], ' if (!stockRowsVisible(codes)) withhold();', '') } }, ['a2']],
-      ['P-2 the page names the marker as a type only and reaches no view', { sources: { [PAGE]: "import type { StockRowMarker } from '@/lib/stock/marker';\nif (!viewerMay('ListStockLevels', codes)) deny();" } }, ['a2', 'a3', 'f']],
+      [
+        'P-2 the page names the marker as a type only, and the view is gone',
+        { sources: { [PAGE]: "import type { StockRowMarker } from '@/lib/stock/marker';\nif (!viewerMay('ListStockLevels', codes)) deny();", [VIEW]: null } },
+        ['a2', 'a3', 'f'],
+      ],
       ['P-3 the marker is called only in marker.ts', { sources: P3 }, ['a3']],
       [
         'P-3b as P-3, and the view calls a local stockRowMarker without the marker import',
@@ -3252,7 +3331,11 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
       ['P-36 the gate helper re-exports the row loader', { sources: { [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\nexport { loadStockForItem } from './levels';` } }, ['a4.a3', 'c1']],
       ['P-37 the marker fetches stock', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\nfetch('/bff/api/stock?inventory_item_id=' + id);` } }, ['c2']],
       ['P-38 a route handler under the stock folder serves rows', { sources: { 'app/(app)/stock/rows/route.ts': "read('ListStockLevels');" } }, ['b']],
-      ['P-38b a server action under the stock folder serves rows', { sources: { 'app/(app)/stock/actions.ts': "'use server';\nread('ListStockLevels');" } }, ['b']],
+      [
+        'P-38b a server action under the stock folder serves rows, imported by the stock page',
+        { sources: { 'app/(app)/stock/actions.ts': "'use server';\nread('ListStockLevels');", [PAGE]: `${S[PAGE]}\nimport { act } from './actions';` } },
+        ['b'],
+      ],
       // M-3 (ST-2a commit RED): one control per clause of the closed class, and the BUYER precondition alone.
       ['P-23d marker.ts gains only a mention of viewerMay', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\n// no viewerMay here` } }, ['c2']],
       ['P-37a marker.ts gains only fetch(', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\nfetch(url);` } }, ['c2']],
@@ -3267,12 +3350,42 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
       ['P-27k the gate test mocks the generated surface', { tests: { [STOCK_GATE_TEST]: `${T[STOCK_GATE_TEST]}\nvi.mock('@/generated/api-surface.server', () => ({}));` } }, ['d']],
       ['P-27l the gate test mocks the marker with vi.doMock', { tests: { [STOCK_GATE_TEST]: `${T[STOCK_GATE_TEST]}\nvi.doMock('@/lib/stock/marker', () => ({ stockRowMarker: () => null }));` } }, ['d']],
       ['P-28e copy/stock.ts lacks the quarantine key', { sources: { [COPY]: swap(S[COPY], "  quarantine: 'Quarantine',\n", '') } }, ['f']],
-      // M-4: a route-segment file that is not a page escapes (a4) (limit 10).
+      // ST-2a2 (stock-st2-a4-recommendation.md R1.5): (a4) reaches every entry file; routes, metadata and instrumentation fall under (b).
+      ['P-39 an item layout reaches the row loader', { sources: { 'app/(app)/items/[id]/layout.tsx': LV } }, ['a4.a2', 'a4.a3']],
+      ['P-39b an item not-found file reaches the row loader', { sources: { 'app/(app)/items/[id]/not-found.tsx': LV } }, ['a4.a2', 'a4.a3']],
+      ['P-39c an item error file (a client file) reaches the row loader', { sources: { 'app/(app)/items/[id]/error.tsx': `'use client';\n${LV}` } }, ['a4.a1', 'a4.a2', 'a4.a3']],
+      ['P-39d a route handler reaches the row loader', { sources: { 'app/bff/stock-rows/route.ts': LV } }, ['b']],
       [
-        'P-39 STATED LIMIT: an item layout reaches the row loader',
-        { sources: { 'app/(app)/items/[id]/layout.tsx': "import { loadStockForItem } from '@/lib/stock/levels';\nexport default async function L() { return loadStockForItem(read, id); }" } },
-        [],
+        'P-39d2 a route handler that gates and marks still reaches the row loader',
+        {
+          sources: {
+            'app/bff/stock-rows/route.ts':
+              "import { stockRowsVisible } from '@/lib/stock/visibility';\nimport { stockRowMarker } from '@/lib/stock/marker';\nimport { loadStockForItem } from '@/lib/stock/levels';\nif (stockRowsVisible(codes)) return rows.map((r) => ({ r, m: stockRowMarker(r, inputs) }));",
+          },
+        },
+        ['b'],
       ],
+      ['P-39e an item stock panel the item page imports', { sources: { 'app/(app)/items/[id]/StockPanel.tsx': LV, [ITEM]: `${S[ITEM]}\nimport { StockPanel } from './StockPanel';` } }, ['a4.a3']],
+      ['P-39f a layout in the stock folder reaches the row loader', { sources: { 'app/(app)/stock/layout.tsx': LV } }, ['a4.a2', 'a4.a3']],
+      ['P-39g a code file under app/ that nothing imports reaches the row loader', { sources: { 'app/(app)/items/unused.ts': LV } }, ['a4.a2', 'a4.a3']],
+      ['P-39h as P-39e, imported by an @/ path', { sources: { 'app/(app)/items/[id]/StockPanel.tsx': LV, [ITEM]: `${S[ITEM]}\nimport { StockPanel } from '@/app/(app)/items/[id]/StockPanel';` } }, ['a4.a3']],
+      ['P-39i P-1 with its lines pinned (no a4 line for the stock page)', { sources: { [PAGE]: swap(S[PAGE], ' if (!stockRowsVisible(codes)) withhold();', '') } }, ['a2']],
+      [
+        'P-39j as P-39e, and the panel imports a type from the item page (a cycle)',
+        { sources: { 'app/(app)/items/[id]/StockPanel.tsx': `import type { ItemPageProps } from './page';\n${LV}`, [ITEM]: `${S[ITEM]}\nimport { StockPanel } from './StockPanel';` } },
+        ['a4.a3'],
+      ],
+      [
+        'P-39k the item page reads stock rows, and the stock page imports a type from it',
+        {
+          sources: {
+            [ITEM]: "import { loadStockForItem } from '@/lib/stock/levels';\nconst rows = await loadStockForItem(read, id);",
+            [PAGE]: `${S[PAGE]}\nimport type { Props } from '@/app/(app)/items/[id]/page';`,
+          },
+        },
+        ['a4.a2', 'a4.a3'],
+      ],
+      ['P-39l an instrumentation file reaches the row loader', { sources: { 'instrumentation-client.ts': "import { loadStockForItem } from '@/lib/stock/levels';" } }, ['b']],
       // M-1: defect text and order are pinned (exact lines below).
       [
         'P-40 four changes at once: two pages reach row files, two components and a shared file name the read',
@@ -3297,7 +3410,7 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
     expect(verdicts).toEqual(controls.map(([name, , letters]) => [name, [...letters].sort(byteOrder)]));
     expect(new Set(controls.map(([name]) => name.split(' ')[0])).size, 'two planted controls share an id').toBe(controls.length);
 
-    // M-1: exact defect lines, in order, for P-20, P-29, P-40, P-41 and P-41b -- the text and order the backend twin copies.
+    // M-1 and ST-2a2: exact defect lines, in order, for P-20, P-29, P-39d…P-39l (the pinned ones), P-40, P-41 and P-41b -- the text and order the backend twin copies.
     const B_TEXT =
       'names the stock read outside the stock-on-hand files; keep it out of the shared stock files (lib/api/stock.ts, ' +
       'lib/stock/load.ts, copy/stock.ts), whose importers include the movement pages, and name it only in lib/stock/levels.ts ' +
@@ -3305,6 +3418,8 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
     const A2_TEXT = 'must call stockRowsVisible( itself, imported from lib/stock/visibility';
     const A3_TEXT = 'reaches no call of stockRowMarker( (imported from lib/stock/marker) under app/(app)/stock/';
     const GATE_ONLY = 'the gate helper holds the gate only';
+    const P39D_LINE = '[b] src/app/bff/stock-rows/route.ts is a route handler or metadata route that reaches the row file src/lib/stock/levels.ts; no route serves stock rows';
+    const P39E_LINE = `[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A3_TEXT}`;
     const exactLines: Record<string, string[]> = {
       'P-20': [
         `[c1] src/lib/stock/visibility.ts is missing viewerMay('ListStockLevels',; ${GATE_ONLY}`,
@@ -3332,6 +3447,17 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
       ],
       'P-41': [`[c1] src/lib/stock/visibility.ts exports '\u00A0const y = 2;'; ${GATE_ONLY}`],
       'P-41b': [`[c1] src/lib/stock/visibility.ts exports 'const z = 3;'; ${GATE_ONLY}`],
+      'P-39d': [P39D_LINE],
+      'P-39d2': [P39D_LINE],
+      'P-39e': [P39E_LINE],
+      'P-39h': [P39E_LINE],
+      'P-39i': ['[a2] src/app/(app)/stock/page.tsx must call stockRowsVisible( itself, imported from lib/stock/visibility'],
+      'P-39j': [P39E_LINE],
+      'P-39k': [
+        `[a4.a2] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A2_TEXT}`,
+        `[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A3_TEXT}`,
+      ],
+      'P-39l': ['[b] src/instrumentation-client.ts is an instrumentation file that reaches the row file src/lib/stock/levels.ts; no route serves stock rows'],
     };
     for (const [id, lines] of Object.entries(exactLines)) {
       const control = controls.find(([name]) => name.split(' ')[0] === id);
@@ -3385,6 +3511,22 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
     expect(schemaShape(row!), G47_ROW_SHAPE_MESSAGE).toEqual(['id', 'inventory_item', 'qty_on_hand', 'storage_location', 'version', 'warehouse']);
     expect(schemaShape(resolveRef(spec, asObject(rowProperties.storage_location))), G47_ROW_SHAPE_MESSAGE).toEqual(['code', 'id']);
     expect(schemaShape(resolveRef(spec, asObject(rowProperties.warehouse))), G47_ROW_SHAPE_MESSAGE).toEqual(['id', 'name']);
+  });
+
+  it('real-tree controls for the entry set: both halves see real files, and every unimported entry is a Next convention', () => {
+    const { named, unimported } = stockEntryHalves(realSources());
+    // 1. Half (i) holds these six (a floor, not a list).
+    for (const file of ['app/layout.tsx', 'app/not-found.tsx', 'app/error.tsx', 'app/(app)/items/[id]/page.tsx', 'app/(app)/items/[id]/not-found.tsx', 'app/bff/session/route.ts']) {
+      expect(named, `Positive control: src/${file} is not among the entry files named by a Next convention, so half (i) of (a4)'s entry set reads less than it should.`).toContain(file);
+    }
+    // 2. Half (ii) is not vacuous: an imported file is out of it, a file nothing imports is in it.
+    expect(unimported, 'src/app/(app)/items/[id]/ItemPage.tsx is imported by its page, yet half (ii) of the entry set counts it as imported by nothing: the reverse pass is broken.').not.toContain('app/(app)/items/[id]/ItemPage.tsx');
+    expect(unimported, 'Positive control: src/app/layout.tsx is imported by nothing, yet half (ii) of the entry set does not hold it: the reverse pass sees imports that are not there.').toContain('app/layout.tsx');
+    // 3. Entries only half (ii) finds: a dead code file under src/app, or a Next convention newer than NEXT_ENTRY_NAMES.
+    expect(
+      unimported.filter((file) => !named.includes(file)),
+      'A code file under src/app is imported by nothing and is not named by a Next convention. Delete it if it is dead; if it is a Next convention, add its name to NEXT_ENTRY_NAMES (and the backend twin\'s), or add it here with a reason.',
+    ).toEqual([]);
   });
 
   it('the real tree: anything that makes the stock trigger true meets C1′ (the stock page, its helpers, its tests, its copy key)', () => {
