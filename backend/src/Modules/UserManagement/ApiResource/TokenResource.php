@@ -52,11 +52,13 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/auth/token',
             name: 'IssueToken',
             status: 200,
-            // BK-18 R18-h C1: this operation's own refusals beyond the derived set (its `Errors` cell). The decorator
-            // keeps each description and gives it the house problem shape (`App\Platform\Http\ProblemResponses`).
+            // BK-18 R18-h: this operation's own success description (no template is true of it) and its own refusals
+            // beyond the derived set (its `Errors` cell). The decorator keeps each description; it gives the refusals the
+            // house problem shape (`App\Platform\Http\ProblemResponses`).
             openapi: new OpenApiOperation(
                 operationId: 'IssueToken',
                 responses: [
+                    '200' => new OpenApiResponse(description: 'Signed in. Send `access_token` in an `Authorization: Bearer` header on every request outside `/api/v1/auth/`. It stops working at `expires_at`, or sooner, for example if the account is deactivated or its password is changed or reset.'),
                     '401' => new OpenApiResponse(description: 'Sign-in refused. The same answer is given whatever the reason (a workspace, email or password that does not match, or an account or workspace that cannot sign in), so it does not say which.'),
                     '429' => new OpenApiResponse(description: 'Too many sign-in attempts. `type` says which limit applied: too many attempts from this network, or sign-in paused for this workspace and email after repeated failures. Wait before trying again; no wait time is given.'),
                 ],

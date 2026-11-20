@@ -39,7 +39,7 @@ trait DeclaredRefusals
 
     /**
      * A refusal body the server really sent fits `Problem`: its members are among `Problem`'s and include every
-     * required one.
+     * required one, and each item of a list member (`errors[]`) has exactly its item schema's required members.
      *
      * @param array<string, mixed> $body
      */
@@ -50,6 +50,23 @@ trait DeclaredRefusals
         Assert::assertNotSame([], $members, 'The published spec has no '.ProblemResponses::SCHEMA.' schema.');
         Assert::assertSame([], array_values(array_diff(array_keys($body), $members)), $label.': the body carries members '.ProblemResponses::SCHEMA.' does not declare.');
         Assert::assertSame([], array_values(array_diff($problem['required'] ?? [], array_keys($body))), $label.': the body lacks a member '.ProblemResponses::SCHEMA.' requires.');
+
+        // Each item of a list member (`errors`) carries exactly the item schema's required members.
+        $schemas = $this->publishedSpec()['components']['schemas'];
+        foreach ($problem['properties'] ?? [] as $member => $schema) {
+            $ref = $schema['items']['$ref'] ?? null;
+            if (!\is_string($ref) || !isset($body[$member])) {
+                continue;
+            }
+            $required = $schemas[substr($ref, \strlen('#/components/schemas/'))]['required'] ?? [];
+            sort($required);
+            Assert::assertIsArray($body[$member], $label.': '.$member.' is not a list.');
+            foreach ($body[$member] as $item) {
+                $keys = array_keys((array) $item);
+                sort($keys);
+                Assert::assertSame($required, $keys, $label.': an item of '.$member.' is not '.$ref.'.');
+            }
+        }
     }
 
     /**

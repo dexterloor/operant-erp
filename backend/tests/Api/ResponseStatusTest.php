@@ -764,7 +764,6 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         return self::normalisedPath((string) $operation->getUriTemplate());
     }
 
-    /** A path template with every `{param}` read as `{}`, so parameter names never decide a comparison. */
     /**
      * **The operations that may not list the write-wide 409 are exactly branch 6's queued ones** (BK-18 R18-h C1, L-6).
      *
@@ -788,6 +787,7 @@ final class ResponseStatusTest extends PurchaseOrderTestCase
         self::assertSame($queued, $flagged, 'The operations flagged queued are not the ones at the queued paths.');
     }
 
+    /** A path template with every `{param}` read as `{}`, so parameter names never decide a comparison. */
     private static function normalisedPath(string $path): string
     {
         return (string) preg_replace('/\{[^}]*\}/', '{}', $path);
