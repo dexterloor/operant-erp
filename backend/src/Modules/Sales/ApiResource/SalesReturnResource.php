@@ -89,6 +89,8 @@ use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
             // template is not true of it.
             openapi: new OpenApiOperation(
                 operationId: 'CreateAdjustmentDecision',
+                summary: 'Record an adjustment decision',
+                description: 'Records, or reverses, a decision about one line of one sales return.',
                 responses: [
                     '200' => new OpenApiResponse(description: 'The sales return as it reads after the decision this request recorded. Each line lists its decisions in `adjustment_decisions`.'),
                 ],

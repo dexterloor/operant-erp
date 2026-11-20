@@ -37,11 +37,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: UserCollectionProvider::class,
             parameters: [
                 'archived' => new QueryParameter(
-                    description: 'Return the removed (archived) users instead of the live ones. API-19c limb 1: IA §5.6 has an /admin/users Archived view.',
+                    description: 'Return the archived users instead of the live ones.',
                     schema: ['type' => 'boolean', 'default' => false],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, app_user.email, and it is the only column searched (a case-insensitive prefix, IA TB-5a).',
+                    description: 'Search: a prefix of the `email`, ignoring case. Nothing else is searched.',
                     schema: ['type' => 'string'],
                 ),
             ],

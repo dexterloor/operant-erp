@@ -42,15 +42,15 @@ use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
             provider: AuditLogEntryCollectionProvider::class,
             parameters: [
                 'actor_user_id' => new QueryParameter(
-                    description: 'Restrict to one person\'s events, newest first. The sort manifest\'s "/admin/audit-log filtered to an actor" predicate, served by audit_log_tenant_actor_occurred_id_idx. Not with event_type (one_filter_at_a_time). A user this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
+                    description: 'Only one person\'s events, newest first. Not with `event_type`: sending both is refused 422 `one_filter_at_a_time`. A person this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'event_type' => new QueryParameter(
-                    description: 'Restrict to one kind of event, newest first. The sort manifest\'s "/admin/audit-log filtered to an event type" predicate, served by audit_log_tenant_event_occurred_id_idx. Not with actor_user_id (one_filter_at_a_time).',
+                    description: 'Only one kind of event, newest first. Not with `actor_user_id`: sending both is refused 422 `one_filter_at_a_time`.',
                     schema: ['type' => 'string', 'enum' => AuditEvent::ALL],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -59,11 +59,11 @@ use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

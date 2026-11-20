@@ -28,43 +28,43 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: SalesReturnCollectionProvider::class,
             parameters: [
                 'fulfilment_id' => new QueryParameter(
-                    description: 'Restrict to one shipment\'s returns. A shipment this workspace cannot see matches nothing: an empty page, never a 404.',
+                    description: 'Only one shipment\'s returns. A shipment this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'invoice_id' => new QueryParameter(
-                    description: 'Restrict to the returns recorded against one invoice (the invoice that was live when each was recorded).',
+                    description: 'Only the returns recorded against one invoice (the invoice that was live when each was recorded).',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'creditable' => new QueryParameter(
-                    description: 'true: the returns a credit note is owed for now (the credit issuer\'s queue); false: the others. PC-9\'s third exception: membership is served to every sales_return.view holder.',
+                    description: '`true`: the returns a credit note is owed for now; `false`: the others. Unlike the filters that need `invoice.view`, anyone who may list returns may use it.',
                     schema: ['type' => 'string', 'enum' => ['true', 'false']],
                 ),
                 'deducts' => new QueryParameter(
-                    description: 'true: the returns that lowered an invoice with no credit note (owner ruling Q-L (a′)) — a list to reconcile against goods actually received.',
+                    description: '`true`: the returns that lowered an invoice without a credit note, to reconcile against the goods actually received.',
                     schema: ['type' => 'string', 'enum' => ['true', 'false']],
                 ),
                 'credit_blocked_by_payment' => new QueryParameter(
-                    description: 'true: returns that would be creditable but whose invoice is paid. Served only to an invoice.view holder; refused as a parameter error for anyone else.',
+                    description: '`true`: the returns that would be creditable but whose invoice is paid. Only for a caller holding `invoice.view`; anyone else is refused 422 `not_permitted`.',
                     schema: ['type' => 'string', 'enum' => ['true', 'false']],
                 ),
                 'adjustment_decision_owed' => new QueryParameter(
-                    description: 'true: returns on an order line that already carries a credit without a return, waiting for a decision (already credited, or, by an owner, different goods) before they can be credited. Served only to an invoice.view holder; refused as a parameter error for anyone else.',
+                    description: '`true`: the returns on an order line that already carries a credit without a return, which wait for a decision (already credited, or, by an owner, different goods) before they can be credited. Only for a caller holding `invoice.view`; anyone else is refused 422 `not_permitted`.',
                     schema: ['type' => 'string', 'enum' => ['true', 'false']],
                 ),
                 'adjustment_decided' => new QueryParameter(
-                    description: 'same: returns carrying a live "already credited" decision — the owner\'s review list. Served only to an invoice.view holder.',
+                    description: '`same`: the returns carrying a live "already credited" decision, for the owner to review. Only for a caller holding `invoice.view`; anyone else is refused 422 `not_permitted`.',
                     schema: ['type' => 'string', 'enum' => ['same']],
                 ),
                 'decided_since' => new QueryParameter(
-                    description: 'With adjustment_decided=same: only decisions recorded at or after this RFC 3339 instant. A decision\'s time is its transaction\'s start, so start each review a little before the last one. Served only to an invoice.view holder.',
+                    description: 'With `adjustment_decided=same`: only the decisions recorded at or after this RFC 3339 instant; without `adjustment_decided` it is refused 422 `needs_adjustment_decided`. A decision\'s time is when its transaction started, so start each review a little before the last one. Only for a caller holding `invoice.view`; anyone else is refused 422 `not_permitted`.',
                     schema: ['type' => 'string'],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5: one searchable column, sales_return.sales_return_number, matched by prefix.',
+                    description: 'Search: a prefix of the `sales_return_number`. Nothing else is searched.',
                     schema: ['type' => 'string'],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -73,11 +73,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

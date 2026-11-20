@@ -36,11 +36,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: StockMovementCollectionProvider::class,
             parameters: [
                 'inventory_item_id' => new QueryParameter(
-                    description: 'Restrict to one item\'s movements, newest first. The sort manifest\'s "/stock-movements filtered to an item" predicate, served by stock_movement_tenant_item_occurred_id_idx. An item this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
+                    description: 'Only one item\'s movements, newest first. An item this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -49,11 +49,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

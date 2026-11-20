@@ -12,7 +12,7 @@ customers, suppliers, reorder suggestions, data exports, an audit trail, and use
 business gets its own workspace, and PostgreSQL itself keeps one workspace's rows out of another's queries.
 It is built in PHP on Symfony 7.4, API Platform 4 and PostgreSQL 17.
 
-**What works today.** The API serves 131 operations, and one more, the AI assistant, is designed but not
+**What works today.** The API serves 132 operations, and one more, the AI assistant, is designed but not
 built. The built operations include signing in, inviting a new user by email, password reset by emailed
 link, roles and permissions with separation-of-duty rules, and the order-to-invoice and purchase-to-receipt
 flows. Email is sent by a background worker through a queue. Locally, every message lands in a mail catcher,
@@ -62,6 +62,7 @@ review, build, final ruling), not people.
 | Permissions and separation of duties | `backend/src/Modules/UserManagement/Domain/PermissionCatalogue.php`, `SeparationOfDuty.php` |
 | Safe retries for create requests | `backend/src/Platform/Http/Idempotency/` |
 | Queued email: workspace stamping and the invitation sender | `backend/src/Platform/Messaging/`, `backend/src/Modules/UserManagement/Infrastructure/Messaging/` |
+| Every API operation, who may call it and how it is refused | `contracts/reference/README.md` |
 
 ## For engineers
 

@@ -29,23 +29,23 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: InvoiceCollectionProvider::class,
             parameters: [
                 'status' => new QueryParameter(
-                    description: 'The list segment, over the STORED status and the stored credits (TB-4 ³): `unpaid` (issued, not credited in full; an unpaid invoice past its due date is labelled overdue in each row, never filtered), `paid`, `credited` (issued, credited in full: owes nothing), `void`.',
+                    description: 'Which invoices to list: `unpaid` (issued and not credited in full; one past its due date shows as overdue in its row but is not filtered out), `paid`, `credited` (issued and credited in full, so it owes nothing), `void`.',
                     schema: ['type' => 'string', 'enum' => InvoiceViews::SEGMENT_NAMES],
                 ),
                 'customer_id' => new QueryParameter(
-                    description: 'Restrict to one customer. The sort manifest\'s "/invoices filtered to a customer" predicate, served by invoice_tenant_customer_idx. A customer this workspace cannot see matches nothing: an empty page, never a 404.',
+                    description: 'Only one customer\'s invoices. A customer this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'fulfilment_id' => new QueryParameter(
-                    description: 'Restrict to the invoices of one shipment, newest first (V2-C-11). A shipment this workspace cannot see matches nothing: an empty page, never a 404.',
+                    description: 'Only the invoices of one shipment, newest first. A shipment this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, invoice.invoice_number, matched by prefix.',
+                    description: 'Search: a prefix of the `invoice_number`. Nothing else is searched.',
                     schema: ['type' => 'string'],
                 ),
                 'sort' => new QueryParameter(
-                    description: 'The order. Legal values depend on the view (API-19): invoice_number always; due_at on Unpaid; issued_at filtered to a customer; only invoice_number filtered to a fulfilment. Never paid_at.',
+                    description: 'The order. `invoice_number` is always allowed. With `customer_id`, `issued_at` is also allowed and is the default; otherwise, with `status=unpaid`, `due_at` is also allowed and is the default. With `fulfilment_id`, only `invoice_number`, newest first.',
                     schema: ['type' => 'string', 'enum' => [
                         InvoiceViews::SORT_INVOICE_NUMBER,
                         InvoiceViews::SORT_DUE_AT,
@@ -53,7 +53,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ]],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -62,11 +62,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

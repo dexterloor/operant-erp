@@ -9,6 +9,7 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\RequestBody;
 use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\Inventory\ApiResource\State\CreateStockAdjustmentProcessor;
 use App\Modules\Inventory\ApiResource\State\CreateStockTransferProcessor;
@@ -67,7 +68,12 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/stock-movements/adjustments',
             name: 'CreateStockAdjustment',
             status: 201,
-            openapi: new OpenApiOperation(operationId: 'CreateStockAdjustment'),
+            openapi: new OpenApiOperation(
+                operationId: 'CreateStockAdjustment',
+                summary: 'Record a stock count',
+                description: 'Counts one item in one location. If the count differs from the stock on record, the difference is recorded as a movement; a count that matches is refused.',
+                requestBody: new RequestBody(description: 'The count to record, and the version of the stock it was counted against.', required: true),
+            ),
             input: CreateStockAdjustmentInput::class,
             denormalizationContext: [
                 'allow_extra_attributes' => false,
@@ -89,6 +95,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // and answers one).
             openapi: new OpenApiOperation(
                 operationId: 'CreateStockTransfer',
+                summary: 'Transfer stock',
+                description: 'Moves stock of one item from one location to another, recording a movement out and a movement in.',
+                requestBody: new RequestBody(description: 'The item, how much of it, and the locations to move it from and to.', required: true),
                 responses: ['201' => new OpenApiResponse(description: 'The movement that took the stock out of the source location. The matching movement into the destination location was recorded with it. `Location` gives the outgoing movement\'s address.')],
             ),
             input: CreateStockTransferInput::class,

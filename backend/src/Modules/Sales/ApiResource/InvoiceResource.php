@@ -87,7 +87,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             uriTemplate: '/invoices/{id}/payment',
             name: 'PayInvoice',
             status: 200,
-            openapi: new OpenApiOperation(operationId: 'PayInvoice'),
+            openapi: new OpenApiOperation(
+                operationId: 'PayInvoice',
+                summary: 'Record invoice payment',
+                description: 'Records that one invoice was paid.',
+            ),
             input: PayInvoiceInput::class,
             denormalizationContext: [
                 // API-9: unknown fields are refused, never ignored — there is no field for the payer.

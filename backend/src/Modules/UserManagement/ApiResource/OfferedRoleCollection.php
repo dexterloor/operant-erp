@@ -41,11 +41,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: OfferedRoleCollectionProvider::class,
             parameters: [
                 'archived' => new QueryParameter(
-                    description: 'Return the archived roles (each refused) instead of the live ones. API-19c limb 2: a bounded list derived from role, a soft table.',
+                    description: 'Return the archived roles instead of the live ones. Each one carries a `refusal`, because an archived role cannot be given.',
                     schema: ['type' => 'boolean', 'default' => false],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, role.name, and it is the only column searched (a case-insensitive prefix, IA TB-5a). It selects which roles are returned, never what their pair lists are computed against.',
+                    description: 'Search: a prefix of the `name`, ignoring case. Nothing else is searched. It chooses which roles are returned; `conflicts_with` and `margin_exposure_with` are still worked out against every role.',
                     schema: ['type' => 'string'],
                 ),
             ],

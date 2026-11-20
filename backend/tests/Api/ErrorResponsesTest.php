@@ -17,6 +17,7 @@ use App\Tests\Support\ContractDocument;
 use App\Tests\Support\DeclaredRefusals;
 use App\Tests\Support\ErrorContractRules;
 use App\Tests\Support\GeneratedSpec;
+use App\Tests\Support\PublishedSpecText;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Serializer\Mapping\Factory\ClassMetadataFactoryInterface;
@@ -89,12 +90,6 @@ final class ErrorResponsesTest extends ApiTestCase
 
     /** The API description's paragraph on refusals for how a request was sent, word for word as `UX` wrote it. */
     private const TRANSPORT_NOTE = 'Any request can also be refused for how it was sent rather than what it asks: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation\'s format (`application/json` for every operation except the export, which is `text/csv`), and 415 when a body is sent with a `Content-Type` other than `application/json`. These three, like every refusal listed on an operation, are sent as `application/problem+json`. An `Accept` that names only `application/problem+json` is itself answered 406, so name the operation\'s format as well: `Accept: application/json, application/problem+json`, or `Accept: text/csv, application/problem+json` for the export. One refusal is outside that shape: a request whose `Host` header is malformed is refused 400 before any operation runs. None of these is listed on each operation.';
-
-    /**
-     * The hand-written descriptions that still end in a review id, kept until `PO` rules where it is dropped; the id is
-     * the only one each may carry.
-     */
-    private const SUCCESS_ID_PENDING = ['CreateBulkArchival' => '(E-14)', 'CreateBulkRestoration' => '(E-14)', 'CreateBulkRoleAssignment' => '(E-14)'];
 
     /**
      * *fails if:* an operation declares a refusal status the contract does not give it, or omits one it does.
@@ -236,7 +231,18 @@ final class ErrorResponsesTest extends ApiTestCase
      * one template its facts select: method, status, whether the served component pages (`next_cursor`, plus an `after`
      * parameter) and whether it has an `id`. Independently of that: "created" only on a 201; every 201 mentions and
      * declares `Location`; every 202 and 204 says it has no body; a `POST` 200 whose body has no `id` is never called
-     * "as saved"; no description carries a review id.
+     * "as saved"; no description carries a private-record id, document reference or tool name (the matcher is
+     * `PublishedSpecText::privateRecordRules()`, shared with `PublishedSpecTextTest`, which is the backstop over every text).
+     *
+     * **A limit, stated:** the templates are copied here on purpose, but the selector ({@see self::successKind()}) and
+     * {@see self::words()} are line-for-line copies of the decorator's. A selection that is wrong in both copies is
+     * invisible to the per-template comparison; only the independent rules ("created" only on 201, `Location` on 201,
+     * "no body" on 202/204, "as saved" never on a body without `id`, paged versus `after`) can see a wrong selection, and
+     * only for what they name.
+     *
+     * The clause "takes no template and gives no description of its own" guards the spec, not the decorator: the
+     * decorator fails closed before it could publish such an entry. An own description that is empty is a text like any
+     * other and is refused by `PublishedSpecTextTest::noPublishedTextIsEmpty`.
      */
     #[Test]
     public function everySuccessDescriptionSaysWhatComesBack(): void
@@ -285,6 +291,7 @@ final class ErrorResponsesTest extends ApiTestCase
         self::assertContains('DELETE /api/v1/items/{id} 204 does not say it has no body', self::successFaults($with($spec, '/api/v1/items/{id}', 'delete', '204', 'Done.'), $own));
         self::assertContains('GET /api/v1/items/{id} 200 carries a review id', self::successFaults($with($spec, '/api/v1/items/{id}', 'get', '200', 'The item (G-12).'), $own));
         self::assertContains('GET /api/v1/items/{id} 200 is not the read template', self::successFaults($with($spec, '/api/v1/items/{id}', 'get', '200', 'The Item.'), $own));
+        self::assertContains('POST /api/v1/auth/token 200 is not the description its own attribute gives', self::successFaults($with($spec, '/api/v1/auth/token', 'post', '200', 'A token.'), $own));
 
         self::assertSame([], self::successFaults($spec, $own), 'A success answer does not say what comes back.');
 
@@ -300,13 +307,39 @@ final class ErrorResponsesTest extends ApiTestCase
 
     /**
      * *fails if:* the API description's note on refusals for how a request was sent is not, word for word, the text
-     * given for it (one paragraph of the published `info.description`).
+     * given for it (the second of the published `info.description`'s two paragraphs), or a third paragraph is added
+     * beside it, which could contradict it.
      */
     #[Test]
     public function theNoteOnHowARequestWasSentIsWordForWord(): void
     {
         $paragraphs = explode("\n\n", (string) ($this->spec()['info']['description'] ?? ''));
-        self::assertContains(self::TRANSPORT_NOTE, $paragraphs, 'The note on refusals for how a request was sent is not the wording it was given.');
+        self::assertCount(2, $paragraphs, 'The API description is not two paragraphs (how to sign in, then this note).');
+        self::assertSame(self::TRANSPORT_NOTE, $paragraphs[1] ?? null, 'The note on refusals for how a request was sent is not the wording it was given.');
+    }
+
+    /**
+     * *fails if:* the transport note's `Accept` advice is not what the server does. The note is pinned word for word
+     * above; this holds it to behaviour, so a change of formats cannot leave a false sentence pinned in place.
+     */
+    #[Test]
+    public function theTransportNoteAcceptAdviceIsTrue(): void
+    {
+        $this->send('GET', '/items', null, [], 'application/problem+json');
+        self::assertSame(406, $this->httpStatus(), 'Note: "An `Accept` that names only `application/problem+json` is itself answered 406".');
+        self::assertStringStartsWith('application/problem+json', $this->contentType(), 'Note: "These three … are sent as `application/problem+json`".');
+
+        $this->send('GET', '/items', null, [], 'application/json, application/problem+json');
+        self::assertSame(200, $this->httpStatus(), 'Note: "name the operation\'s format as well: `Accept: application/json, application/problem+json`".');
+
+        $this->send('POST', '/exports', ['resource' => 'inventory_item'], [], 'text/csv, application/problem+json');
+        self::assertSame(200, $this->httpStatus(), 'Note: "or `Accept: text/csv, application/problem+json` for the export".');
+        self::assertStringStartsWith('text/csv', $this->contentType(), 'Note: the export\'s format is `text/csv`.');
+
+        $this->actAsNobody();
+        $this->send('POST', '/exports', ['resource' => 'inventory_item'], [], 'text/csv, application/problem+json');
+        self::assertSame(401, $this->httpStatus(), 'The export without a token is refused.');
+        self::assertStringStartsWith('application/problem+json', $this->contentType(), 'Note: "like every refusal listed on an operation, are sent as `application/problem+json`" — under the export\'s advised `Accept`.');
     }
 
     /**
@@ -599,8 +632,7 @@ final class ErrorResponsesTest extends ApiTestCase
                 if ($notPaged && $after) {
                     $faults[] = $label.' says the list is not paged, but the operation declares `after`';
                 }
-                $withoutPending = str_replace(self::SUCCESS_ID_PENDING[$name] ?? "\0", '', $description);
-                if (1 === preg_match('/\b(?:E|G|BK)-\d|\bRED\b|\bO[R]CH\b|docs\//', $withoutPending)) {
+                if ([] !== PublishedSpecText::privateRecordRules($description)) {
                     $faults[] = $label.' carries a review id';
                 }
             }

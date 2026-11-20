@@ -35,6 +35,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // house problem shape (`App\Platform\Http\ProblemResponses`).
             openapi: new OpenApiOperation(
                 operationId: 'CreatePasswordResetRedemption',
+                summary: 'Set a new password',
+                description: 'Sets a new password using the token from a reset link, and signs the account out everywhere.',
                 responses: [
                     '200' => new OpenApiResponse(description: 'The new password is saved; `changed_at` is when. Every session of this account has ended, this link and every other unused link for the account no longer work, and any pause on signing in is lifted. Sign in with the new password, no sooner than one second after `changed_at`: a token issued in that same second is not accepted.'),
                     '401' => new OpenApiResponse(description: 'This link can\'t be used. The same answer is given for every reason (for example a link that is wrong, expired or already used, or an account or workspace that can no longer sign in), so it does not say which.'),

@@ -16,6 +16,7 @@ use App\Platform\Security\PermissionRequirement;
 use App\Tests\Support\ApiSurface;
 use App\Tests\Support\CanonicalJson;
 use App\Tests\Support\GeneratedSpec;
+use App\Tests\Support\PublishedSpecText;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 
@@ -30,8 +31,8 @@ use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
  *
  * The web app's proxy allowlist and generated types read these files without a running server, so a change to the API's
  * shape that does not regenerate them is red here. **To regenerate:** `make contracts` at the repository root (or, in
- * `backend/`, `CONTRACT_ARTEFACT_UPDATE=1 php bin/phpunit --filter ContractArtefactTest`), read the diff, commit it with
- * the change. Update mode rewrites the files and still FAILS, so no run can quietly re-baseline itself.
+ * `backend/`, `CONTRACT_ARTEFACT_UPDATE=1 php bin/phpunit --filter '(ContractArtefactTest|ApiReferenceTest)'`, which also
+ * writes the API reference in `contracts/reference/`), read the diff, commit it with the change. Update mode rewrites the files and still FAILS, so no run can quietly re-baseline itself.
  *
  * The spec is read from a cold cache: `tests/bootstrap.php` gives every PHPUnit process its own empty cache directory, so
  * stale API metadata cannot produce a stale file that then matches itself ({@see self::theSpecWasGeneratedFromAColdCache}).
@@ -42,7 +43,7 @@ final class ContractArtefactTest extends KernelTestCase
 {
     private const UPDATE = 'CONTRACT_ARTEFACT_UPDATE';
 
-    private const REGENERATE = 'Run `make contracts` (or `CONTRACT_ARTEFACT_UPDATE=1 php bin/phpunit --filter ContractArtefactTest` in backend/), read the diff, and commit it with the change.';
+    private const REGENERATE = 'Run `make contracts` (or `CONTRACT_ARTEFACT_UPDATE=1 php bin/phpunit --filter \'(ContractArtefactTest|ApiReferenceTest)\'` in backend/), read the diff, and commit it with the change.';
 
     private const SECRET_NAME = '/SECRET|PASSWORD|KEY|TOKEN|DSN|DATABASE_URL|MAC/i';
 
@@ -209,7 +210,8 @@ final class ContractArtefactTest extends KernelTestCase
     /**
      * The artefacts are public: they must not name the tools or roles used to build this project. The set is the public
      * export's content rule (`check.sh`, `CONTENT_BAD`) plus four names; a change to one is a reason to re-read the other.
-     * Product words (the query and reorder features) are allowed. Needles are split so this file does not contain them.
+     * Product words (the query and reorder features) are allowed. The needles are {@see PublishedSpecText::TOOL_NEEDLES}
+     * (one source with the published-text check), split there so no file contains them.
      */
     #[Test]
     public function theArtefactsCarryNoInternalToolNames(): void
@@ -245,10 +247,7 @@ final class ContractArtefactTest extends KernelTestCase
     /** @return list<string> one entry per hit: "<json path> <needle>" */
     public static function internalNamesIn(string $json): array
     {
-        $needles = [
-            '/cla'.'ude/i', '/anthr'.'opic/i', '/\bOR'.'CH\b/i', '/RERUN '.'agent/i', '/agen'.'ts read this file/i',
-            '/BE-'.'LEAD/i', '/\.agen'.'t-work/i', '/CLA'.'UDE\.md/i', '/\.cla'.'ude\//i',
-        ];
+        $needles = PublishedSpecText::TOOL_NEEDLES;
         $hits = [];
         $walk = static function (mixed $node, string $path) use (&$walk, &$hits, $needles): void {
             if (\is_array($node)) {
@@ -274,7 +273,8 @@ final class ContractArtefactTest extends KernelTestCase
         return $hits;
     }
 
-    private static function generatedSpec(): string
+    /** The spec as `make contracts` writes it; also what `ApiReferenceTest` renders the reference from. Needs a booted kernel. */
+    public static function generatedSpec(): string
     {
         return self::$spec ??= CanonicalJson::encode(GeneratedSpec::rawDocument(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().')));
     }
@@ -282,9 +282,11 @@ final class ContractArtefactTest extends KernelTestCase
     /**
      * @param array<string, mixed> $spec
      *
+     * Also what `ApiReferenceTest` renders the reference from. Needs a booted kernel.
+     *
      * @return array{surface: array<string, mixed>, problems: list<string>}
      */
-    private static function buildSurface(array $spec): array
+    public static function buildSurface(array $spec): array
     {
         $operations = TransactionBoundaryTest::contractOperations();
         $registry = [];

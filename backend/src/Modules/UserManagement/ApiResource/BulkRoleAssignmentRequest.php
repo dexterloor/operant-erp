@@ -35,9 +35,11 @@ use App\Platform\Security\PermissionGate;
             status: 200,
             openapi: new OpenApiOperation(
                 operationId: 'CreateBulkRoleAssignment',
+                summary: 'Give a role in bulk',
+                description: 'Gives one role to several people in one request.',
                 responses: [
                     '200' => new OpenApiResponse(
-                        description: 'How many people were named, how many were given the role, and the role\'s margin warning. Which ones, and why the rest were not, is never said (E-14).',
+                        description: 'How many people were named, how many were given the role, and the role\'s margin warning. Which ones, and why the rest were not, is never said.',
                         content: new \ArrayObject(['application/json' => ['schema' => [
                             'type' => 'object',
                             'additionalProperties' => false,

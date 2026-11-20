@@ -7,6 +7,7 @@ namespace App\Modules\UserManagement\ApiResource;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\RequestBody;
 use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\UserManagement\ApiResource\State\IssueTokenProcessor;
 use App\Platform\Http\Instant;
@@ -57,6 +58,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // house problem shape (`App\Platform\Http\ProblemResponses`).
             openapi: new OpenApiOperation(
                 operationId: 'IssueToken',
+                summary: 'Sign in',
+                description: 'Signs in to one workspace with an email and a password, and returns an access token.',
+                requestBody: new RequestBody(description: 'The workspace, email and password to sign in with.', required: true),
                 responses: [
                     '200' => new OpenApiResponse(description: 'Signed in. Send `access_token` in an `Authorization: Bearer` header on every request outside `/api/v1/auth/`. It stops working at `expires_at`, or sooner, for example if the account is deactivated or its password is changed or reset.'),
                     '401' => new OpenApiResponse(description: 'Sign-in refused. The same answer is given whatever the reason (a workspace, email or password that does not match, or an account or workspace that cannot sign in), so it does not say which.'),

@@ -106,6 +106,8 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // house problem shape (`App\Platform\Http\ProblemResponses`).
             openapi: new OpenApiOperation(
                 operationId: 'ChangePassword',
+                summary: 'Change password',
+                description: 'Changes the signed-in person\'s password. Every session of the account ends, this one included.',
                 responses: [
                     '200' => new OpenApiResponse(description: 'The password was changed at `changed_at`. Every session of this account has ended, this one included, so the token that made this request no longer works. Sign in again with the new password, no sooner than one second after `changed_at`: a token issued in that same second is not accepted.'),
                     '429' => new OpenApiResponse(description: 'This account\'s password was changed too many times recently. Wait before changing it again; no wait time is given.'),

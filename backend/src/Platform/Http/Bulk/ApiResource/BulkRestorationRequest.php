@@ -34,9 +34,11 @@ use App\Platform\Security\PermissionGate;
             status: 200,
             openapi: new OpenApiOperation(
                 operationId: 'CreateBulkRestoration',
+                summary: 'Restore in bulk',
+                description: 'Restores several archived records of one kind in one request.',
                 responses: [
                     '200' => new OpenApiResponse(
-                        description: 'How many records were asked for and how many were restored. Which ones, and why the rest were not, is never said (E-14).',
+                        description: 'How many records were asked for and how many were restored. Which ones, and why the rest were not, is never said.',
                         content: new \ArrayObject(['application/json' => ['schema' => [
                             'type' => 'object',
                             'additionalProperties' => false,

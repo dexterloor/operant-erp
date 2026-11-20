@@ -7,6 +7,7 @@ namespace App\Modules\AuditLog\ApiResource;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
+use ApiPlatform\OpenApi\Model\RequestBody;
 use ApiPlatform\OpenApi\Model\Response as OpenApiResponse;
 use App\Modules\AuditLog\ApiResource\State\CreateExportProcessor;
 use App\Modules\AuditLog\Application\ExportPermission;
@@ -36,6 +37,9 @@ use App\Platform\Security\PermissionGate;
             outputFormats: ['csv' => ['text/csv']],
             openapi: new OpenApiOperation(
                 operationId: 'CreateExport',
+                summary: 'Export a list',
+                description: 'Returns one list, filtered and sorted as asked, as a CSV file.',
+                requestBody: new RequestBody(description: 'Which list to export, and its filters and order.', required: true),
                 responses: [
                     '200' => new OpenApiResponse(
                         description: 'The current filtered view of the named List, as CSV (RFC 4180, UTF-8 with a BOM, CRLF line ends).',

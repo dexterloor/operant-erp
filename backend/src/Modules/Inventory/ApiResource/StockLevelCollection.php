@@ -39,11 +39,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: StockLevelCollectionProvider::class,
             parameters: [
                 'storage_location_id' => new QueryParameter(
-                    description: 'One bin\'s stock, by item SKU. Exactly one of storage_location_id and inventory_item_id is required (API-19b). A bin this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
+                    description: 'One location\'s stock, ordered by item SKU. Send exactly one of `storage_location_id` and `inventory_item_id`. A location this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'inventory_item_id' => new QueryParameter(
-                    description: 'One item\'s stock, by bin code, with each bin\'s warehouse. Exactly one of storage_location_id and inventory_item_id is required (API-19b). An item this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
+                    description: 'One item\'s stock in each location, ordered by location code, with each location\'s warehouse. Send exactly one of `storage_location_id` and `inventory_item_id`. An item this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
             ],

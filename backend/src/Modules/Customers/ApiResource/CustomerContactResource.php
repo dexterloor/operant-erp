@@ -93,7 +93,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             ],
             name: 'DeleteCustomerContact',
             status: 204,
-            openapi: new OpenApiOperation(operationId: 'DeleteCustomerContact'),
+            openapi: new OpenApiOperation(
+                operationId: 'DeleteCustomerContact',
+                summary: 'Delete customer contact',
+                description: 'Removes one customer contact for good.',
+            ),
             read: false,
             processor: DeleteCustomerContactProcessor::class,
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.edit'],

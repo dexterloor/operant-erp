@@ -3,11 +3,13 @@
 api_platform:
     title: 'ERP API'
     # The second paragraph (BK-18 R18-h C1; wording owner UX): the refusals that answer how a request was sent are stated
-    # here once, not on each operation (`App\Platform\Http\ProblemResponses`). The first sentence is left to the static
-    # reference's scrub. The `Accept` advice for the export was measured: `text/csv, application/problem+json` answers
-    # the CSV, and a refusal under it is a problem body.
+    # here once, not on each operation (`App\Platform\Http\ProblemResponses`). The `Accept` advice is held to behaviour
+    # by `ErrorResponsesTest::theTransportNoteAcceptAdviceIsTrue`: `text/csv, application/problem+json` answers the CSV,
+    # and a refusal under it is a problem body. The first paragraph tells a stranger how to sign in and what every
+    # operation shares (2b, wording owner UX); the security scheme it names is written by
+    # `App\Platform\Http\PublishedDocument`.
     description: |-
-        Contract: docs/API.md. Paths in its §4.2 table omit the /api/v1 prefix.
+        The JSON API of Operant ERP. Every path starts with `/api/v1`. Sign in with `IssueToken` (`POST /api/v1/auth/token`) and send the `access_token` it returns as `Authorization: Bearer <token>` on every operation outside `/api/v1/auth/`. Outside `/api/v1/auth/`, the token decides which workspace a request acts in, and no request names one. Each operation lists the refusals it can answer. An operation that lists 428 needs an `Idempotency-Key` header.
 
         Any request can also be refused for how it was sent rather than what it asks: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation's format (`application/json` for every operation except the export, which is `text/csv`), and 415 when a body is sent with a `Content-Type` other than `application/json`. These three, like every refusal listed on an operation, are sent as `application/problem+json`. An `Accept` that names only `application/problem+json` is itself answered 406, so name the operation's format as well: `Accept: application/json, application/problem+json`, or `Accept: text/csv, application/problem+json` for the export. One refusal is outside that shape: a request whose `Host` header is malformed is refused 400 before any operation runs. None of these is listed on each operation.
     version: '1.0.0'

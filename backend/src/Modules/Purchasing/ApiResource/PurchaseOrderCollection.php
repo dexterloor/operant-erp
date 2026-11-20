@@ -65,23 +65,23 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: PurchaseOrderCollectionProvider::class,
             parameters: [
                 'status' => new QueryParameter(
-                    description: 'The list segment. §10.3 derivation step 2: the manifest\'s own segment names for this route, never the entity\'s raw STATUS_* values. `open` covers `ordered` and `partially_received`.',
+                    description: 'Which orders to list. `open` covers `ordered` and `partially_received`.',
                     schema: ['type' => 'string', 'enum' => PurchaseOrderViews::SEGMENT_NAMES],
                 ),
                 'supplier_id' => new QueryParameter(
-                    description: 'Restrict to one supplier. The sort manifest\'s "/purchase-orders filtered to a supplier" predicate, served by purchase_order_tenant_supplier_idx.',
+                    description: 'Only one supplier\'s orders.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'archived' => new QueryParameter(
-                    description: 'Return the archived (deleted) orders instead of the live ones (TB-3), most recently archived first. API-19c limb 1: IA §5.6 has a /purchase-orders Archived view (order restores C3). Not combinable with status or supplier_id.',
+                    description: 'Return the archived (deleted) orders instead of the live ones, most recently archived first. Not with `status` or `supplier_id`: sending either is refused 422 `mutually_exclusive`.',
                     schema: ['type' => 'boolean', 'default' => false],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, purchase_order.order_number, and it is the only column searched.',
+                    description: 'Search: a prefix of the `order_number`. Nothing else is searched.',
                     schema: ['type' => 'string'],
                 ),
                 'sort' => new QueryParameter(
-                    description: 'The order. Legal values depend on the view (API-19): on the live views order_number always, ordered_at only where IA.md §5.6 offers it and every row in the view carries one; on the Archived view archived_at, newest first, and nothing else.',
+                    description: 'The order. `order_number` is always allowed. `ordered_at` is allowed only with `status=open`, or with `supplier_id` together with `status=open` or `status=received`; where it is allowed it is the default, elsewhere `order_number` is. With `archived=true`, only `archived_at`, newest first.',
                     schema: ['type' => 'string', 'enum' => [
                         PurchaseOrderViews::SORT_ORDER_NUMBER,
                         PurchaseOrderViews::SORT_ORDERED_AT,
@@ -89,7 +89,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ]],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -98,11 +98,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

@@ -39,15 +39,15 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: AuditRecordCollectionProvider::class,
             parameters: [
                 'subject_type' => new QueryParameter(
-                    description: 'Required. The table of the record whose History this is — one of the subjects with a read code (RecordHistorySubjects, PC-9\'s map). Refused (422 required) only after the permission check, so a caller without audit_log.view_record is told 403 first.',
+                    description: 'Required. The kind of record whose history to list, one of the listed values. You also need that kind of record\'s read permission (for example `invoice.view` for `credit_note`); without it the answer is 403 naming that permission. Leaving it out is refused 422 `required`, but only after the check for `audit_log.view_record`: a caller without it is told 403 first.',
                     schema: ['type' => 'string', 'enum' => RecordHistorySubjects::TYPES],
                 ),
                 'subject_id' => new QueryParameter(
-                    description: 'Required. The record\'s id. The sort manifest\'s "History section (L-7) on any detail page" predicate, with subject_type, served by audit_log_tenant_subject_occurred_id_idx. An id this workspace has no History for — unknown, another workspace\'s, or a record with no admitted event — is an empty page, never a 404.',
+                    description: 'Required. The record\'s id. An id this workspace has no history for (unknown, another workspace\'s, or a record with no listed event) is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -56,11 +56,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

@@ -113,7 +113,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             ],
             name: 'DeleteSupplierProduct',
             status: 204,
-            openapi: new OpenApiOperation(operationId: 'DeleteSupplierProduct'),
+            openapi: new OpenApiOperation(
+                operationId: 'DeleteSupplierProduct',
+                summary: 'Delete supplier product',
+                description: 'Removes one supplier\'s catalogue entry for good.',
+            ),
             read: false,
             processor: DeleteSupplierProductProcessor::class,
             extraProperties: [

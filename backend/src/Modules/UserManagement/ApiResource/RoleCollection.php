@@ -36,11 +36,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: RoleCollectionProvider::class,
             parameters: [
                 'archived' => new QueryParameter(
-                    description: 'Return the archived roles instead of the live ones. API-19c limb 1: IA §5.6 has an /admin/roles Archived view.',
+                    description: 'Return the archived roles instead of the live ones.',
                     schema: ['type' => 'boolean', 'default' => false],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, role.name, and it is the only column searched (a case-insensitive prefix, IA TB-5a).',
+                    description: 'Search: a prefix of the `name`, ignoring case. Nothing else is searched.',
                     schema: ['type' => 'string'],
                 ),
             ],
