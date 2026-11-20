@@ -31,8 +31,8 @@ use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
  *
  * The web app's proxy allowlist and generated types read these files without a running server, so a change to the API's
  * shape that does not regenerate them is red here. **To regenerate:** `make contracts` at the repository root (or, in
- * `backend/`, `CONTRACT_ARTEFACT_UPDATE=1 php bin/phpunit --filter ContractArtefactTest`), read the diff, commit it with
- * the change. Update mode rewrites the files and still FAILS, so no run can quietly re-baseline itself.
+ * `backend/`, `CONTRACT_ARTEFACT_UPDATE=1 php bin/phpunit --filter '(ContractArtefactTest|ApiReferenceTest)'`, which also
+ * writes the API reference in `contracts/reference/`), read the diff, commit it with the change. Update mode rewrites the files and still FAILS, so no run can quietly re-baseline itself.
  *
  * The spec is read from a cold cache: `tests/bootstrap.php` gives every PHPUnit process its own empty cache directory, so
  * stale API metadata cannot produce a stale file that then matches itself ({@see self::theSpecWasGeneratedFromAColdCache}).
@@ -43,7 +43,7 @@ final class ContractArtefactTest extends KernelTestCase
 {
     private const UPDATE = 'CONTRACT_ARTEFACT_UPDATE';
 
-    private const REGENERATE = 'Run `make contracts` (or `CONTRACT_ARTEFACT_UPDATE=1 php bin/phpunit --filter ContractArtefactTest` in backend/), read the diff, and commit it with the change.';
+    private const REGENERATE = 'Run `make contracts` (or `CONTRACT_ARTEFACT_UPDATE=1 php bin/phpunit --filter \'(ContractArtefactTest|ApiReferenceTest)\'` in backend/), read the diff, and commit it with the change.';
 
     private const SECRET_NAME = '/SECRET|PASSWORD|KEY|TOKEN|DSN|DATABASE_URL|MAC/i';
 
@@ -273,7 +273,8 @@ final class ContractArtefactTest extends KernelTestCase
         return $hits;
     }
 
-    private static function generatedSpec(): string
+    /** The spec as `make contracts` writes it; also what `ApiReferenceTest` renders the reference from. Needs a booted kernel. */
+    public static function generatedSpec(): string
     {
         return self::$spec ??= CanonicalJson::encode(GeneratedSpec::rawDocument(self::$kernel ?? throw new \LogicException('The kernel is booted in setUp().')));
     }
@@ -281,9 +282,11 @@ final class ContractArtefactTest extends KernelTestCase
     /**
      * @param array<string, mixed> $spec
      *
+     * Also what `ApiReferenceTest` renders the reference from. Needs a booted kernel.
+     *
      * @return array{surface: array<string, mixed>, problems: list<string>}
      */
-    private static function buildSurface(array $spec): array
+    public static function buildSurface(array $spec): array
     {
         $operations = TransactionBoundaryTest::contractOperations();
         $registry = [];

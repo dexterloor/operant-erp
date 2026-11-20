@@ -483,6 +483,23 @@ final class PublishedSpecText
         return false;
     }
 
+    /**
+     * Rule T over any text (the reference's Markdown): each needle or role label it matches.
+     *
+     * @return list<string>
+     */
+    public static function toolNamesInText(string $text): array
+    {
+        $hits = [];
+        foreach ([...self::TOOL_NEEDLES, self::ROLE_LABELS] as $needle) {
+            if (1 === preg_match($needle, $text)) {
+                $hits[] = $needle;
+            }
+        }
+
+        return $hits;
+    }
+
     private static function toolNamesIn(string $text): bool
     {
         foreach (self::TOOL_NEEDLES as $needle) {

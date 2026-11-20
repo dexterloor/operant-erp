@@ -62,6 +62,7 @@ review, build, final ruling), not people.
 | Permissions and separation of duties | `backend/src/Modules/UserManagement/Domain/PermissionCatalogue.php`, `SeparationOfDuty.php` |
 | Safe retries for create requests | `backend/src/Platform/Http/Idempotency/` |
 | Queued email: workspace stamping and the invitation sender | `backend/src/Platform/Messaging/`, `backend/src/Modules/UserManagement/Infrastructure/Messaging/` |
+| Every API operation, who may call it and how it is refused | `contracts/reference/README.md` |
 
 ## For engineers
 
