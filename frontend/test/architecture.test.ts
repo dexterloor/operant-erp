@@ -2605,7 +2605,7 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
 //   frontend/test/stock/marker.test.ts exist, read by fixed path only while T holds, name their cases and preconditions,
 //   and mock or spy on no G-47 input; (f) copy/stock.ts holds STOCK_LOCATION_MARKER with quarantine/archived/unknown
 //   (closed by `} as const;` or `} as const satisfies …;`), and a file under app/(app)/stock/ that each /stock page reaches
-//   uses it. The planted controls P-0…P-41 each assert their exact rule-letter set, identical in both twins.
+//   uses it. The planted controls P-0…P-41b each assert their exact rule-letter set, identical in both twins.
 // Limits (plan §5.7, stated in both docblocks):
 //   1. Presence, not behaviour: a page that calls the helpers and shows rows anyway passes (P-30, P-31, P-31b are pinned as
 //      passing). The gate test and the ten hand checks in the screen's commit carry behaviour.
@@ -2627,11 +2627,12 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
 //      deriveNavigation() without the built filter is not watched; this walk refuses every symlink under src (the backend
 //      reads file links and does not descend into directory links).
 //   9. Nothing compares the two twins' planted controls mechanically; the commit review compares their letter sets. P-20,
-//      P-29, P-39d…P-39l, P-40, P-41 and P-41b pin exact defect lines, so the text and order of those lines are held in each twin.
+//      P-29, P-38, P-39d, P-39d2, P-39d3, P-39e, P-39h…P-39l, P-39l2, P-39l3, P-39n, P-39o, P-40, P-41 and P-41b pin exact
+//      defect lines, so the text and order of those lines are held in each twin.
 //      NEXT_ENTRY_NAMES and NEXT_ROUTE_NAMES must be identical in both twins; until the G-47 message-parity test covers
 //      them, the commit review compares them.
-//  10. (a4) checks entry files: a code file under src/app (.ts, .tsx, .js or .jsx, outside `_` folders) whose name is a Next
-//      convention (NEXT_ENTRY_NAMES) or that nothing under src imports. A route handler, metadata route or instrumentation
+//  10. (a4) checks entry files: a code file under src/app (.ts, .tsx, .js or .jsx, with no path segment starting `_`) whose
+//      name is a Next convention (NEXT_ENTRY_NAMES) or that nothing under src imports. A route handler, metadata route or instrumentation
 //      file that reaches a row file is refused under (b). A segment file under app/(app)/stock/ (layout, loading, error,
 //      not-found, template, default) is an entry: it must not import StockStates.tsx or any other file naming the stock read,
 //      or it owes (a1)-(a3); an error file never can (P-39c). Not seen: a convention newer than NEXT_ENTRY_NAMES, or a
@@ -2820,7 +2821,7 @@ const NEXT_ROUTE_NAMES: readonly string[] = ['route', 'opengraph-image', 'twitte
 const INSTRUMENTATION_FILE = /^instrumentation(?:-client)?\.(?:ts|tsx|js|jsx)$/;
 /** The name of a key: after its last `/`, minus one final .ts/.tsx/.js/.jsx (so `page.test.tsx` is `page.test`). */
 const stockFileName = (f: string): string => f.slice(f.lastIndexOf('/') + 1).replace(/\.(?:ts|tsx|js|jsx)$/, '');
-/** A code file under app/, outside `_` folders. */
+/** A code file under app/ with no path segment starting `_`. */
 const isAppCodeFile = (f: string): boolean => f.startsWith('app/') && /\.(?:ts|tsx|js|jsx)$/.test(f) && !/(?:^|\/)_/.test(f);
 
 /**
@@ -3143,7 +3144,7 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
     expect(verdicts).toEqual(triggers.map(([name, , , , due]) => [name, due]));
   });
 
-  it("planted controls P-0…P-41: the honest tree H and each one-change variant give exactly their rule letters, as the backend check says", () => {
+  it("planted controls P-0…P-41b: the honest tree H and each one-change variant give exactly their rule letters, as the backend check says", () => {
     // The honest tree H (stock-st2-plan.md §5.6): the §2 layout of stock-f1-replacement-red.md, in the forms ST-2b writes.
     const PAGE = 'app/(app)/stock/page.tsx';
     const VIEW = 'app/(app)/stock/StockLevelsView.tsx';
@@ -3386,6 +3387,41 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
         ['a4.a2', 'a4.a3'],
       ],
       ['P-39l an instrumentation file reaches the row loader', { sources: { 'instrumentation-client.ts': "import { loadStockForItem } from '@/lib/stock/levels';" } }, ['b']],
+      // ST-2a3 (stock-st2a2-commit-red.md L-2, L-3, L-5): the private-folder exclusion, the server instrumentation arm and the order inside (b).
+      ['P-39l2 a server instrumentation file reaches the row loader', { sources: { 'instrumentation.ts': "import { loadStockForItem } from '@/lib/stock/levels';" } }, ['b']],
+      ['P-39m an unimported file in a private folder reaches the row loader', { sources: { 'app/(app)/items/_wip/x.ts': LV } }, []],
+      [
+        'P-39n a route handler and an instrumentation file both reach the row loader',
+        { sources: { 'app/bff/stock-rows/route.ts': LV, 'instrumentation-client.ts': "import { loadStockForItem } from '@/lib/stock/levels';" } },
+        ['b'],
+      ],
+      // ST-2a3 amend (stock-st2a3-commit-red.md L-A…L-D): half (ii)'s "no other key", the .js arms, the private-segment shape,
+      // and order and "first row file" inside both (b) branches. Keep the source keys in this insertion order (P-39l3 needs it).
+      ['P-39o a code file under app/ that imports itself, and nothing else imports, reaches the row loader', { sources: { 'app/(app)/items/Self.ts': `import { me } from './Self';\n${LV}` } }, ['a4.a2', 'a4.a3']],
+      ['P-39p a .js layout and a .js instrumentation file reach the row loader', { sources: { 'app/(app)/items/[id]/layout.js': LV, 'instrumentation.js': "import { loadStockForItem } from '@/lib/stock/levels';" } }, ['a4.a2', 'a4.a3', 'b']],
+      ['P-39m2 a page in a private folder and a file whose name starts with _ reach the row loader', { sources: { 'app/(app)/items/_wip/page.tsx': LV, 'app/(app)/items/_x.ts': LV } }, []],
+      [
+        'P-39l3 both instrumentation files reach row files, and the server one reaches a second row file first',
+        {
+          sources: {
+            'instrumentation.ts': "import { loadStockForItem } from '@/lib/stock/levels';\nimport { r } from '@/app/(app)/stock/source';",
+            'app/(app)/stock/source.ts': "export const r = read('ListStockLevels');",
+            'instrumentation-client.ts': "import { loadStockForItem } from '@/lib/stock/levels';",
+          },
+        },
+        ['b'],
+      ],
+      [
+        'P-39d3 two route handlers reach row files, and the first reaches a second row file first',
+        {
+          sources: {
+            'app/bff/a/route.ts': "import { loadStockForItem } from '@/lib/stock/levels';\nimport { r } from '@/app/(app)/stock/source';",
+            'app/(app)/stock/source.ts': "export const r = read('ListStockLevels');",
+            'app/bff/b/route.ts': LV,
+          },
+        },
+        ['b'],
+      ],
       // M-1: defect text and order are pinned (exact lines below).
       [
         'P-40 four changes at once: two pages reach row files, two components and a shared file name the read',
@@ -3410,7 +3446,8 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
     expect(verdicts).toEqual(controls.map(([name, , letters]) => [name, [...letters].sort(byteOrder)]));
     expect(new Set(controls.map(([name]) => name.split(' ')[0])).size, 'two planted controls share an id').toBe(controls.length);
 
-    // M-1 and ST-2a2: exact defect lines, in order, for P-20, P-29, P-39d…P-39l (the pinned ones), P-40, P-41 and P-41b -- the text and order the backend twin copies.
+    // M-1, ST-2a2 and ST-2a3: exact defect lines, in order, for P-20, P-29, P-38, P-39d, P-39d2, P-39d3, P-39e, P-39h…P-39l,
+    // P-39l2, P-39l3, P-39n, P-39o, P-40, P-41 and P-41b -- the text and order the backend twin copies.
     const B_TEXT =
       'names the stock read outside the stock-on-hand files; keep it out of the shared stock files (lib/api/stock.ts, ' +
       'lib/stock/load.ts, copy/stock.ts), whose importers include the movement pages, and name it only in lib/stock/levels.ts ' +
@@ -3419,6 +3456,7 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
     const A3_TEXT = 'reaches no call of stockRowMarker( (imported from lib/stock/marker) under app/(app)/stock/';
     const GATE_ONLY = 'the gate helper holds the gate only';
     const P39D_LINE = '[b] src/app/bff/stock-rows/route.ts is a route handler or metadata route that reaches the row file src/lib/stock/levels.ts; no route serves stock rows';
+    const P39L_LINE = '[b] src/instrumentation-client.ts is an instrumentation file that reaches the row file src/lib/stock/levels.ts; no route serves stock rows';
     const P39E_LINE = `[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A3_TEXT}`;
     const exactLines: Record<string, string[]> = {
       'P-20': [
@@ -3457,7 +3495,28 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
         `[a4.a2] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A2_TEXT}`,
         `[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A3_TEXT}`,
       ],
-      'P-39l': ['[b] src/instrumentation-client.ts is an instrumentation file that reaches the row file src/lib/stock/levels.ts; no route serves stock rows'],
+      'P-39l': [P39L_LINE],
+      // ST-2a3 (stock-st2a2-commit-red.md L-1, L-3, L-5): an entry that is itself a row file prints both (b) lines; the
+      // server instrumentation arm; branch 1 (routes) before branch 2 (instrumentation).
+      'P-38': [
+        '[b] src/app/(app)/stock/rows/route.ts is a route handler or server action naming the stock read; no route serves stock rows',
+        '[b] src/app/(app)/stock/rows/route.ts is a route handler or metadata route that reaches the row file src/app/(app)/stock/rows/route.ts; no route serves stock rows',
+      ],
+      'P-39l2': ['[b] src/instrumentation.ts is an instrumentation file that reaches the row file src/lib/stock/levels.ts; no route serves stock rows'],
+      'P-39n': [P39D_LINE, P39L_LINE],
+      // ST-2a3 amend (stock-st2a3-commit-red.md L-A, L-D).
+      'P-39o': [
+        `[a4.a2] src/app/(app)/items/Self.ts reaches the row file src/lib/stock/levels.ts and ${A2_TEXT}`,
+        `[a4.a3] src/app/(app)/items/Self.ts reaches the row file src/lib/stock/levels.ts and ${A3_TEXT}`,
+      ],
+      'P-39l3': [
+        P39L_LINE,
+        '[b] src/instrumentation.ts is an instrumentation file that reaches the row file src/app/(app)/stock/source.ts; no route serves stock rows',
+      ],
+      'P-39d3': [
+        '[b] src/app/bff/a/route.ts is a route handler or metadata route that reaches the row file src/app/(app)/stock/source.ts; no route serves stock rows',
+        '[b] src/app/bff/b/route.ts is a route handler or metadata route that reaches the row file src/lib/stock/levels.ts; no route serves stock rows',
+      ],
     };
     for (const [id, lines] of Object.entries(exactLines)) {
       const control = controls.find(([name]) => name.split(' ')[0] === id);
@@ -3520,6 +3579,7 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
       expect(named, `Positive control: src/${file} is not among the entry files named by a Next convention, so half (i) of (a4)'s entry set reads less than it should.`).toContain(file);
     }
     // 2. Half (ii) is not vacuous: an imported file is out of it, a file nothing imports is in it.
+    expect(Object.keys(realSources()), 'Positive control: src/app/(app)/items/[id]/ItemPage.tsx is gone; pick another imported app file for this control.').toContain('app/(app)/items/[id]/ItemPage.tsx');
     expect(unimported, 'src/app/(app)/items/[id]/ItemPage.tsx is imported by its page, yet half (ii) of the entry set counts it as imported by nothing: the reverse pass is broken.').not.toContain('app/(app)/items/[id]/ItemPage.tsx');
     expect(unimported, 'Positive control: src/app/layout.tsx is imported by nothing, yet half (ii) of the entry set does not hold it: the reverse pass sees imports that are not there.').toContain('app/layout.tsx');
     // 3. Entries only half (ii) finds: a dead code file under src/app, or a Next convention newer than NEXT_ENTRY_NAMES.
@@ -3527,6 +3587,25 @@ describe('architecture — G-47: no stock rows without the gate and the row mark
       unimported.filter((file) => !named.includes(file)),
       'A code file under src/app is imported by nothing and is not named by a Next convention. Delete it if it is dead; if it is a Next convention, add its name to NEXT_ENTRY_NAMES (and the backend twin\'s), or add it here with a reason.',
     ).toEqual([]);
+  });
+
+  it('the file-name lists and the name strip are pinned (stock-st2a2-commit-red.md M-1, L-4)', () => {
+    // M-1: an edit to either list inside this twin goes red here; the backend twin pins the same literals.
+    expect(
+      NEXT_ENTRY_NAMES,
+      "NEXT_ENTRY_NAMES changed. Change the backend twin's list (OwedAmendmentTripwireTest, BK-45) to the same names, in the same order, in the same step, then move this pin.",
+    ).toEqual(['page', 'layout', 'template', 'loading', 'error', 'global-error', 'not-found', 'global-not-found', 'forbidden', 'unauthorized', 'default', 'route', 'opengraph-image', 'twitter-image', 'icon', 'apple-icon', 'sitemap', 'robots', 'manifest']);
+    expect(
+      NEXT_ROUTE_NAMES,
+      "NEXT_ROUTE_NAMES changed. Change the backend twin's list (OwedAmendmentTripwireTest, BK-45) to the same names, in the same order, in the same step, then move this pin.",
+    ).toEqual(['route', 'opengraph-image', 'twitter-image', 'icon', 'apple-icon', 'sitemap', 'robots', 'manifest']);
+    expect(
+      NEXT_ROUTE_NAMES.filter((n) => !NEXT_ENTRY_NAMES.includes(n)),
+      "A name in NEXT_ROUTE_NAMES is missing from NEXT_ENTRY_NAMES, so a route or metadata file of that name is an entry only while nothing imports it, and (b) misses it once something does. Add it to NEXT_ENTRY_NAMES here and in the backend twin's list (BK-45) in the same step.",
+    ).toEqual([]);
+    // L-4: the strip removes one final .ts, .tsx, .js or .jsx, and only that.
+    expect(['app/a/layout.ts', 'app/a/layout.tsx', 'app/a/layout.js', 'app/a/layout.jsx'].map(stockFileName)).toEqual(['layout', 'layout', 'layout', 'layout']);
+    expect(stockFileName('app/a/page.test.tsx')).toBe('page.test');
   });
 
   it('the real tree: anything that makes the stock trigger true meets C1′ (the stock page, its helpers, its tests, its copy key)', () => {
