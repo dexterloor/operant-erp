@@ -37,19 +37,19 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: SupplierCollectionProvider::class,
             parameters: [
                 'archived' => new QueryParameter(
-                    description: 'Return the archived suppliers instead of the live ones (TB-3), most recently archived first. API-19c limb 1: IA §5.6 has a /suppliers Archived view (C5).',
+                    description: 'Return the archived suppliers instead of the live ones, most recently archived first.',
                     schema: ['type' => 'boolean', 'default' => false],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. TB-5 names supplier.name and supplier.code: a prefix of the name, ignoring case, or of the code, as stored (IA TB-5a).',
+                    description: 'Search: a prefix of the `name`, ignoring case, or a prefix of the `code`, matched exactly as stored.',
                     schema: ['type' => 'string'],
                 ),
                 'sort' => new QueryParameter(
-                    description: 'The order, per view (API-19): name (the default) or code on the live view; archived_at, newest first (the default and only order) on the Archived view. The sort manifest\'s /suppliers rows.',
+                    description: 'The order. Live suppliers: `name` (the default) or `code`. Archived suppliers: only `archived_at`, newest first.',
                     schema: ['type' => 'string', 'enum' => SupplierListCriteria::SORTS],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -58,11 +58,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

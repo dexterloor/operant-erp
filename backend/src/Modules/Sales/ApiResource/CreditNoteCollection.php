@@ -28,23 +28,23 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: CreditNoteCollectionProvider::class,
             parameters: [
                 'invoice_id' => new QueryParameter(
-                    description: 'Restrict to the credit notes that reduce one invoice. An invoice this workspace cannot see matches nothing: an empty page, never a 404.',
+                    description: 'Only the credit notes that reduce one invoice. An invoice this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'customer_id' => new QueryParameter(
-                    description: 'Restrict to one customer\'s credit notes, through the invoice each reduces (the invoice\'s own customer).',
+                    description: 'Only one customer\'s credit notes: those that reduce an invoice of that customer.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'sales_return_id' => new QueryParameter(
-                    description: 'Restrict to the credit notes issued for one return. An adjustment credits no return and never matches.',
+                    description: 'Only the credit notes issued for one return. A credit note that credits no return (an adjustment) never matches.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5: one searchable column, credit_note.credit_note_number, matched by prefix.',
+                    description: 'Search: a prefix of the `credit_note_number`. Nothing else is searched.',
                     schema: ['type' => 'string'],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -53,11 +53,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

@@ -63,7 +63,7 @@
                                     ]
                                 },
                                 "metadata": {
-                                    "description": "Opaque, server-written; outside API-23b and API-23c; never a money amount.",
+                                    "description": "Details of the event, written by the server. Their shape depends on `event_type`, and they never hold a money amount.",
                                     "type": "object"
                                 },
                                 "occurred_at": {
@@ -5304,10 +5304,16 @@
                 "type": "object"
             }
         },
-        "securitySchemes": {}
+        "securitySchemes": {
+            "bearer": {
+                "description": "The `access_token` that `IssueToken` returns, sent as `Authorization: Bearer <token>`. It stops working at its `expires_at`, or sooner, for example if the account is deactivated or deleted, or its password is changed or reset.",
+                "scheme": "bearer",
+                "type": "http"
+            }
+        }
     },
     "info": {
-        "description": "Contract: docs/API.md. Paths in its §4.2 table omit the /api/v1 prefix.\n\nAny request can also be refused for how it was sent rather than what it asks: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation's format (`application/json` for every operation except the export, which is `text/csv`), and 415 when a body is sent with a `Content-Type` other than `application/json`. These three, like every refusal listed on an operation, are sent as `application/problem+json`. An `Accept` that names only `application/problem+json` is itself answered 406, so name the operation's format as well: `Accept: application/json, application/problem+json`, or `Accept: text/csv, application/problem+json` for the export. One refusal is outside that shape: a request whose `Host` header is malformed is refused 400 before any operation runs. None of these is listed on each operation.",
+        "description": "The JSON API of Operant ERP. Every path starts with `/api/v1`. Sign in with `IssueToken` (`POST /api/v1/auth/token`) and send the `access_token` it returns as `Authorization: Bearer <token>` on every operation outside `/api/v1/auth/`. Outside `/api/v1/auth/`, the token decides which workspace a request acts in, and no request names one. Each operation lists the refusals it can answer. An operation that lists 428 needs an `Idempotency-Key` header.\n\nAny request can also be refused for how it was sent rather than what it asks: 405 when the address does not serve that method (`allow` and the `Allow` header list the methods it does), 406 when the `Accept` header excludes the operation's format (`application/json` for every operation except the export, which is `text/csv`), and 415 when a body is sent with a `Content-Type` other than `application/json`. These three, like every refusal listed on an operation, are sent as `application/problem+json`. An `Accept` that names only `application/problem+json` is itself answered 406, so name the operation's format as well: `Accept: application/json, application/problem+json`, or `Accept: text/csv, application/problem+json` for the export. One refusal is outside that shape: a request whose `Host` header is malformed is refused 400 before any operation runs. None of these is listed on each operation.",
         "title": "ERP API",
         "version": "1.0.0"
     },
@@ -5320,7 +5326,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Restrict to one person's events, newest first. The sort manifest's \"/admin/audit-log filtered to an actor\" predicate, served by audit_log_tenant_actor_occurred_id_idx. Not with event_type (one_filter_at_a_time). A user this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
+                        "description": "Only one person's events, newest first. Not with `event_type`: sending both is refused 422 `one_filter_at_a_time`. A person this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "actor_user_id",
@@ -5333,7 +5339,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to one kind of event, newest first. The sort manifest's \"/admin/audit-log filtered to an event type\" predicate, served by audit_log_tenant_event_occurred_id_idx. Not with actor_user_id (one_filter_at_a_time).",
+                        "description": "Only one kind of event, newest first. Not with `actor_user_id`: sending both is refused 422 `one_filter_at_a_time`.",
                         "explode": true,
                         "in": "query",
                         "name": "event_type",
@@ -5420,7 +5426,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -5435,7 +5441,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -5447,7 +5453,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -5521,7 +5527,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Required. The table of the record whose History this is — one of the subjects with a read code (RecordHistorySubjects, PC-9's map). Refused (422 required) only after the permission check, so a caller without audit_log.view_record is told 403 first.",
+                        "description": "Required. The kind of record whose history to list, one of the listed values. You also need that kind of record's read permission (for example `invoice.view` for `credit_note`); without it the answer is 403 naming that permission. Leaving it out is refused 422 `required`, but only after the check for `audit_log.view_record`: a caller without it is told 403 first.",
                         "explode": true,
                         "in": "query",
                         "name": "subject_type",
@@ -5554,7 +5560,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Required. The record's id. The sort manifest's \"History section (L-7) on any detail page\" predicate, with subject_type, served by audit_log_tenant_subject_occurred_id_idx. An id this workspace has no History for — unknown, another workspace's, or a record with no admitted event — is an empty page, never a 404.",
+                        "description": "Required. The record's id. An id this workspace has no history for (unknown, another workspace's, or a record with no listed event) is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "subject_id",
@@ -5567,7 +5573,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -5582,7 +5588,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -5594,7 +5600,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -5703,6 +5709,7 @@
                         "description": "Too many attempts from this network. This limit is shared with signing in. Wait before trying again; no wait time is given."
                     }
                 },
+                "security": [],
                 "summary": "Creates a PasswordReset resource.",
                 "tags": [
                     "PasswordReset"
@@ -5786,6 +5793,7 @@
                         "description": "Too many attempts from this network. This limit is shared with signing in. Wait before trying again; no wait time is given."
                     }
                 },
+                "security": [],
                 "summary": "Creates a PasswordResetRedemption resource.",
                 "tags": [
                     "PasswordResetRedemption"
@@ -5869,6 +5877,7 @@
                         "description": "Too many sign-in attempts. `type` says which limit applied: too many attempts from this network, or sign-in paused for this workspace and email after repeated failures. Wait before trying again; no wait time is given."
                     }
                 },
+                "security": [],
                 "summary": "Creates a Token resource.",
                 "tags": [
                     "Token"
@@ -5917,7 +5926,7 @@
                                 }
                             }
                         },
-                        "description": "How many records were asked for and how many were archived. Which ones, and why the rest were not, is never said (E-14).",
+                        "description": "How many records were asked for and how many were archived. Which ones, and why the rest were not, is never said.",
                         "links": {}
                     },
                     "401": {
@@ -6027,7 +6036,7 @@
                                 }
                             }
                         },
-                        "description": "How many records were asked for and how many were restored. Which ones, and why the rest were not, is never said (E-14).",
+                        "description": "How many records were asked for and how many were restored. Which ones, and why the rest were not, is never said.",
                         "links": {}
                     },
                     "401": {
@@ -6141,7 +6150,7 @@
                                 }
                             }
                         },
-                        "description": "How many people were named, how many were given the role, and the role's margin warning. Which ones, and why the rest were not, is never said (E-14).",
+                        "description": "How many people were named, how many were given the role, and the role's margin warning. Which ones, and why the rest were not, is never said.",
                         "links": {}
                     },
                     "401": {
@@ -6216,7 +6225,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Restrict to the credit notes that reduce one invoice. An invoice this workspace cannot see matches nothing: an empty page, never a 404.",
+                        "description": "Only the credit notes that reduce one invoice. An invoice this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "invoice_id",
@@ -6229,7 +6238,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to one customer's credit notes, through the invoice each reduces (the invoice's own customer).",
+                        "description": "Only one customer's credit notes: those that reduce an invoice of that customer.",
                         "explode": true,
                         "in": "query",
                         "name": "customer_id",
@@ -6242,7 +6251,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to the credit notes issued for one return. An adjustment credits no return and never matches.",
+                        "description": "Only the credit notes issued for one return. A credit note that credits no return (an adjustment) never matches.",
                         "explode": true,
                         "in": "query",
                         "name": "sales_return_id",
@@ -6255,7 +6264,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5: one searchable column, credit_note.credit_note_number, matched by prefix.",
+                        "description": "Search: a prefix of the `credit_note_number`. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -6267,7 +6276,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -6282,7 +6291,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -6294,7 +6303,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -6453,7 +6462,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Return the archived customers instead of the live ones (TB-3), most recently archived first. API-19c limb 1: IA §5.6 has a /customers Archived view (C5).",
+                        "description": "Return the archived customers instead of the live ones, most recently archived first.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -6466,7 +6475,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. TB-5 names customer.name and customer.code: a prefix of the name, ignoring case, or of the code, as stored (IA TB-5a).",
+                        "description": "Search: a prefix of the `name`, ignoring case, or a prefix of the `code`, matched exactly as stored.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -6478,7 +6487,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "The order, per view (API-19): name (the default) or code on the live view; archived_at, newest first (the default and only order) on the Archived view. The sort manifest's /customers rows.",
+                        "description": "The order. Live customers: `name` (the default) or `code`. Archived customers: only `archived_at`, newest first.",
                         "explode": true,
                         "in": "query",
                         "name": "sort",
@@ -6495,7 +6504,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -6510,7 +6519,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -6522,7 +6531,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -8126,7 +8135,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Restrict to one order's shipments, newest shipment first. The sort manifest's \"/fulfilments inside /sales-orders/[id]\" predicate, served by fulfilment_tenant_order_idx. An order this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
+                        "description": "Only one order's shipments, newest shipment first. An order this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "sales_order_id",
@@ -8139,7 +8148,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, fulfilment.fulfilment_number, matched by prefix.",
+                        "description": "Search: a prefix of the `fulfilment_number`. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -8151,7 +8160,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -8166,7 +8175,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -8178,7 +8187,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -8576,7 +8585,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Restrict to one purchase order's receipts, newest receipt first. The sort manifest's \"/goods-receipts inside /purchase-orders/[id]\" predicate, served by goods_receipt_tenant_order_idx. An order this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
+                        "description": "Only one purchase order's receipts, newest receipt first. An order this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "purchase_order_id",
@@ -8589,7 +8598,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, goods_receipt.receipt_number, matched by prefix.",
+                        "description": "Search: a prefix of the `receipt_number`. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -8601,7 +8610,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -8616,7 +8625,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -8628,7 +8637,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -8787,7 +8796,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "The list segment, over the STORED status and the stored credits (TB-4 ³): `unpaid` (issued, not credited in full; an unpaid invoice past its due date is labelled overdue in each row, never filtered), `paid`, `credited` (issued, credited in full: owes nothing), `void`.",
+                        "description": "Which invoices to list: `unpaid` (issued and not credited in full; one past its due date shows as overdue in its row but is not filtered out), `paid`, `credited` (issued and credited in full, so it owes nothing), `void`.",
                         "explode": true,
                         "in": "query",
                         "name": "status",
@@ -8805,7 +8814,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to one customer. The sort manifest's \"/invoices filtered to a customer\" predicate, served by invoice_tenant_customer_idx. A customer this workspace cannot see matches nothing: an empty page, never a 404.",
+                        "description": "Only one customer's invoices. A customer this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "customer_id",
@@ -8818,7 +8827,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to the invoices of one shipment, newest first (V2-C-11). A shipment this workspace cannot see matches nothing: an empty page, never a 404.",
+                        "description": "Only the invoices of one shipment, newest first. A shipment this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "fulfilment_id",
@@ -8831,7 +8840,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, invoice.invoice_number, matched by prefix.",
+                        "description": "Search: a prefix of the `invoice_number`. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -8843,7 +8852,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "The order. Legal values depend on the view (API-19): invoice_number always; due_at on Unpaid; issued_at filtered to a customer; only invoice_number filtered to a fulfilment. Never paid_at.",
+                        "description": "The order. `invoice_number` is always allowed. With `customer_id`, `issued_at` is also allowed and is the default; otherwise, with `status=unpaid`, `due_at` is also allowed and is the default. With `fulfilment_id`, only `invoice_number`, newest first.",
                         "explode": true,
                         "in": "query",
                         "name": "sort",
@@ -8860,7 +8869,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -8875,7 +8884,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -8887,7 +8896,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -9702,7 +9711,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Restrict to one supplier. The sort manifest's \"/items filtered to a supplier\" predicate.",
+                        "description": "Only the items whose `supplier` is this supplier.",
                         "explode": true,
                         "in": "query",
                         "name": "supplier_id",
@@ -9715,7 +9724,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Return the archived items instead of the live ones (TB-3), most recently archived first. API-19c limb 1: IA §5.6 has an /items Archived view (remaining-ops G-I). Not combinable with supplier_id.",
+                        "description": "Return the archived items instead of the live ones, most recently archived first. Not with `supplier_id`: sending both is refused 422 `mutually_exclusive`.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -9728,7 +9737,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. TB-5 names exactly one searchable column on this table, inventory_item.sku; inventory_item.name is not searched (D-b).",
+                        "description": "Search: a prefix of the `sku`, matched exactly as stored. The `name` is not searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -9740,7 +9749,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -9755,7 +9764,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -9767,7 +9776,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -10507,7 +10516,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Restrict to one warehouse's open orders, served by sales_order_tenant_warehouse_awaiting_pick_idx. A warehouse this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
+                        "description": "Only one warehouse's open orders. A warehouse this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "warehouse_id",
@@ -10520,7 +10529,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, sales_order.order_number, matched by prefix.",
+                        "description": "Search: a prefix of the order's `order_number`. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -10532,7 +10541,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -10547,7 +10556,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -10559,7 +10568,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -10633,7 +10642,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "The list segment. §10.3 derivation step 2: the manifest's own segment names for this route, never the entity's raw STATUS_* values. `open` covers `ordered` and `partially_received`.",
+                        "description": "Which orders to list. `open` covers `ordered` and `partially_received`.",
                         "explode": true,
                         "in": "query",
                         "name": "status",
@@ -10651,7 +10660,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to one supplier. The sort manifest's \"/purchase-orders filtered to a supplier\" predicate, served by purchase_order_tenant_supplier_idx.",
+                        "description": "Only one supplier's orders.",
                         "explode": true,
                         "in": "query",
                         "name": "supplier_id",
@@ -10664,7 +10673,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Return the archived (deleted) orders instead of the live ones (TB-3), most recently archived first. API-19c limb 1: IA §5.6 has a /purchase-orders Archived view (order restores C3). Not combinable with status or supplier_id.",
+                        "description": "Return the archived (deleted) orders instead of the live ones, most recently archived first. Not with `status` or `supplier_id`: sending either is refused 422 `mutually_exclusive`.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -10677,7 +10686,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, purchase_order.order_number, and it is the only column searched.",
+                        "description": "Search: a prefix of the `order_number`. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -10689,7 +10698,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "The order. Legal values depend on the view (API-19): on the live views order_number always, ordered_at only where IA.md §5.6 offers it and every row in the view carries one; on the Archived view archived_at, newest first, and nothing else.",
+                        "description": "The order. `order_number` is always allowed. `ordered_at` is allowed only with `status=open`, or with `supplier_id` together with `status=open` or `status=received`; where it is allowed it is the default, elsewhere `order_number` is. With `archived=true`, only `archived_at`, newest first.",
                         "explode": true,
                         "in": "query",
                         "name": "sort",
@@ -10706,7 +10715,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -10721,7 +10730,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -10733,7 +10742,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -11534,7 +11543,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Return the archived lines instead of the live ones. API-19c limb 2: a bounded sub-list of a SchemaManifest::SOFT table.",
+                        "description": "Return the archived lines instead of the live ones.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -12166,7 +12175,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Restrict to one stored status. An expired proposal is still `pending` (its expiry is derived and shown as `is_expired`).",
+                        "description": "Only the proposals with one `status`. An expired proposal is still `pending`; that it has expired is shown as `is_expired`.",
                         "explode": true,
                         "in": "query",
                         "name": "status",
@@ -12185,7 +12194,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to the proposals naming one person as the subject. A person this workspace cannot see matches nothing: an empty page, never a 404.",
+                        "description": "Only the proposals whose `user` is one person. A person this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "user",
@@ -12198,7 +12207,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to the proposals of one role. A role this workspace cannot see matches nothing: an empty page, never a 404.",
+                        "description": "Only the proposals of one role. A role this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "role",
@@ -12211,7 +12220,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -12226,7 +12235,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -12238,7 +12247,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -12696,7 +12705,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Return the archived roles instead of the live ones. API-19c limb 1: IA §5.6 has an /admin/roles Archived view.",
+                        "description": "Return the archived roles instead of the live ones.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -12709,7 +12718,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, role.name, and it is the only column searched (a case-insensitive prefix, IA TB-5a).",
+                        "description": "Search: a prefix of the `name`, ignoring case. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -13254,7 +13263,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "The list segment. §10.3 derivation step 2: the manifest's own segment names for this route, never the entity's raw STATUS_* values. `open` covers `confirmed` and `partially_fulfilled`.",
+                        "description": "Which orders to list. `open` covers `confirmed` and `partially_fulfilled`.",
                         "explode": true,
                         "in": "query",
                         "name": "status",
@@ -13272,7 +13281,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to one customer. The sort manifest's \"/sales-orders filtered to a customer\" predicate, served by sales_order_tenant_customer_idx.",
+                        "description": "Only one customer's orders.",
                         "explode": true,
                         "in": "query",
                         "name": "customer_id",
@@ -13285,7 +13294,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Return the archived (deleted) orders instead of the live ones (TB-3), most recently archived first. API-19c limb 1: IA §5.6 has a /sales-orders Archived view (order restores C2). Not combinable with status or customer_id.",
+                        "description": "Return the archived (deleted) orders instead of the live ones, most recently archived first. Not with `status` or `customer_id`: sending either is refused 422 `mutually_exclusive`.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -13298,7 +13307,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, sales_order.order_number, and it is the only column searched.",
+                        "description": "Search: a prefix of the `order_number`. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -13310,7 +13319,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "The order. Legal values depend on the view (API-19): on the live views order_number always, ordered_at only where IA.md §5.6 offers it and every row in the view carries one; on the Archived view archived_at, newest first, and nothing else.",
+                        "description": "The order. `order_number` is always allowed. `ordered_at` is allowed only with `status=open`, or with `customer_id` together with `status=open` or `status=fulfilled`; where it is allowed it is the default, elsewhere `order_number` is. With `archived=true`, only `archived_at`, newest first.",
                         "explode": true,
                         "in": "query",
                         "name": "sort",
@@ -13327,7 +13336,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -13342,7 +13351,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -13354,7 +13363,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -14144,7 +14153,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Return the archived lines instead of the live ones. API-19c limb 2: a bounded sub-list of a SchemaManifest::SOFT table.",
+                        "description": "Return the archived lines instead of the live ones.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -14861,7 +14870,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Restrict to one shipment's returns. A shipment this workspace cannot see matches nothing: an empty page, never a 404.",
+                        "description": "Only one shipment's returns. A shipment this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "fulfilment_id",
@@ -14874,7 +14883,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Restrict to the returns recorded against one invoice (the invoice that was live when each was recorded).",
+                        "description": "Only the returns recorded against one invoice (the invoice that was live when each was recorded).",
                         "explode": true,
                         "in": "query",
                         "name": "invoice_id",
@@ -14887,7 +14896,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "true: the returns a credit note is owed for now (the credit issuer's queue); false: the others. PC-9's third exception: membership is served to every sales_return.view holder.",
+                        "description": "`true`: the returns a credit note is owed for now; `false`: the others. Unlike the filters that need `invoice.view`, anyone who may list returns may use it.",
                         "explode": true,
                         "in": "query",
                         "name": "creditable",
@@ -14903,7 +14912,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "true: the returns that lowered an invoice with no credit note (owner ruling Q-L (a′)) — a list to reconcile against goods actually received.",
+                        "description": "`true`: the returns that lowered an invoice without a credit note, to reconcile against the goods actually received.",
                         "explode": true,
                         "in": "query",
                         "name": "deducts",
@@ -14919,7 +14928,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "true: returns that would be creditable but whose invoice is paid. Served only to an invoice.view holder; refused as a parameter error for anyone else.",
+                        "description": "`true`: the returns that would be creditable but whose invoice is paid. Only for a caller holding `invoice.view`; anyone else is refused 422 `not_permitted`.",
                         "explode": true,
                         "in": "query",
                         "name": "credit_blocked_by_payment",
@@ -14935,7 +14944,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "true: returns on an order line that already carries a credit without a return, waiting for a decision (already credited, or, by an owner, different goods) before they can be credited. Served only to an invoice.view holder; refused as a parameter error for anyone else.",
+                        "description": "`true`: the returns on an order line that already carries a credit without a return, which wait for a decision (already credited, or, by an owner, different goods) before they can be credited. Only for a caller holding `invoice.view`; anyone else is refused 422 `not_permitted`.",
                         "explode": true,
                         "in": "query",
                         "name": "adjustment_decision_owed",
@@ -14951,7 +14960,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "same: returns carrying a live \"already credited\" decision — the owner's review list. Served only to an invoice.view holder.",
+                        "description": "`same`: the returns carrying a live \"already credited\" decision, for the owner to review. Only for a caller holding `invoice.view`; anyone else is refused 422 `not_permitted`.",
                         "explode": true,
                         "in": "query",
                         "name": "adjustment_decided",
@@ -14966,7 +14975,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "With adjustment_decided=same: only decisions recorded at or after this RFC 3339 instant. A decision's time is its transaction's start, so start each review a little before the last one. Served only to an invoice.view holder.",
+                        "description": "With `adjustment_decided=same`: only the decisions recorded at or after this RFC 3339 instant; without `adjustment_decided` it is refused 422 `needs_adjustment_decided`. A decision's time is when its transaction started, so start each review a little before the last one. Only for a caller holding `invoice.view`; anyone else is refused 422 `not_permitted`.",
                         "explode": true,
                         "in": "query",
                         "name": "decided_since",
@@ -14978,7 +14987,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5: one searchable column, sales_return.sales_return_number, matched by prefix.",
+                        "description": "Search: a prefix of the `sales_return_number`. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -14990,7 +14999,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -15005,7 +15014,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -15017,7 +15026,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -15435,7 +15444,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "One bin's stock, by item SKU. Exactly one of storage_location_id and inventory_item_id is required (API-19b). A bin this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
+                        "description": "One location's stock, ordered by item SKU. Send exactly one of `storage_location_id` and `inventory_item_id`. A location this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "storage_location_id",
@@ -15448,7 +15457,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "One item's stock, by bin code, with each bin's warehouse. Exactly one of storage_location_id and inventory_item_id is required (API-19b). An item this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
+                        "description": "One item's stock in each location, ordered by location code, with each location's warehouse. Send exactly one of `storage_location_id` and `inventory_item_id`. An item this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "inventory_item_id",
@@ -15523,7 +15532,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Restrict to one item's movements, newest first. The sort manifest's \"/stock-movements filtered to an item\" predicate, served by stock_movement_tenant_item_occurred_id_idx. An item this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
+                        "description": "Only one item's movements, newest first. An item this workspace cannot see matches nothing: the answer is an empty page, never a 404.",
                         "explode": true,
                         "in": "query",
                         "name": "inventory_item_id",
@@ -15536,7 +15545,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -15551,7 +15560,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -15563,7 +15572,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -15924,7 +15933,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Return the archived suppliers instead of the live ones (TB-3), most recently archived first. API-19c limb 1: IA §5.6 has a /suppliers Archived view (C5).",
+                        "description": "Return the archived suppliers instead of the live ones, most recently archived first.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -15937,7 +15946,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. TB-5 names supplier.name and supplier.code: a prefix of the name, ignoring case, or of the code, as stored (IA TB-5a).",
+                        "description": "Search: a prefix of the `name`, ignoring case, or a prefix of the `code`, matched exactly as stored.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -15949,7 +15958,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "The order, per view (API-19): name (the default) or code on the live view; archived_at, newest first (the default and only order) on the Archived view. The sort manifest's /suppliers rows.",
+                        "description": "The order. Live suppliers: `name` (the default) or `code`. Archived suppliers: only `archived_at`, newest first.",
                         "explode": true,
                         "in": "query",
                         "name": "sort",
@@ -15966,7 +15975,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Page size. API-17: default 50, maximum 200.",
+                        "description": "How many rows to return: 50 if not sent, at most 200.",
                         "explode": true,
                         "in": "query",
                         "name": "limit",
@@ -15981,7 +15990,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's next_cursor. Mutually exclusive with before.",
+                        "description": "The `next_cursor` of the previous page, to fetch the next one. Not with `before`.",
                         "explode": true,
                         "in": "query",
                         "name": "after",
@@ -15993,7 +16002,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "An opaque cursor from a previous response's previous_cursor. Mutually exclusive with after.",
+                        "description": "The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.",
                         "explode": true,
                         "in": "query",
                         "name": "before",
@@ -16965,7 +16974,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Return the removed (archived) users instead of the live ones. API-19c limb 1: IA §5.6 has an /admin/users Archived view.",
+                        "description": "Return the archived users instead of the live ones.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -16978,7 +16987,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, app_user.email, and it is the only column searched (a case-insensitive prefix, IA TB-5a).",
+                        "description": "Search: a prefix of the `email`, ignoring case. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -17440,7 +17449,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Return the archived roles (each refused) instead of the live ones. API-19c limb 2: a bounded list derived from role, a soft table.",
+                        "description": "Return the archived roles instead of the live ones. Each one carries a `refusal`, because an archived role cannot be given.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -17453,7 +17462,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, role.name, and it is the only column searched (a case-insensitive prefix, IA TB-5a). It selects which roles are returned, never what their pair lists are computed against.",
+                        "description": "Search: a prefix of the `name`, ignoring case. Nothing else is searched. It chooses which roles are returned; `conflicts_with` and `margin_exposure_with` are still worked out against every role.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -17984,7 +17993,7 @@
                 "parameters": [
                     {
                         "deprecated": false,
-                        "description": "Return the archived warehouses instead of the live ones. API-19c limb 1: IA §5.6 has a /warehouses Archived view.",
+                        "description": "Return the archived warehouses instead of the live ones.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -17997,7 +18006,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Free-text search. API-19d/TB-5 name one searchable column on this table, warehouse.code, and it is the only column searched (a prefix, matched as stored, IA TB-5a).",
+                        "description": "Search: a prefix of the `code`, matched exactly as stored. Nothing else is searched.",
                         "explode": true,
                         "in": "query",
                         "name": "q",
@@ -18459,7 +18468,7 @@
                     },
                     {
                         "deprecated": false,
-                        "description": "Return the archived locations instead of the live ones. API-19c limb 2: a bounded sub-list of a SchemaManifest::SOFT table.",
+                        "description": "Return the archived locations instead of the live ones.",
                         "explode": true,
                         "in": "query",
                         "name": "archived",
@@ -19085,260 +19094,202 @@
             }
         }
     },
-    "security": [],
+    "security": [
+        {
+            "bearer": []
+        }
+    ],
     "servers": [
         {
-            "description": "",
+            "description": "The host serving this document.",
             "url": "/"
         }
     ],
     "tags": [
         {
-            "description": "Resource 'ReorderSuggestionCollection' operations.",
             "name": "ReorderSuggestionCollection"
         },
         {
-            "description": "Resource 'ReorderSummary' operations.",
             "name": "ReorderSummary"
         },
         {
-            "description": "Resource 'AuditLogEntryCollection' operations.",
             "name": "AuditLogEntryCollection"
         },
         {
-            "description": "Resource 'AuditRecordCollection' operations.",
             "name": "AuditRecordCollection"
         },
         {
-            "description": "Resource 'Export' operations.",
             "name": "Export"
         },
         {
-            "description": "Resource 'CustomerAddressCollection' operations.",
             "name": "CustomerAddressCollection"
         },
         {
-            "description": "Resource 'CustomerAddress' operations.",
             "name": "CustomerAddress"
         },
         {
-            "description": "Resource 'CustomerCollection' operations.",
             "name": "CustomerCollection"
         },
         {
-            "description": "Resource 'CustomerContactCollection' operations.",
             "name": "CustomerContactCollection"
         },
         {
-            "description": "Resource 'CustomerContact' operations.",
             "name": "CustomerContact"
         },
         {
-            "description": "Resource 'Customer' operations.",
             "name": "Customer"
         },
         {
-            "description": "Resource 'ItemCollection' operations.",
             "name": "ItemCollection"
         },
         {
-            "description": "Resource 'Item' operations.",
             "name": "Item"
         },
         {
-            "description": "Resource 'StockLevelCollection' operations.",
             "name": "StockLevelCollection"
         },
         {
-            "description": "Resource 'StockMovementCollection' operations.",
             "name": "StockMovementCollection"
         },
         {
-            "description": "Resource 'StockMovement' operations.",
             "name": "StockMovement"
         },
         {
-            "description": "Resource 'GoodsReceiptCollection' operations.",
             "name": "GoodsReceiptCollection"
         },
         {
-            "description": "Resource 'GoodsReceipt' operations.",
             "name": "GoodsReceipt"
         },
         {
-            "description": "Resource 'PurchaseOrderCollection' operations.",
             "name": "PurchaseOrderCollection"
         },
         {
-            "description": "Resource 'PurchaseOrderLineCollection' operations.",
             "name": "PurchaseOrderLineCollection"
         },
         {
-            "description": "Resource 'PurchaseOrderLine' operations.",
             "name": "PurchaseOrderLine"
         },
         {
-            "description": "Resource 'PurchaseOrder' operations.",
             "name": "PurchaseOrder"
         },
         {
-            "description": "Resource 'CreditNoteCollection' operations.",
             "name": "CreditNoteCollection"
         },
         {
-            "description": "Resource 'CreditNote' operations.",
             "name": "CreditNote"
         },
         {
-            "description": "Resource 'FulfilmentCollection' operations.",
             "name": "FulfilmentCollection"
         },
         {
-            "description": "Resource 'Fulfilment' operations.",
             "name": "Fulfilment"
         },
         {
-            "description": "Resource 'InvoiceCollection' operations.",
             "name": "InvoiceCollection"
         },
         {
-            "description": "Resource 'InvoiceLineCollection' operations.",
             "name": "InvoiceLineCollection"
         },
         {
-            "description": "Resource 'Invoice' operations.",
             "name": "Invoice"
         },
         {
-            "description": "Resource 'PickList' operations.",
             "name": "PickList"
         },
         {
-            "description": "Resource 'PickQueueEntryCollection' operations.",
             "name": "PickQueueEntryCollection"
         },
         {
-            "description": "Resource 'SalesOrderCollection' operations.",
             "name": "SalesOrderCollection"
         },
         {
-            "description": "Resource 'SalesOrderLineCollection' operations.",
             "name": "SalesOrderLineCollection"
         },
         {
-            "description": "Resource 'SalesOrderLine' operations.",
             "name": "SalesOrderLine"
         },
         {
-            "description": "Resource 'SalesOrder' operations.",
             "name": "SalesOrder"
         },
         {
-            "description": "Resource 'SalesReturnCollection' operations.",
             "name": "SalesReturnCollection"
         },
         {
-            "description": "Resource 'SalesReturn' operations.",
             "name": "SalesReturn"
         },
         {
-            "description": "Resource 'SupplierCollection' operations.",
             "name": "SupplierCollection"
         },
         {
-            "description": "Resource 'SupplierProductCollection' operations.",
             "name": "SupplierProductCollection"
         },
         {
-            "description": "Resource 'SupplierProduct' operations.",
             "name": "SupplierProduct"
         },
         {
-            "description": "Resource 'Supplier' operations.",
             "name": "Supplier"
         },
         {
-            "description": "Resource 'BulkRoleAssignment' operations.",
             "name": "BulkRoleAssignment"
         },
         {
-            "description": "Resource 'CurrentUser' operations.",
             "name": "CurrentUser"
         },
         {
-            "description": "Resource 'OfferedRoleCollection' operations.",
             "name": "OfferedRoleCollection"
         },
         {
-            "description": "Resource 'PasswordResetRedemption' operations.",
             "name": "PasswordResetRedemption"
         },
         {
-            "description": "Resource 'PasswordReset' operations.",
             "name": "PasswordReset"
         },
         {
-            "description": "Resource 'Password' operations.",
             "name": "Password"
         },
         {
-            "description": "Resource 'PermissionCollection' operations.",
             "name": "PermissionCollection"
         },
         {
-            "description": "Resource 'RoleCollection' operations.",
             "name": "RoleCollection"
         },
         {
-            "description": "Resource 'RoleGrantProposalCollection' operations.",
             "name": "RoleGrantProposalCollection"
         },
         {
-            "description": "Resource 'RoleGrantProposal' operations.",
             "name": "RoleGrantProposal"
         },
         {
-            "description": "Resource 'Role' operations.",
             "name": "Role"
         },
         {
-            "description": "Resource 'Settings' operations.",
             "name": "Settings"
         },
         {
-            "description": "Resource 'Token' operations.",
             "name": "Token"
         },
         {
-            "description": "Resource 'UserCollection' operations.",
             "name": "UserCollection"
         },
         {
-            "description": "Resource 'User' operations.",
             "name": "User"
         },
         {
-            "description": "Resource 'StorageLocationCollection' operations.",
             "name": "StorageLocationCollection"
         },
         {
-            "description": "Resource 'StorageLocation' operations.",
             "name": "StorageLocation"
         },
         {
-            "description": "Resource 'WarehouseCollection' operations.",
             "name": "WarehouseCollection"
         },
         {
-            "description": "Resource 'Warehouse' operations.",
             "name": "Warehouse"
         },
         {
-            "description": "Resource 'BulkArchival' operations.",
             "name": "BulkArchival"
         },
         {
-            "description": "Resource 'BulkRestoration' operations.",
             "name": "BulkRestoration"
         }
     ],

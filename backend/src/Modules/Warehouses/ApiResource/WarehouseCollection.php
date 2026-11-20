@@ -37,11 +37,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: WarehouseCollectionProvider::class,
             parameters: [
                 'archived' => new QueryParameter(
-                    description: 'Return the archived warehouses instead of the live ones. API-19c limb 1: IA §5.6 has a /warehouses Archived view.',
+                    description: 'Return the archived warehouses instead of the live ones.',
                     schema: ['type' => 'boolean', 'default' => false],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, warehouse.code, and it is the only column searched (a prefix, matched as stored, IA TB-5a).',
+                    description: 'Search: a prefix of the `code`, matched exactly as stored. Nothing else is searched.',
                     schema: ['type' => 'string'],
                 ),
             ],

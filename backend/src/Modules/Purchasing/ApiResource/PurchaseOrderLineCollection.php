@@ -70,7 +70,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: PurchaseOrderLineCollectionProvider::class,
             parameters: [
                 'archived' => new QueryParameter(
-                    description: 'Return the archived lines instead of the live ones. API-19c limb 2: a bounded sub-list of a SchemaManifest::SOFT table.',
+                    description: 'Return the archived lines instead of the live ones.',
                     schema: ['type' => 'boolean', 'default' => false],
                 ),
             ],

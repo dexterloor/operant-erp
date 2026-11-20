@@ -16,6 +16,7 @@ use App\Platform\Security\PermissionRequirement;
 use App\Tests\Support\ApiSurface;
 use App\Tests\Support\CanonicalJson;
 use App\Tests\Support\GeneratedSpec;
+use App\Tests\Support\PublishedSpecText;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 
@@ -209,7 +210,8 @@ final class ContractArtefactTest extends KernelTestCase
     /**
      * The artefacts are public: they must not name the tools or roles used to build this project. The set is the public
      * export's content rule (`check.sh`, `CONTENT_BAD`) plus four names; a change to one is a reason to re-read the other.
-     * Product words (the query and reorder features) are allowed. Needles are split so this file does not contain them.
+     * Product words (the query and reorder features) are allowed. The needles are {@see PublishedSpecText::TOOL_NEEDLES}
+     * (one source with the published-text check), split there so no file contains them.
      */
     #[Test]
     public function theArtefactsCarryNoInternalToolNames(): void
@@ -245,10 +247,7 @@ final class ContractArtefactTest extends KernelTestCase
     /** @return list<string> one entry per hit: "<json path> <needle>" */
     public static function internalNamesIn(string $json): array
     {
-        $needles = [
-            '/cla'.'ude/i', '/anthr'.'opic/i', '/\bOR'.'CH\b/i', '/RERUN '.'agent/i', '/agen'.'ts read this file/i',
-            '/BE-'.'LEAD/i', '/\.agen'.'t-work/i', '/CLA'.'UDE\.md/i', '/\.cla'.'ude\//i',
-        ];
+        $needles = PublishedSpecText::TOOL_NEEDLES;
         $hits = [];
         $walk = static function (mixed $node, string $path) use (&$walk, &$hits, $needles): void {
             if (\is_array($node)) {

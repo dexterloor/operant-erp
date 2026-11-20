@@ -39,15 +39,15 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: PickQueueEntryCollectionProvider::class,
             parameters: [
                 'warehouse_id' => new QueryParameter(
-                    description: 'Restrict to one warehouse\'s open orders, served by sales_order_tenant_warehouse_awaiting_pick_idx. A warehouse this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
+                    description: 'Only one warehouse\'s open orders. A warehouse this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'q' => new QueryParameter(
-                    description: 'Free-text search. API-19d/TB-5 name one searchable column on this table, sales_order.order_number, matched by prefix.',
+                    description: 'Search: a prefix of the order\'s `order_number`. Nothing else is searched.',
                     schema: ['type' => 'string'],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -56,11 +56,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

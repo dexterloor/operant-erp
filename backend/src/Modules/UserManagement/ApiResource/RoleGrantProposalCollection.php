@@ -30,19 +30,19 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             provider: RoleGrantProposalCollectionProvider::class,
             parameters: [
                 'status' => new QueryParameter(
-                    description: 'Restrict to one stored status. An expired proposal is still `pending` (its expiry is derived and shown as `is_expired`).',
+                    description: 'Only the proposals with one `status`. An expired proposal is still `pending`; that it has expired is shown as `is_expired`.',
                     schema: ['type' => 'string', 'enum' => RoleGrantProposalCollectionProvider::STATUSES],
                 ),
                 'user' => new QueryParameter(
-                    description: 'Restrict to the proposals naming one person as the subject. A person this workspace cannot see matches nothing: an empty page, never a 404.',
+                    description: 'Only the proposals whose `user` is one person. A person this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'role' => new QueryParameter(
-                    description: 'Restrict to the proposals of one role. A role this workspace cannot see matches nothing: an empty page, never a 404.',
+                    description: 'Only the proposals of one role. A role this workspace cannot see matches nothing: the answer is an empty page, never a 404.',
                     schema: ['type' => 'string', 'format' => 'uuid'],
                 ),
                 'limit' => new QueryParameter(
-                    description: 'Page size. API-17: default 50, maximum 200.',
+                    description: 'How many rows to return: 50 if not sent, at most 200.',
                     schema: [
                         'type' => 'integer',
                         'minimum' => 1,
@@ -51,11 +51,11 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                     ],
                 ),
                 'after' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s next_cursor. Mutually exclusive with before.',
+                    description: 'The `next_cursor` of the previous page, to fetch the next one. Not with `before`.',
                     schema: ['type' => 'string'],
                 ),
                 'before' => new QueryParameter(
-                    description: 'An opaque cursor from a previous response\'s previous_cursor. Mutually exclusive with after.',
+                    description: 'The `previous_cursor` of a later page, to fetch the one before it. Not with `after`.',
                     schema: ['type' => 'string'],
                 ),
             ],

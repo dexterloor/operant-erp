@@ -42,7 +42,7 @@ final readonly class AuditLogEntryResource
             'actor_label' => ['type' => 'string'],
             'subject_type' => ['type' => ['string', 'null']],
             'subject_id' => ['type' => ['string', 'null'], 'format' => 'uuid'],
-            'metadata' => ['type' => 'object', 'description' => 'Opaque, server-written; outside API-23b and API-23c; never a money amount.'],
+            'metadata' => ['type' => 'object', 'description' => 'Details of the event, written by the server. Their shape depends on `event_type`, and they never hold a money amount.'],
             'ip_address' => ['type' => ['string', 'null']],
         ],
     ];

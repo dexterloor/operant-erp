@@ -9,6 +9,7 @@ use App\Modules\UserManagement\Application\CurrentUserReader;
 use App\Platform\Security\PermissionRequirement;
 use App\Platform\Security\PermissionRequirements;
 use App\Tests\Support\DeclaredRefusals;
+use App\Tests\Support\GeneratedSpec;
 use App\Tests\Support\PermissionSweepCases;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Routing\RouterInterface;
@@ -340,20 +341,46 @@ final class PermissionEnforcementTest extends ApiTestCase
      * *Second mutation, run:* `isPreAuthentication()` changed to return `true`
      * unconditionally. Every operation stops requiring a token and this is red;
      * `CurrentUserTest::everyTokenFailureIsTheSameRefusal` is red too.
+     *
+     * **The published spec agrees with what the server did** (2b): after each send,
+     * a 401 `authentication-failed` means the operation has no own `security` in the
+     * spec (the top-level bearer requirement applies), and anything else means its own
+     * `security` is exactly `[]`. Every operation in the spec is probed, and every probed
+     * operation is in the spec. This checks that the spec agrees with what the server
+     * did. Whether the server exempts the right operations is held by this method's own
+     * `'/auth/'` literal below, on purpose a copy independent of `AuthenticationGate` and
+     * of the decorator that writes the spec's `security`: never replace it with a shared
+     * predicate.
      */
     #[Test]
     public function everyOperationOutsideAuthRefusesARequestCarryingNoToken(): void
     {
         $this->actAsNobody();
+        $published = [];
+        foreach (GeneratedSpec::operations($this->publishedSpec()) as $entry) {
+            $published[(string) ($entry['operation']['operationId'] ?? '')] = $entry['operation'];
+        }
 
         $authenticated = 0;
         $preAuth = 0;
+        $probed = [];
 
         foreach (TransactionBoundaryTest::contractOperations() as $name => $operation) {
             $path = $this->pathWithoutBase($operation);
             $body = \in_array($operation->getMethod(), ['POST', 'PATCH', 'PUT'], true) ? [] : null;
 
             $this->send((string) $operation->getMethod(), $this->concretePathFor($operation), $body);
+
+            $probed[] = (string) $name;
+            self::assertArrayHasKey((string) $name, $published, $name.' was probed but is not in the published spec.');
+            $refusedForNoToken = 401 === $this->httpStatus() && 'urn:erp:problem:authentication-failed' === ($this->json()['type'] ?? null);
+            if ($refusedForNoToken) {
+                self::assertArrayNotHasKey('security', $published[$name],
+                    $name.' refused a request with no token (401), but the published spec gives it its own security: '.json_encode($published[$name]['security'] ?? null));
+            } else {
+                self::assertSame([], $published[$name]['security'] ?? null,
+                    $name.' answered '.$this->httpStatus().' without a token, but the published spec does not give it `security: []`: '.json_encode($published[$name]['security'] ?? 'absent'));
+            }
 
             if (str_starts_with($path, '/auth/')) {
                 ++$preAuth;
@@ -373,6 +400,10 @@ final class PermissionEnforcementTest extends ApiTestCase
         self::assertGreaterThan(0, $authenticated, 'No authenticated operation was examined.');
         self::assertGreaterThan(0, $preAuth,
             'No pre-authentication operation was examined, so the /auth/ branch of the rule was never exercised.');
+        $specIds = array_keys($published);
+        sort($specIds);
+        sort($probed);
+        self::assertSame($specIds, $probed, 'The probed operations and the published spec\'s operations differ, so the spec\'s `security` is not held to behaviour on all of them.');
     }
 
     /**
