@@ -5,6 +5,7 @@ import type { RoleGrantProposal, UserDisplayReference } from '@/lib/api/proposal
 import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
+import type { Customer, CustomerAddress, CustomerContact } from '@/lib/api/customers';
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
 import type { ActorReference, ApprovePurchaseOrderInput, CancelPurchaseOrderInput, CreateGoodsReceiptInput, CreateGoodsReceiptLineInput, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, GoodsReceipt, GoodsReceiptLine, GoodsReceiptLocationReference, GoodsReceiptOrderLineReference, GoodsReceiptOrderReference, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
@@ -90,6 +91,11 @@ const MIRRORED: Record<string, string[]> = {
   'SupplierProduct.UpdateSupplierProductInput.jsonMergePatch': keysOf<UpdateSupplierProductInput>()({ supplier_sku: true, unit_cost: true, lead_time_days: true, minimum_order_quantity: true }),
   // Suppliers S-5: Add to catalogue's body (suppliers-plan.md §R1-3).
   'SupplierProduct.CreateSupplierProductInput': keysOf<CreateSupplierProductInput>()({ inventory_item_id: true, supplier_sku: true, unit_cost: true, lead_time_days: true, minimum_order_quantity: true }),
+  // Customers C-1 (customers-plan.md Revision 1 R1-8): the customer read shape (no G-36 column is served or mirrored).
+  Customer: keysOf<Customer>()({ id: true, code: true, name: true, country_code: true, currency_code: true, payment_terms_days: true, archived_at: true }),
+  // Customers C-1: the read-only Contacts and Addresses sections' rows (the contact's email and phone, never the customer's).
+  CustomerContact: keysOf<CustomerContact>()({ id: true, name: true, email: true, phone: true, is_primary: true }),
+  CustomerAddress: keysOf<CustomerAddress>()({ id: true, kind: true, line: true, city: true, postal_code: true, country_code: true }),
   // Purchase orders PO-1 (purchase-orders-plan.md §3; Revision 10 R10-2): the order, its line, the line's inline item
   // reference and the two references the order carries; each later commit adds the input it first sends.
   PurchaseOrder: keysOf<PurchaseOrder>()({ id: true, order_number: true, status: true, supplier: true, warehouse: true, currency_code: true, total_amount: true, ordered_at: true, expected_at: true, created_by: true, archived_at: true }),

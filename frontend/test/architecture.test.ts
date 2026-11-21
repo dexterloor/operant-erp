@@ -200,6 +200,9 @@ const LITERAL_SCAN_DIRS = [
   'src/components/suppliers',
   // Purchase orders PO-1 (Revision 8 R8-2, R8-3 completeness; Revision 10 R10-2): the purchasing family's logic.
   'src/lib/purchasing',
+  // Customers C-1 (customers-plan.md Revision 1 R1-8; R8-3 completeness): the customer family's logic. No
+  // components/customers yet: C-1's pages need no props-only component (the editor's form arrives at C-2a).
+  'src/lib/customers',
   // Purchase orders PO-3 (R8-3 completeness): the family's components (NewOrderForm, the create page's form).
   'src/components/purchasing',
   // Stock ST-1 (stock-plan.md §3.1; Revision 11 R11-1): the stock family's logic.
@@ -339,10 +342,11 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.1 added: copy/warehouses.ts.
   // Items I-1 (Revision 8 R8-2) added: copy/items.ts.
   // Suppliers S-1 (Revision 8 R8-2) added: copy/suppliers.ts.
+  // Customers C-1 (Revision 8 R8-2) added: copy/customers.ts.
   // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: copy/purchasing.ts.
   // delete-swap-arch-red.md H-1 added: copy/units.ts (the unit vocabulary, moved out of copy/items.ts).
   // Stock ST-1 (Revision 11 R11-1) added: copy/stock.ts.
-  'src/copy': 14,
+  'src/copy': 15,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
@@ -357,7 +361,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders GR-2 H-1 added: lib/bff/heldKey.ts (the held Idempotency-Key of a stock- or money-moving create).
   // Stock ST-1 (Revision 11 R11-1) added: lib/api/stock.ts, lib/stock/{load,source}.ts (no results or wired: nothing is written).
   // Stock ST-2 (stock-st2-plan.md §4) added: lib/stock/{levels,visibility,marker}.ts (G-47's row loader and two helpers).
-  'src/lib': 82,
+  // Customers C-1 added: lib/api/customers.ts, lib/customers/load.ts (no results or wired: C-1 writes nothing).
+  'src/lib': 84,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -385,8 +390,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders GR-2 added: components/purchasing/ReceiveForm.tsx (the receive page's form, plan R1-4: the M-6 map lives here).
   'src/components': 74,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
-  // Purchase orders PO-1 added: lib/api/purchasing.ts. Stock ST-1 added: lib/api/stock.ts.
-  'src/lib/api': 11,
+  // Purchase orders PO-1 added: lib/api/purchasing.ts. Stock ST-1 added: lib/api/stock.ts. Customers C-1: lib/api/customers.ts.
+  'src/lib/api': 12,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
@@ -401,6 +406,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/items': 2,
   // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
   'src/lib/suppliers': 3,
+  // Customers C-1 (Revision 8 R8-2) added: the customer loaders (no results or wired before C-2a's Save).
+  'src/lib/customers': 1,
   // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: the purchasing loaders. PO-2 added: results and
   // wired (Restore purchase order, the family's first action).
   'src/lib/purchasing': 3,
@@ -487,7 +494,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // app/(app)/stock-movements/[id]/{page,StockMovementPage,not-found}.tsx (its CSS module is not counted: .ts/.tsx only).
   // Stock ST-2 (stock-st2-plan.md §4) added: app/(app)/stock/{page,StockLevelsView,StockPicker,LocationLinks,StockStates}.tsx
   // (Stock.module.css is not counted).
-  'src/app': 98,
+  // Customers C-1 (customers-plan.md Revision 1 R1-5) added: app/(app)/customers/{page,CustomersList,CustomerStates}.tsx,
+  // app/(app)/customers/[id]/{page,CustomerPage,not-found,ContactsSection,AddressesSection}.tsx (Customers.module.css is
+  // not counted).
+  'src/app': 106,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -940,6 +950,8 @@ const BULK_LITERAL_DIRS = [
   'src/lib/suppliers',
   // Purchase orders PO-1 (purchase-orders-plan.md §1.5, G-3): `purchase_order` is a bulk key.
   'src/lib/purchasing',
+  // Customers C-1 (customers-plan.md Revision 1 R1-8): the customer family's logic, scanned like every family's.
+  'src/lib/customers',
   // Stock ST-1 (stock-plan.md §3.1, G-3): `inventory_item` and `storage_location` are bulk keys; the movement reads name neither.
   'src/lib/stock',
   'src/lib/api',
@@ -2226,6 +2238,8 @@ const COPY_GROUPS: Readonly<Record<string, readonly string[]>> = {
   account: ['password'], admin: ['people', 'roles', 'sod', 'bulk'],
   // Stock ST-1 (Revision 11 R11-1).
   stock: ['stock'],
+  // Customers C-1 (customers-plan.md Revision 1 R1-8, RED L-1).
+  customers: ['customers'],
 };
 const GROUP_OF_FOLDER: Readonly<Record<string, string>> = {
   items: 'items', warehouses: 'warehouses', suppliers: 'suppliers', 'purchase-orders': 'purchasing', 'goods-receipts': 'purchasing',
@@ -2233,6 +2247,8 @@ const GROUP_OF_FOLDER: Readonly<Record<string, string>> = {
   // there is no `components/stock` (plan D-5).
   'stock-movements': 'stock',
   stock: 'stock',
+  // Customers C-1: the route folder (components/customers joins with C-2a's form).
+  customers: 'customers',
   account: 'account', 'admin/users': 'admin', 'admin/roles': 'admin',
   'components/items': 'items', 'components/warehouses': 'warehouses', 'components/suppliers': 'suppliers',
   'components/purchasing': 'purchasing', 'components/auth': 'account', 'components/people': 'admin', 'components/roles': 'admin',
@@ -2429,7 +2445,7 @@ const REAL_GUARD_LISTS: GuardLists = {
 describe('architecture — guard enrolment is complete (items-red.md M-2, items I-0a)', () => {
   it('every folder under src/components and src/lib is in each applicable guard list, or exempt with a reason', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items', 'src/components/suppliers', 'src/lib/suppliers']));
+    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items', 'src/components/suppliers', 'src/lib/suppliers', 'src/lib/customers']));
     expect(folders.length).toBeGreaterThan(15);
     expect(enrolmentGaps(folders, REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([]);
   });
@@ -2437,28 +2453,28 @@ describe('architecture — guard enrolment is complete (items-red.md M-2, items 
   it('planted controls: an unlisted new folder, a dropped enrolment and a stale exemption all go red', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
     // A new folder nobody enrolled. It was the items family's folders until I-1 enrolled them, then the suppliers family's
-    // until S-1 enrolled those; now a family that does not exist yet (customers), so the control still names folders
-    // absent from every list.
-    expect(enrolmentGaps([...folders, 'src/components/customers', 'src/lib/customers'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
-      'literal: src/components/customers is in no list and has no exemption',
-      'literal: src/lib/customers is in no list and has no exemption',
-      'network: src/components/customers is in no list and has no exemption',
-      'bulk: src/lib/customers is in no list and has no exemption',
-      'counts: src/components/customers is in no list and has no exemption',
-      'counts: src/lib/customers is in no list and has no exemption',
+    // until S-1 enrolled those, then the customers family's until C-1 enrolled lib/customers; now the next planned family
+    // (sales, not built yet — customers-plan.md Revision 1 R1-8), so the control still names folders absent from every list.
+    expect(enrolmentGaps([...folders, 'src/components/sales', 'src/lib/sales'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
+      'literal: src/components/sales is in no list and has no exemption',
+      'literal: src/lib/sales is in no list and has no exemption',
+      'network: src/components/sales is in no list and has no exemption',
+      'bulk: src/lib/sales is in no list and has no exemption',
+      'counts: src/components/sales is in no list and has no exemption',
+      'counts: src/lib/sales is in no list and has no exemption',
     ]);
     // records/ dropped from one list (the move silently unscanning the dialogs, M-2's last bullet).
     const dropped: GuardLists = { ...REAL_GUARD_LISTS, network: NETWORK_SCAN_DIRS.filter((d) => d !== RECORDS_DIR) };
     expect(enrolmentGaps(folders, dropped, GUARD_EXEMPT)).toEqual(['network: src/components/records is in no list and has no exemption']);
     // An exemption with no reason (an empty or near-empty string) is a gap, not an exemption (RED L-1).
-    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/customers': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/customers': '  tbd  ' } };
-    expect(enrolmentGaps([...folders, 'src/components/customers', 'src/lib/customers'], REAL_GUARD_LISTS, unreasoned)).toEqual([
-      "literal: src/components/customers's exemption has no reason",
-      'literal: src/lib/customers is in no list and has no exemption',
-      'network: src/components/customers is in no list and has no exemption',
-      "bulk: src/lib/customers's exemption has no reason",
-      'counts: src/components/customers is in no list and has no exemption',
-      'counts: src/lib/customers is in no list and has no exemption',
+    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/sales': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/sales': '  tbd  ' } };
+    expect(enrolmentGaps([...folders, 'src/components/sales', 'src/lib/sales'], REAL_GUARD_LISTS, unreasoned)).toEqual([
+      "literal: src/components/sales's exemption has no reason",
+      'literal: src/lib/sales is in no list and has no exemption',
+      'network: src/components/sales is in no list and has no exemption',
+      "bulk: src/lib/sales's exemption has no reason",
+      'counts: src/components/sales is in no list and has no exemption',
+      'counts: src/lib/sales is in no list and has no exemption',
     ]);
     // An exemption left behind after enrolment, and one naming a folder that does not exist.
     const stale = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/records': 'x', 'src/lib/nowhere': 'y' } };

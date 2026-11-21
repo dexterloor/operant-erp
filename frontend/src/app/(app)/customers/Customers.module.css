@@ -1,0 +1,11 @@
+/* The customer page (the supplier page's read-only look, tokens only; customers-plan.md Revision 1 R1-5 C-1). */
+.fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.fields dd {
+  margin: 0;
+}
