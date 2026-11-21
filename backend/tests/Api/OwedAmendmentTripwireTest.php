@@ -1342,56 +1342,110 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
 
     /**
      * **G-47's frontend trigger, re-put by the owner's delegation on 2026-11-03** (`docs/design/g47-ruling.md`;
-     * `g47-owner-questions-recommendation.md` FINAL R-1…R-3). G-47 (Low; owner `UX` + `SEC`): a `ListStockLevels`
-     * row does not say whether its bin can be picked — quarantine bins, archived bins and bins of an archived
-     * warehouse look like pickable ones. **G-47 is NOT closed and nothing here may be read as closing it.**
+     * `g47-owner-questions-recommendation.md` FINAL R-1…R-3); **implication re-keyed from C1 to C1′ on 2026-11-20**
+     * (`docs/design/stock-st2-plan.md` §5, Revision 1 — FINAL; `stock-st2-a4-recommendation.md` Revision 1 — FINAL;
+     * BK-45 with its Amendments 1, 2 and 3 in `docs/design/owed-to-backend.md`), also under the owner's delegation. G-47
+     * (Low; owner `UX` + `SEC`): a `ListStockLevels` row does not say whether its bin can be picked — quarantine bins,
+     * archived bins and bins of an archived warehouse look like pickable ones. **G-47 is NOT closed and nothing here may
+     * be read as closing it.** Same rule as the frontend twin (keep the two in step — a change to one is a change to
+     * both).
      *
      * **History.** The written trigger was "the first `frontend/` commit rendering `/stock`" (2026-10-14). Read as a
      * routed page, it was never crossed. Read as the menu link, it was crossed for about 22 hours on the frontend
      * branch only (`2331d11` 2026-10-28 → `f7dd0c3` 2026-10-29, a link to a 404; never on main, no stock row shown).
+     * The first implication, C1 (every file making T true, one import level down, names `ListStorageLocations`,
+     * `'storage_location.view'` and `'warehouse.view'`), demanded code literals that no correct `/stock` page may hold
+     * (the frontend's code-literal ban), so it was replaced by C1′ before the stock screen reaches main.
      *
-     * **The trigger T** (outside `frontend/src/generated/`): (a) a page served at `/stock` or below (the shared URL
-     * model, {@see self::frontendPageUrl()}); (b) source naming `ListStockLevels`, minus the one navigation-map
-     * `operation:` entry in `lib/navigation.ts` (path AND shape, never path alone); (c) source naming the stock path
-     * `/api/v1/stock` or `/bff/api/stock` (not `/stock-movements`); (d) `frontend/scripts/api-surface.client-ops.json`
-     * wiring `ListStockLevels` for the browser.
+     * **The trigger T** (outside `frontend/src/generated/`), unchanged: (a) a page served at `/stock` or below (the
+     * shared URL model, {@see self::frontendPageUrl()}); (b) source naming `ListStockLevels`, minus the one
+     * navigation-map `operation:` entry in `lib/navigation.ts` (path AND shape, never path alone); (c) source naming the
+     * stock path `/api/v1/stock` or `/bff/api/stock` (not `/stock-movements`); (d)
+     * `frontend/scripts/api-surface.client-ops.json` wiring `ListStockLevels` for the browser.
      *
-     * **The implication T ⇒ C1 (FINAL R-3, option 2).** Stock rows may render only to a viewer holding BOTH
-     * `storage_location.view` and `warehouse.view`, with a text badge (`Quarantine` / `Archived`) drawn client-side
-     * from `ListStorageLocations` (live and `?archived=true`) and the warehouse's archived state, failing closed.
-     * C1: every file making T true through (a), (b) or (c), together with the modules it imports one level down
-     * (relative or `@/` path, resolved by text, no AST), names `ListStorageLocations`, `'storage_location.view'` and
-     * `'warehouse.view'`. When T holds through (d) alone, no file can be checked, so the pin fails closed. C2 (the
-     * badge copy key) joins in the screen's commit, once UX fixes the key — a guessed key is the `1076ba3` coin flip.
+     * **T ⇒ C1′** (plan §5.3–§5.4), one bracketed rule letter per defect line, rules in this order, files in byte order
+     * (`SORT_STRING`): (a0) a page at `/stock` exists (fail closed); (a1) no `/stock` page is a client file; (a2) the
+     * page itself calls `stockRowsVisible(` and imports `lib/stock/visibility`; (a3) some file of its import closure that
+     * is the page or lies under `app/(app)/stock/` calls `stockRowMarker(` and imports `lib/stock/marker`;
+     * (a4) any other entry file (plan §5.4: a Next convention file, or a code file under app/ that nothing imports) whose closure reaches a row file (a file naming the read or the path, other than the two helpers) owes (a1)–(a3), lettered a4.aN; a route handler, metadata route or instrumentation file that does is refused under (b);
+     * (b) a row file lives only under `app/(app)/stock/` (never as a route handler or a `'use server'` file) or is
+     * `lib/stock/levels.ts`; (c1) `lib/stock/visibility.ts` spells the four `viewerMay(` gates and holds nothing else
+     * (imports only the contract reader, exports only `stockRowsVisible` / `missingMarkerCodes`, names
+     * `ListStockLevels` only inside its gate, never the stock path); (c2) `lib/stock/marker.ts` is pure (imports only
+     * `lib/api/stock` types, names no gate, read, fetch, require or stock path); (c3) no other `lib/stock` file imports
+     * the contract reader; (d) `frontend/test/wired/stock-gate.test.ts` and (e) `frontend/test/stock/marker.test.ts`
+     * exist, read by fixed path only while T holds, name their cases and preconditions, and mock or spy on no G-47
+     * input; (f) `copy/stock.ts` holds `STOCK_LOCATION_MARKER` with quarantine/archived/unknown (closed by
+     * `} as const;` or `} as const satisfies …;`), and a file under `app/(app)/stock/` that each `/stock` page reaches
+     * uses it. The planted controls P-0…P-41b each assert their exact rule-letter set, identical in both twins.
      *
-     * **Weaker than option (1), and said so.** A stub naming the three tokens satisfies C1; the safety of this rests
-     * on the seven hand checks in the failure message, exactly as R8's pick screen does. Option (1), a pin that T
-     * stays false, is the fallback offered to the owner. A later step-up: a pure `stockRowMarker()` with its own unit
-     * tests, which C1 then names instead of the raw tokens (FE-LEAD's call at the screen's design).
+     * **Limits** (plan §5.7, stated in both docblocks):
+     *  1. Presence, not behaviour: a page that calls the helpers and shows rows anyway passes (P-30, P-31, P-31b are
+     *     pinned as passing). The gate test and the ten hand checks in the screen's commit carry behaviour.
+     *  2. The gate test is checked for presence, case labels, its two preconditions and no mock or spy, not for
+     *     content; an empty `it('G-47 gate (i)', () => {})` passes. A mock is refused only for the helpers, the
+     *     contract reader and the generated surface.
+     *  3. A path or operation name built by concatenation or a template literal evades (b) and (c) (P-32); `Read` takes
+     *     a plain string.
+     *  4. Imports are resolved by text without checking that the target exists; a computed `import()` or a `require` is
+     *     not followed; `export … from` is.
+     *  5. A client or server-directive file is recognised by a leading directive only, after one leading U+FEFF is
+     *     stripped (`str_starts_with($t, "\xEF\xBB\xBF") ? substr($t, 3) : $t`, never `ltrim`). A U+00A0 before the
+     *     directive is whitespace to the frontend twin and not here.
+     *  6. Hand checks 8–10 have partial mechanisms only: no mechanism sees a module-level memo, a BFF route elsewhere
+     *     that does not name the read, an Ask path, or an inline `'use server'` action inside a file under
+     *     `app/(app)/stock/`.
+     *  7. The helper files are a closed class; an aliased import beside a same-named local function is not seen (P-31b).
+     *  8. The old limits stay: a comment naming a token fires the trigger (loud and safe); a nav-driven generic page
+     *     (`[module]`) is held on its route half by {@see self::frontendTree()}'s dynamic-segment refusal and on its
+     *     client half by (d), not on its server half; an intercepting `(..)stock` page that names nothing evades (a); a
+     *     link to `/stock` from a caller of `deriveNavigation()` without the built filter is not watched; this walk
+     *     reads file symlinks and does not descend into directory symlinks under `src` (the frontend twin refuses every
+     *     symlink under `src`).
+     *  9. Nothing compares the two twins' planted controls mechanically; the commit review compares their letter sets.
+     *     P-20, P-29, P-38, P-39d, P-39d2, P-39d3, P-39e, P-39h…P-39l, P-39l2, P-39l3, P-39n, P-39o, P-40, P-41 and P-41b
+     *     pin exact defect lines, so the text and order of those lines are held in each twin. NEXT_ENTRY_NAMES and
+     *     NEXT_ROUTE_NAMES must be identical in both twins; until the G-47 message-parity test covers them, the commit
+     *     review compares them.
+     * 10. (a4) checks entry files: a code file under src/app (.ts, .tsx, .js or .jsx, with no path segment starting `_`) whose
+     *     name is a Next convention (NEXT_ENTRY_NAMES) or that nothing under src imports. A route handler, metadata route or instrumentation
+     *     file that reaches a row file is refused under (b). A segment file under app/(app)/stock/ (layout, loading, error,
+     *     not-found, template, default) is an entry: it must not import StockStates.tsx or any other file naming the stock read,
+     *     or it owes (a1)-(a3); an error file never can (P-39c). Not seen: a convention newer than NEXT_ENTRY_NAMES, or a
+     *     numbered metadata file (icon1.tsx), that something imports; a frontend/instrumentation-client.* outside src, which
+     *     Next's webpack build loads when src/ has none (create-compiler-aliases.js:181-183) and neither walk reads.
+     * 11. Patterns read \s, which in JS matches Unicode spaces and in PHP matches ASCII only (byte mode) or Unicode spaces
+     *     but not U+FEFF (/u); a file holding one where a pattern reads whitespace may get different letters in the twins;
+     *     no control plants it (P-41 pins only the exports text). This twin runs every rule pattern WITHOUT `/u` (byte
+     *     mode), so its `\s` is ASCII; the `exports` text strips ASCII whitespace only (` \t\n\r\v\f`).
      *
-     * **Known limits, stated:** a path or operation name built by concatenation or a template literal evades (b) and
-     * (c); a comment or docblock naming a token fires them (loud and safe); a nav-driven generic page (`[module]`) is
-     * held on its route half by {@see self::frontendTree()}'s dynamic-segment refusal and on its client half by (d),
-     * and not on its server half; an intercepting `(..)stock` page that names nothing evades (a); a link to `/stock`
-     * from a caller of `deriveNavigation()` without the built filter is not watched (a link to a 404 shows no rows);
-     * a source behind a symlinked directory is not read. Movements (`/stock-movements`, `GetStockMovement`) are out of
-     * G-47's scope (FINAL R-4), but a new member on the shared location schema reaches them too.
+     * Movements (`/stock-movements`, `GetStockMovement`) are out of G-47's scope (FINAL R-4), but a new member on the
+     * shared location schema reaches them too.
      *
      * **Row-shape control (G-47 RED A-M5).** While this pin stands, the generated spec's stock row carries exactly
      * `id, inventory_item, qty_on_hand, storage_location, version, warehouse`, and its location and warehouse
      * references exactly `{id, code}` and `{id, name}`. A marker field arriving on the row (or a `kind` on the
-     * shared location reference) turns this red in that backend commit, so the closing design starts there.
+     * shared location reference) turns this red in that backend commit, so the closing design starts there. This
+     * twin reads the spec it regenerates; the frontend twin reads the committed `contracts/openapi.json`.
      *
      * **Where it runs.** Merge-time backstop. Its frontend twin is the G-47 block of
      * `frontend/test/architecture.test.ts` (FE-LEAD), so the rule also runs on every frontend gate; that gate runs
-     * only locally.
+     * only locally. Both twins are at C1′ from this commit. The message below is the frontend twin's, character for
+     * character; the message-parity test (the G-51 precedent) lands on the frontend track in the merge of main back
+     * after this commit, and until then the two messages are kept equal by hand. The two test files of (d) and (e)
+     * are read by fixed path (`frontend/test/…`, the {@see self::CLIENT_OPS_FILE} precedent) only while T holds.
      *
-     * **Controls, same test:** planted trees, each isolating ONE rule (page trees carry no sources; token trees carry
-     * `(app)/admin/page.tsx` as their only page); planted implication trees (each token dropped, one import level
-     * down by `./` and `@/`, two levels down, (d) alone); the exact trigger lines of a multi-reason tree. Real-tree:
-     * {@see self::frontendTree()}'s; `src/generated/` names `ListStockLevels` and the stock path; the navigation
-     * entry's shape occurs exactly once in `lib/navigation.ts`; the client wiring list exists and is read; T is
-     * false on main today.
+     * **Controls, same test:** planted trigger trees, each isolating ONE rule (page trees carry no sources; token
+     * trees carry `(app)/admin/page.tsx` as their only page), including the frontend's three item-page rows; the
+     * honest tree H (plan §5.6) and the planted controls P-0…P-41b, each a one-change variant of H asserting its exact
+     * rule-letter set, with the same names, inputs and letter sets as the frontend twin, and exact defect lines for
+     * P-20, P-29, P-38, P-39d, P-39d2, P-39d3, P-39e, P-39h…P-39l, P-39l2, P-39l3, P-39n, P-39o, P-40, P-41 and P-41b;
+     * P-13/P-14 on H; the exact trigger lines of a multi-reason tree. Real-tree: {@see self::frontendTree()}'s;
+     * `src/generated/` names `ListStockLevels` and the stock path; the navigation entry's shape occurs exactly once in
+     * `lib/navigation.ts`; the client wiring list exists and is read; both halves of the entry set see real files (the
+     * imported file the half-(ii) control uses is checked present first) and every file only half (ii) finds is pinned
+     * (`[]`); T is false on main today. The file-name lists, the name strip and the app-code extensions are pinned in
+     * {@see self::theStockRowFileNameListsAndTheNameStripArePinned()}.
      */
     #[Test]
     public function noFrontendShowsStockRowsWhileG47IsOpen(): void
@@ -1425,6 +1479,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
             'the stock read wired for the browser' => [$admin, [], ['ListUsers', 'ListStockLevels'], true],
             'only the movements read wired for the browser' => [$admin, [], ['ListStockMovements'], false],
             'a frontend with no stock screens' => [['(app)/admin/users/page.tsx', '(auth)/login/page.tsx'], [], ['ListUsers'], false],
+            // Items I-1 (the frontend's plan §2(g), §4 I-1): an item page that reads stock is a stock screen while G-47 is open.
+            'an item page naming the stock read' => [['(app)/items/[id]/page.tsx'], ['app/(app)/items/[id]/ItemPage.tsx' => "read('ListStockLevels')"], [], true],
+            'an item page linking to the stock path' => [['(app)/items/[id]/page.tsx'], ['app/(app)/items/[id]/ItemPage.tsx' => "fetch('/bff/api/stock?item=1')"], [], true],
+            'the item pages as built (no stock read, no stock path)' => [['(app)/items/page.tsx', '(app)/items/[id]/page.tsx'], ['app/(app)/items/[id]/ItemPage.tsx' => 'loadItem(read, id); renderQuantity(item.reorder_point)'], ['ListItems', 'GetItem'], false],
         ];
         foreach ($triggers as $name => [$pages, $sources, $clientOps, $due]) {
             $lines = self::stockRowTriggers($pages, $sources, $clientOps);
@@ -1434,29 +1492,387 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
                 $name, $due ? 'be due' : 'not be due', [] === $lines ? 'not due' : implode(' | ', $lines)));
         }
 
-        // Planted implication trees: [pages, sources, client ops, passes?].
-        $marker = "listLocations('ListStorageLocations'); need('storage_location.view'); need('warehouse.view');";
-        $page = ['(app)/stock/page.tsx'];
-        $implications = [
-            'the screen names all three marker inputs' => [$page, ['app/(app)/stock/page.tsx' => $marker], [], true],
-            'the screen without ListStorageLocations' => [$page, ['app/(app)/stock/page.tsx' => "need('storage_location.view'); need('warehouse.view');"], [], false],
-            'the screen without storage_location.view' => [$page, ['app/(app)/stock/page.tsx' => "x('ListStorageLocations'); need('warehouse.view');"], [], false],
-            'the screen without warehouse.view' => [$page, ['app/(app)/stock/page.tsx' => "x('ListStorageLocations'); need('storage_location.view');"], [], false],
-            'the screen with no source at all' => [$page, [], [], false],
-            'the marker one level down by a relative import' => [$page, ['app/(app)/stock/page.tsx' => "import { m } from './marker';", 'app/(app)/stock/marker.ts' => $marker], [], true],
-            'the marker one level down by an @/ import' => [$page, ['app/(app)/stock/page.tsx' => "import { m } from '@/lib/stock/marker';", 'lib/stock/marker.ts' => $marker], [], true],
-            'the marker two levels down' => [$page, ['app/(app)/stock/page.tsx' => "import { a } from './a';", 'app/(app)/stock/a.ts' => "import { m } from './marker';", 'app/(app)/stock/marker.ts' => $marker], [], false],
-            'a stock panel naming the read and the marker' => [$admin, ['components/StockPanel.tsx' => "read('ListStockLevels'); ".$marker], [], true],
-            'a stock panel naming the read alone' => [$admin, ['components/StockPanel.tsx' => "read('ListStockLevels')"], [], false],
-            'the stock read wired for the browser, no file to check' => [$admin, [], ['ListStockLevels'], false],
-            'no stock screen at all' => [$admin, [], [], true],
+        // The honest tree H (stock-st2-plan.md §5.6): the layout ST-2b writes. Same inputs as the frontend twin.
+        $PAGE = 'app/(app)/stock/page.tsx';
+        $VIEW = 'app/(app)/stock/StockLevelsView.tsx';
+        $MOVEMENTS = 'app/(app)/stock-movements/page.tsx';
+        $ITEM = 'app/(app)/items/[id]/page.tsx';
+        $LEVELS = 'lib/stock/levels.ts';
+        $LOAD = 'lib/stock/load.ts';
+        $COPY = 'copy/stock.ts';
+        $VISIBILITY = self::STOCK_HELPER_VISIBILITY;
+        $MARKER = self::STOCK_HELPER_MARKER;
+        $GATE_TEST = self::STOCK_GATE_TEST;
+        $MARKER_TEST = self::STOCK_MARKER_TEST;
+        $hPages = ['(app)/stock/page.tsx', '(app)/stock-movements/page.tsx', '(app)/items/[id]/page.tsx'];
+        $S = [
+            $PAGE => "import { stockRowsVisible } from '@/lib/stock/visibility';\nimport { stockRowMarker } from '@/lib/stock/marker';\nimport { loadStockForItem } from '@/lib/stock/levels';\nimport { StockLevelsView } from './StockLevelsView';\n"
+                ."if (!viewerMay('ListStockLevels', codes)) deny(); if (!stockRowsVisible(codes)) withhold(); rows.map((row) => stockRowMarker(row, inputs));",
+            $VIEW => "'use client';\nimport { stockRowMarker } from '@/lib/stock/marker';\nimport { loadMarkerInputs } from '@/lib/stock/levels';\nimport { STOCK_LOCATION_MARKER } from '@/copy/stock';\nretry(() => stockRowMarker(row, inputs));",
+            $LEVELS => "import { loadMarkerLocations } from './load';\nread('ListStockLevels', { query });",
+            $LOAD => "read('ListStorageLocations', { params });",
+            $VISIBILITY => "import { viewerMay } from '../bff/surface';\nexport function stockRowsVisible(codes) { return viewerMay('ListStockLevels', codes) && viewerMay('ListStorageLocations', codes) && viewerMay('GetWarehouse', codes) && viewerMay('ListWarehouses', codes); }",
+            $MARKER => "import type { StockLevel } from '../api/stock';\nexport function stockRowMarker(place, inputs) { return x; }",
+            $COPY => "export const STOCK_LOCATION_MARKER = {\n  quarantine: 'Quarantine',\n  archived: 'Archived',\n  unknown: 'Status unknown',\n} as const;",
+            $MOVEMENTS => "import { loadMovements } from '@/lib/stock/load';\nimport { STOCK_MOVEMENTS_LIST } from '@/copy/stock';",
+            $ITEM => "import { stockRowsVisible } from '@/lib/stock/visibility';\nconst canSeeStock = stockRowsVisible(codes);",
         ];
-        foreach ($implications as $name => [$pages, $sources, $clientOps, $passes]) {
-            $defects = self::stockRowDefects($pages, $sources, $clientOps);
-            self::assertSame($passes, [] === $defects, \sprintf(
-                'Planted implication "%s" should %s, but the check reported: %s. C1 or its import resolution is broken.',
-                $name, $passes ? 'pass' : 'trip', [] === $defects ? 'no defect' : implode(' | ', $defects)));
+        $hClientOps = ['ListUsers', 'ListStockLevels'];
+        $T = [
+            $MARKER_TEST => "stockRowsVisible(c); stockRowMarker(p, i); wireEnum('StorageLocation', 'kind');",
+            $GATE_TEST => "await import('@/app/(app)/stock/page'); expect(stockRowsVisible(OPERATOR)).toBe(true); expect(stockRowsVisible(BUYER)).toBe(false); it('G-47 gate (i)'); it('G-47 gate (ii)'); it('G-47 gate (iii)');",
+        ];
+        // Replace exactly one occurrence; a plant that does not land throws, so a control can never pass by not changing H.
+        $swap = static function (?string $text, string $from, string $to): string {
+            if (null === $text || 2 !== \count(explode($from, $text))) {
+                throw new \LogicException(\sprintf("planted control: '%s' does not occur exactly once", $from));
+            }
+
+            return str_replace($from, $to, $text);
+        };
+        // A change to H: sources (null removes a file), pages, client ops, tests, and `only` (start from no sources).
+        $tree = static function (array $change = []) use ($hPages, $S, $hClientOps, $T): array {
+            $sources = ($change['only'] ?? false) ? [] : $S;
+            foreach ($change['sources'] ?? [] as $file => $text) {
+                if (null === $text) {
+                    unset($sources[$file]);
+                } else {
+                    $sources[$file] = $text;
+                }
+            }
+
+            return [$change['pages'] ?? $hPages, $sources, $change['clientOps'] ?? $hClientOps, array_replace($T, $change['tests'] ?? [])];
+        };
+        $NO_TESTS = [$GATE_TEST => null, $MARKER_TEST => null];
+        $PAGE_IMPORTS = $swap($S[$PAGE], "if (!viewerMay('ListStockLevels', codes)) deny(); if (!stockRowsVisible(codes)) withhold(); rows.map((row) => stockRowMarker(row, inputs));", '');
+        $LV = "import { loadStockForItem } from '@/lib/stock/levels';\nexport default async function X() { return loadStockForItem(read, id); }";
+        $P3 = [
+            $PAGE => $swap($S[$PAGE], ' rows.map((row) => stockRowMarker(row, inputs));', ''),
+            $VIEW => $swap($S[$VIEW], 'retry(() => stockRowMarker(row, inputs));', 'retry(() => null);'),
+        ];
+        $controls = [
+            ['P-0 H itself', [], []],
+            ['P-1 the page drops its stockRowsVisible call', ['sources' => [$PAGE => $swap($S[$PAGE], ' if (!stockRowsVisible(codes)) withhold();', '')]], ['a2']],
+            [
+                'P-2 the page names the marker as a type only, and the view is gone',
+                ['sources' => [$PAGE => "import type { StockRowMarker } from '@/lib/stock/marker';\nif (!viewerMay('ListStockLevels', codes)) deny();", $VIEW => null]],
+                ['a2', 'a3', 'f'],
+            ],
+            ['P-3 the marker is called only in marker.ts', ['sources' => $P3], ['a3']],
+            [
+                'P-3b as P-3, and the view calls a local stockRowMarker without the marker import',
+                ['sources' => [$PAGE => $P3[$PAGE], $VIEW => $swap($swap($S[$VIEW], "import { stockRowMarker } from '@/lib/stock/marker';\n", ''), 'retry(', "function stockRowMarker(r) { return none; }\nretry(")]],
+                ['a3'],
+            ],
+            [
+                'P-4 the marker calls move to components/ui/Rows.tsx',
+                ['sources' => [
+                    $PAGE => $swap($P3[$PAGE], "import { StockLevelsView } from './StockLevelsView';", "import { StockLevelsView } from './StockLevelsView';\nimport { Rows } from '@/components/ui/Rows';"),
+                    $VIEW => $P3[$VIEW],
+                    'components/ui/Rows.tsx' => "import { stockRowMarker } from '@/lib/stock/marker';\nexport const Rows = () => rows.map((row) => stockRowMarker(row, inputs));",
+                ]],
+                ['a3'],
+            ],
+            ['P-5 the page starts with use client', ['sources' => [$PAGE => "'use client';\n".$S[$PAGE]]], ['a1']],
+            ['P-5b the page starts with U+FEFF then use client', ['sources' => [$PAGE => "\xEF\xBB\xBF'use client';\n".$S[$PAGE]]], ['a1']],
+            [
+                'P-6 the page calls canSee from ./gate, which calls stockRowsVisible',
+                ['sources' => [
+                    $PAGE => $swap($swap($S[$PAGE], "import { stockRowsVisible } from '@/lib/stock/visibility';", "import { canSee } from './gate';"), 'if (!stockRowsVisible(codes))', 'if (!canSee(codes))'),
+                    'app/(app)/stock/gate.ts' => "import { stockRowsVisible } from '@/lib/stock/visibility';\nexport const canSee = (codes) => stockRowsVisible(codes);",
+                ]],
+                ['a2'],
+            ],
+            [
+                'P-6b the page declares and calls its own stockRowsVisible, without the visibility import',
+                ['sources' => [$PAGE => $swap($S[$PAGE], "import { stockRowsVisible } from '@/lib/stock/visibility';", 'function stockRowsVisible(c) { return true; }')]],
+                ['a2'],
+            ],
+            ['P-7 lib/stock/load.ts also names the stock read', ['sources' => [$LOAD => $S[$LOAD]."\nread('ListStockLevels');"]], ['a4.a2', 'a4.a3', 'b']],
+            ['P-8 lib/api/stock.ts names the stock read in a docblock', ['sources' => ['lib/api/stock.ts' => '/** ListStockLevels item */']], ['b']],
+            ['P-9 copy/stock.ts gains a comment naming the stock read', ['sources' => [$COPY => $S[$COPY]."\n// ListStockLevels rows carry these labels"]], ['a4.a2', 'a4.a3', 'b']],
+            ['P-10 components/stock/StockPanel.tsx reads stock', ['sources' => ['components/stock/StockPanel.tsx' => "read('ListStockLevels')"]], ['b']],
+            ['P-11 components/StockPanel.tsx reads stock', ['sources' => ['components/StockPanel.tsx' => "read('ListStockLevels')"]], ['b']],
+            ['P-12 the movement page imports the stock view (two levels from a row file)', ['sources' => [$MOVEMENTS => $S[$MOVEMENTS]."\nimport { StockLevelsView } from '../stock/StockLevelsView';"]], ['a4.a2']],
+            ['P-15 the item page imports levels and drops its stockRowsVisible call', ['sources' => [$ITEM => $swap($S[$ITEM], 'const canSeeStock = stockRowsVisible(codes);', "import { loadStockForItem } from '@/lib/stock/levels';\nconst canSeeStock = true;")]], ['a4.a2', 'a4.a3']],
+            ['P-16 the item page imports levels and keeps its stockRowsVisible call', ['sources' => [$ITEM => $S[$ITEM]."\nimport { loadStockForItem } from '@/lib/stock/levels';"]], ['a4.a3']],
+            ["P-17 visibility.ts without viewerMay('ListStockLevels'", ['sources' => [$VISIBILITY => $swap($S[$VISIBILITY], "viewerMay('ListStockLevels', codes) && ", '')]], ['c1']],
+            ["P-18 visibility.ts without viewerMay('ListStorageLocations'", ['sources' => [$VISIBILITY => $swap($S[$VISIBILITY], " && viewerMay('ListStorageLocations', codes)", '')]], ['c1']],
+            ["P-19a visibility.ts without viewerMay('GetWarehouse'", ['sources' => [$VISIBILITY => $swap($S[$VISIBILITY], " && viewerMay('GetWarehouse', codes)", '')]], ['c1']],
+            ["P-19b visibility.ts without viewerMay('ListWarehouses'", ['sources' => [$VISIBILITY => $swap($S[$VISIBILITY], " && viewerMay('ListWarehouses', codes)", '')]], ['c1']],
+            [
+                'P-20 visibility.ts loops over a list of operation names',
+                ['sources' => [$VISIBILITY => "import { viewerMay } from '../bff/surface';\nconst G = ['ListStockLevels', 'ListStorageLocations', 'GetWarehouse', 'ListWarehouses'];\nexport function stockRowsVisible(c) { return G.every((o) => viewerMay(o, c)); }"]],
+                ['c1'],
+            ],
+            ['P-21 visibility.ts absent', ['sources' => [$VISIBILITY => null]], ['c1']],
+            ['P-22 marker.ts absent', ['sources' => [$MARKER => null]], ['c2']],
+            ['P-23a marker.ts imports the contract reader', ['sources' => [$MARKER => "import { viewerMay } from '../bff/surface';\n".$S[$MARKER]]], ['c2', 'c3']],
+            ['P-23b marker.ts names stockRowsVisible', ['sources' => [$MARKER => $S[$MARKER]."\n// unlike stockRowsVisible, this reads no codes"]], ['c2']],
+            ['P-23c marker.ts names the stock read', ['sources' => [$MARKER => $S[$MARKER]."\n// marks the rows of ListStockLevels"]], ['c2']],
+            ['P-24 marker.ts imports copy', ['sources' => [$MARKER => "import { kindLabel } from '@/copy/warehouses';\n".$S[$MARKER]]], ['c2']],
+            ['P-25 levels.ts imports the contract reader', ['sources' => [$LEVELS => "import { viewerMay } from '../bff/surface';\n".$S[$LEVELS]]], ['c3']],
+            ['P-26a the marker unit test is absent', ['tests' => [$MARKER_TEST => null]], ['e']],
+            ['P-26b the marker unit test lacks stockRowMarker(', ['tests' => [$MARKER_TEST => $swap($T[$MARKER_TEST], ' stockRowMarker(p, i);', '')]], ['e']],
+            ['P-26c the marker unit test mocks the marker', ['tests' => [$MARKER_TEST => $T[$MARKER_TEST]."\nvi.mock('@/lib/stock/marker', () => ({ stockRowMarker: () => null }));"]], ['e']],
+            ['P-26d the marker unit test lacks the served-kinds pin', ['tests' => [$MARKER_TEST => $swap($T[$MARKER_TEST], " wireEnum('StorageLocation', 'kind');", '')]], ['e']],
+            ['P-26e the marker unit test mocks the marker in the import() form', ['tests' => [$MARKER_TEST => $T[$MARKER_TEST]."\nvi.mock(import('@/lib/stock/marker'), () => ({ stockRowMarker: () => null }));"]], ['e']],
+            ['P-27a the gate test is absent', ['tests' => [$GATE_TEST => null]], ['d']],
+            ['P-27b the gate test lacks the page import', ['tests' => [$GATE_TEST => $swap($T[$GATE_TEST], "await import('@/app/(app)/stock/page'); ", '')]], ['d']],
+            ["P-27c the gate test lacks 'G-47 gate (iii)'", ['tests' => [$GATE_TEST => $swap($T[$GATE_TEST], " it('G-47 gate (iii)');", '')]], ['d']],
+            ['P-27d the gate test mocks the gate helper', ['tests' => [$GATE_TEST => $T[$GATE_TEST]."\nvi.mock('@/lib/stock/visibility', () => ({ stockRowsVisible: () => false }));"]], ['d']],
+            ['P-27e the gate test mocks the contract reader (the house idiom)', ['tests' => [$GATE_TEST => $T[$GATE_TEST]."\nvi.mock('@/lib/bff/surface', async (actual) => ({ ...(await actual()), viewerMay: () => false }));"]], ['d']],
+            ['P-27f the gate test lacks the OPERATOR precondition', ['tests' => [$GATE_TEST => $swap($T[$GATE_TEST], ' expect(stockRowsVisible(OPERATOR)).toBe(true);', '')]], ['d']],
+            ['P-27g the gate test spies on the gate helper', ['tests' => [$GATE_TEST => $T[$GATE_TEST]."\nvi.spyOn(visibility, 'stockRowsVisible');"]], ['d']],
+            ['P-27h the gate test spies on console', ['tests' => [$GATE_TEST => $T[$GATE_TEST]."\nvi.spyOn(console, 'error');"]], []],
+            ['P-28a copy/stock.ts lacks the unknown key', ['sources' => [$COPY => $swap($S[$COPY], "  unknown: 'Status unknown',\n", '')]], ['f']],
+            ['P-28b the view no longer names STOCK_LOCATION_MARKER', ['sources' => [$VIEW => $swap($S[$VIEW], "import { STOCK_LOCATION_MARKER } from '@/copy/stock';\n", '')]], ['f']],
+            ['P-28c the copy object ends with as const satisfies', ['sources' => [$COPY => $swap($S[$COPY], '} as const;', '} as const satisfies Record<string, string>;')]], []],
+            ['P-28d the copy object has no closing line', ['sources' => [$COPY => $swap($S[$COPY], "\n} as const;", "\n")]], ['f']],
+            ['P-29 the stock read wired for the browser and nothing else', ['only' => true, 'pages' => ['(app)/admin/page.tsx'], 'clientOps' => ['ListStockLevels'], 'tests' => $NO_TESTS], ['a0', 'c1', 'c2', 'd', 'e', 'f']],
+            [
+                'P-30 STATED LIMIT: the page gates only the loading of locations and reads rows for everyone',
+                ['sources' => [$PAGE => $PAGE_IMPORTS."const rows = await loadStockForItem(read, id);\nconst locations = stockRowsVisible(codes) ? await loadLocations(read) : [];\nrows.map((row) => stockRowMarker(row, inputs));"]],
+                [],
+            ],
+            [
+                'P-31 STATED LIMIT: both helper calls only inside comments',
+                ['sources' => [$PAGE => $PAGE_IMPORTS."// stockRowsVisible(codes)\n// stockRowMarker(row, inputs)", $VIEW => $swap($S[$VIEW], 'retry(() => stockRowMarker(row, inputs));', '// stockRowMarker(row, inputs)')]],
+                [],
+            ],
+            [
+                'P-31b STATED LIMIT: an aliased import beside a same-named local function',
+                ['sources' => [$PAGE => $swap($S[$PAGE], "import { stockRowsVisible } from '@/lib/stock/visibility';", "import { stockRowsVisible as v } from '@/lib/stock/visibility';\nfunction stockRowsVisible() { return true; }")]],
+                [],
+            ],
+            ['P-32 STATED LIMIT: the stock read by concatenation', ['sources' => ['components/X.tsx' => "read('List' + 'StockLevels')"]], []],
+            [
+                'P-33 no stock screen at all (the trigger is false), helpers and tests absent',
+                [
+                    'only' => true,
+                    'pages' => ['(app)/stock-movements/page.tsx', '(app)/items/[id]/page.tsx'],
+                    'sources' => [$MOVEMENTS => $S[$MOVEMENTS], $LOAD => $S[$LOAD], $COPY => $S[$COPY], $ITEM => $S[$ITEM]],
+                    'clientOps' => ['ListUsers'],
+                    'tests' => $NO_TESTS,
+                ],
+                [],
+            ],
+            ['P-34 the item page names the stock read', ['sources' => [$ITEM => $S[$ITEM]."\nif (!viewerMay('ListStockLevels', codes)) hide();"]], ['a4.a3', 'b']],
+            [
+                'P-35 the gate helper carries a row read, and the item page calls it',
+                ['sources' => [
+                    $VISIBILITY => $S[$VISIBILITY]."\nimport { serverRead } from '@/lib/bff/server/reads';\nexport async function stockForItem(s, id) { return serverRead(s)('ListStockLevels'); }",
+                    $ITEM => $swap($S[$ITEM], 'import { stockRowsVisible } from', 'import { stockRowsVisible, stockForItem } from')."\nconst rows = await stockForItem(session, id);",
+                ]],
+                ['c1'],
+            ],
+            ['P-35a the gate helper gains an import only', ['sources' => [$VISIBILITY => $S[$VISIBILITY]."\nimport { serverRead } from '@/lib/bff/server/reads';"]], ['c1']],
+            ['P-35b the gate helper gains an export only', ['sources' => [$VISIBILITY => $S[$VISIBILITY]."\nexport const x = 1;"]], ['c1']],
+            ['P-35c the gate helper names the stock read outside a gate only', ['sources' => [$VISIBILITY => $S[$VISIBILITY]."\n// the gate of ListStockLevels"]], ['c1']],
+            ['P-35d the gate helper names the stock path only', ['sources' => [$VISIBILITY => $S[$VISIBILITY]."\nconst p = '/bff/api/stock';"]], ['c1']],
+            ['P-36 the gate helper re-exports the row loader', ['sources' => [$VISIBILITY => $S[$VISIBILITY]."\nexport { loadStockForItem } from './levels';"]], ['a4.a3', 'c1']],
+            ['P-37 the marker fetches stock', ['sources' => [$MARKER => $S[$MARKER]."\nfetch('/bff/api/stock?inventory_item_id=' + id);"]], ['c2']],
+            ['P-38 a route handler under the stock folder serves rows', ['sources' => ['app/(app)/stock/rows/route.ts' => "read('ListStockLevels');"]], ['b']],
+            [
+                'P-38b a server action under the stock folder serves rows, imported by the stock page',
+                ['sources' => ['app/(app)/stock/actions.ts' => "'use server';\nread('ListStockLevels');", $PAGE => $S[$PAGE]."\nimport { act } from './actions';"]],
+                ['b'],
+            ],
+            // M-3 (ST-2a commit RED): one control per clause of the closed class, and the BUYER precondition alone.
+            ['P-23d marker.ts gains only a mention of viewerMay', ['sources' => [$MARKER => $S[$MARKER]."\n// no viewerMay here"]], ['c2']],
+            ['P-37a marker.ts gains only fetch(', ['sources' => [$MARKER => $S[$MARKER]."\nfetch(url);"]], ['c2']],
+            ['P-37b marker.ts gains only require(', ['sources' => [$MARKER => $S[$MARKER]."\nrequire(x);"]], ['c2']],
+            ['P-37c marker.ts gains only read(', ['sources' => [$MARKER => $S[$MARKER]."\nread('ListStorageLocations');"]], ['c2']],
+            ['P-37d marker.ts gains only the stock path', ['sources' => [$MARKER => $S[$MARKER]."\nconst p = '/bff/api/stock';"]], ['c2']],
+            ['P-35e the gate helper exports another function only', ['sources' => [$VISIBILITY => $S[$VISIBILITY]."\nexport function stockForItem() { return null; }"]], ['c1']],
+            ['P-27i the gate test lacks the BUYER precondition', ['tests' => [$GATE_TEST => $swap($T[$GATE_TEST], ' expect(stockRowsVisible(BUYER)).toBe(false);', '')]], ['d']],
+            // L-2 (optional, taken): more single-clause controls.
+            ['P-26f the marker unit test lacks stockRowsVisible(', ['tests' => [$MARKER_TEST => $swap($T[$MARKER_TEST], 'stockRowsVisible(c); ', '')]], ['e']],
+            ["P-27j the gate test lacks 'G-47 gate (i)' and 'G-47 gate (ii)'", ['tests' => [$GATE_TEST => $swap($T[$GATE_TEST], " it('G-47 gate (i)'); it('G-47 gate (ii)');", '')]], ['d']],
+            ['P-27k the gate test mocks the generated surface', ['tests' => [$GATE_TEST => $T[$GATE_TEST]."\nvi.mock('@/generated/api-surface.server', () => ({}));"]], ['d']],
+            ['P-27l the gate test mocks the marker with vi.doMock', ['tests' => [$GATE_TEST => $T[$GATE_TEST]."\nvi.doMock('@/lib/stock/marker', () => ({ stockRowMarker: () => null }));"]], ['d']],
+            ['P-28e copy/stock.ts lacks the quarantine key', ['sources' => [$COPY => $swap($S[$COPY], "  quarantine: 'Quarantine',\n", '')]], ['f']],
+            // ST-2a2 (stock-st2-a4-recommendation.md R1.5): (a4) reaches every entry file; routes, metadata and instrumentation fall under (b).
+            ['P-39 an item layout reaches the row loader', ['sources' => ['app/(app)/items/[id]/layout.tsx' => $LV]], ['a4.a2', 'a4.a3']],
+            ['P-39b an item not-found file reaches the row loader', ['sources' => ['app/(app)/items/[id]/not-found.tsx' => $LV]], ['a4.a2', 'a4.a3']],
+            ['P-39c an item error file (a client file) reaches the row loader', ['sources' => ['app/(app)/items/[id]/error.tsx' => "'use client';\n".$LV]], ['a4.a1', 'a4.a2', 'a4.a3']],
+            ['P-39d a route handler reaches the row loader', ['sources' => ['app/bff/stock-rows/route.ts' => $LV]], ['b']],
+            [
+                'P-39d2 a route handler that gates and marks still reaches the row loader',
+                ['sources' => [
+                    'app/bff/stock-rows/route.ts' => "import { stockRowsVisible } from '@/lib/stock/visibility';\nimport { stockRowMarker } from '@/lib/stock/marker';\nimport { loadStockForItem } from '@/lib/stock/levels';\nif (stockRowsVisible(codes)) return rows.map((r) => ({ r, m: stockRowMarker(r, inputs) }));",
+                ]],
+                ['b'],
+            ],
+            ['P-39e an item stock panel the item page imports', ['sources' => ['app/(app)/items/[id]/StockPanel.tsx' => $LV, $ITEM => $S[$ITEM]."\nimport { StockPanel } from './StockPanel';"]], ['a4.a3']],
+            ['P-39f a layout in the stock folder reaches the row loader', ['sources' => ['app/(app)/stock/layout.tsx' => $LV]], ['a4.a2', 'a4.a3']],
+            ['P-39g a code file under app/ that nothing imports reaches the row loader', ['sources' => ['app/(app)/items/unused.ts' => $LV]], ['a4.a2', 'a4.a3']],
+            ['P-39h as P-39e, imported by an @/ path', ['sources' => ['app/(app)/items/[id]/StockPanel.tsx' => $LV, $ITEM => $S[$ITEM]."\nimport { StockPanel } from '@/app/(app)/items/[id]/StockPanel';"]], ['a4.a3']],
+            ['P-39i P-1 with its lines pinned (no a4 line for the stock page)', ['sources' => [$PAGE => $swap($S[$PAGE], ' if (!stockRowsVisible(codes)) withhold();', '')]], ['a2']],
+            [
+                'P-39j as P-39e, and the panel imports a type from the item page (a cycle)',
+                ['sources' => ['app/(app)/items/[id]/StockPanel.tsx' => "import type { ItemPageProps } from './page';\n".$LV, $ITEM => $S[$ITEM]."\nimport { StockPanel } from './StockPanel';"]],
+                ['a4.a3'],
+            ],
+            [
+                'P-39k the item page reads stock rows, and the stock page imports a type from it',
+                ['sources' => [
+                    $ITEM => "import { loadStockForItem } from '@/lib/stock/levels';\nconst rows = await loadStockForItem(read, id);",
+                    $PAGE => $S[$PAGE]."\nimport type { Props } from '@/app/(app)/items/[id]/page';",
+                ]],
+                ['a4.a2', 'a4.a3'],
+            ],
+            ['P-39l an instrumentation file reaches the row loader', ['sources' => ['instrumentation-client.ts' => "import { loadStockForItem } from '@/lib/stock/levels';"]], ['b']],
+            // ST-2a3 (stock-st2a2-commit-red.md L-2, L-3, L-5): the private-folder exclusion, the server instrumentation arm and the order inside (b).
+            ['P-39l2 a server instrumentation file reaches the row loader', ['sources' => ['instrumentation.ts' => "import { loadStockForItem } from '@/lib/stock/levels';"]], ['b']],
+            ['P-39m an unimported file in a private folder reaches the row loader', ['sources' => ['app/(app)/items/_wip/x.ts' => $LV]], []],
+            [
+                'P-39n a route handler and an instrumentation file both reach the row loader',
+                ['sources' => ['app/bff/stock-rows/route.ts' => $LV, 'instrumentation-client.ts' => "import { loadStockForItem } from '@/lib/stock/levels';"]],
+                ['b'],
+            ],
+            // ST-2a3 amend (stock-st2a3-commit-red.md L-A…L-D): half (ii)'s "no other key", the .js arms, the private-segment shape,
+            // and order and "first row file" inside both (b) branches. Keep the source keys in this insertion order (P-39l3 needs it).
+            ['P-39o a code file under app/ that imports itself, and nothing else imports, reaches the row loader', ['sources' => ['app/(app)/items/Self.ts' => "import { me } from './Self';\n".$LV]], ['a4.a2', 'a4.a3']],
+            ['P-39p a .js layout and a .js instrumentation file reach the row loader', ['sources' => ['app/(app)/items/[id]/layout.js' => $LV, 'instrumentation.js' => "import { loadStockForItem } from '@/lib/stock/levels';"]], ['a4.a2', 'a4.a3', 'b']],
+            ['P-39m2 a page in a private folder and a file whose name starts with _ reach the row loader', ['sources' => ['app/(app)/items/_wip/page.tsx' => $LV, 'app/(app)/items/_x.ts' => $LV]], []],
+            [
+                'P-39l3 both instrumentation files reach row files, and the server one reaches a second row file first',
+                ['sources' => [
+                    'instrumentation.ts' => "import { loadStockForItem } from '@/lib/stock/levels';\nimport { r } from '@/app/(app)/stock/source';",
+                    'app/(app)/stock/source.ts' => "export const r = read('ListStockLevels');",
+                    'instrumentation-client.ts' => "import { loadStockForItem } from '@/lib/stock/levels';",
+                ]],
+                ['b'],
+            ],
+            [
+                'P-39d3 two route handlers reach row files, and the first reaches a second row file first',
+                ['sources' => [
+                    'app/bff/a/route.ts' => "import { loadStockForItem } from '@/lib/stock/levels';\nimport { r } from '@/app/(app)/stock/source';",
+                    'app/(app)/stock/source.ts' => "export const r = read('ListStockLevels');",
+                    'app/bff/b/route.ts' => $LV,
+                ]],
+                ['b'],
+            ],
+            // M-1: defect text and order are pinned (exact lines below).
+            [
+                'P-40 four changes at once: two pages reach row files, two components and a shared file name the read',
+                ['sources' => [
+                    $LOAD => $S[$LOAD]."\nread('ListStockLevels');",
+                    'components/StockPanel.tsx' => "read('ListStockLevels')",
+                    'components/stock/StockPanel.tsx' => "read('ListStockLevels')",
+                    $ITEM => $swap($S[$ITEM], 'const canSeeStock = stockRowsVisible(codes);', "import { loadStockForItem } from '@/lib/stock/levels';\nconst canSeeStock = true;"),
+                ]],
+                ['a4.a2', 'a4.a3', 'b'],
+            ],
+            // D-4 (BK-45 Amendment 1): the exports text strips ASCII whitespace only, so a leading U+00A0 is kept.
+            ['P-41 the gate helper exports a line that starts with U+00A0', ['sources' => [$VISIBILITY => $S[$VISIBILITY]."\nexport \u{00A0}const y = 2;"]], ['c1']],
+            ["P-41b the gate helper exports a line wrapped in ASCII \v \f \t", ['sources' => [$VISIBILITY => $S[$VISIBILITY]."\nexport \v\f const z = 3; \f\t"]], ['c1']],
+        ];
+        $expected = [];
+        $verdicts = [];
+        foreach ($controls as [$name, $change, $letters]) {
+            [$p, $s, $c, $t] = $tree($change);
+            sort($letters, \SORT_STRING);
+            $expected[$name] = $letters;
+            $verdicts[$name] = self::stockRuleLetters(self::stockRowDefects($p, $s, $c, $t));
         }
+        self::assertSame($expected, $verdicts,
+            'A planted control gave other rule letters than the frontend twin asserts for it, so C1′ here and there are no '
+            .'longer the same rule. Each control is one change to the honest tree H (stock-st2-plan.md §5.6).');
+        $ids = array_map(static fn (array $control): string => explode(' ', $control[0])[0], $controls);
+        self::assertSame(\count($ids), \count(array_unique($ids)), 'Two planted controls share an id.');
+
+        // M-1, ST-2a2 and ST-2a3: exact defect lines, in order, for P-20, P-29, P-38, P-39d, P-39d2, P-39d3, P-39e, P-39h…P-39l,
+        // P-39l2, P-39l3, P-39n, P-39o, P-40, P-41 and P-41b -- the text and order the frontend twin pins.
+        $B_TEXT = 'names the stock read outside the stock-on-hand files; keep it out of the shared stock files (lib/api/stock.ts, '
+            .'lib/stock/load.ts, copy/stock.ts), whose importers include the movement pages, and name it only in lib/stock/levels.ts '
+            .'or under app/(app)/stock/';
+        $A2_TEXT = 'must call stockRowsVisible( itself, imported from lib/stock/visibility';
+        $A3_TEXT = 'reaches no call of stockRowMarker( (imported from lib/stock/marker) under app/(app)/stock/';
+        $GATE_ONLY = 'the gate helper holds the gate only';
+        $P39D_LINE = '[b] src/app/bff/stock-rows/route.ts is a route handler or metadata route that reaches the row file src/lib/stock/levels.ts; no route serves stock rows';
+        $P39E_LINE = '[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and '.$A3_TEXT;
+        $P39L_LINE = '[b] src/instrumentation-client.ts is an instrumentation file that reaches the row file src/lib/stock/levels.ts; no route serves stock rows';
+        $exactLines = [
+            'P-20' => [
+                "[c1] src/lib/stock/visibility.ts is missing viewerMay('ListStockLevels',; ".$GATE_ONLY,
+                "[c1] src/lib/stock/visibility.ts is missing viewerMay('ListStorageLocations',; ".$GATE_ONLY,
+                "[c1] src/lib/stock/visibility.ts is missing viewerMay('GetWarehouse',; ".$GATE_ONLY,
+                "[c1] src/lib/stock/visibility.ts is missing viewerMay('ListWarehouses',; ".$GATE_ONLY,
+                '[c1] src/lib/stock/visibility.ts names ListStockLevels outside a viewerMay( gate; '.$GATE_ONLY,
+            ],
+            'P-29' => [
+                '[a0] the stock trigger is true but no page at /stock exists, so nothing can be checked (fail closed)',
+                '[c1] src/lib/stock/visibility.ts is absent; '.$GATE_ONLY,
+                '[c2] src/lib/stock/marker.ts is absent; the row marker is pure',
+                '[d] frontend/test/wired/stock-gate.test.ts is absent',
+                '[e] frontend/test/stock/marker.test.ts is absent',
+                '[f] src/copy/stock.ts lacks export const STOCK_LOCATION_MARKER',
+            ],
+            'P-40' => [
+                '[a4.a2] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and '.$A2_TEXT,
+                '[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and '.$A3_TEXT,
+                '[a4.a2] src/app/(app)/stock-movements/page.tsx reaches the row file src/lib/stock/load.ts and '.$A2_TEXT,
+                '[a4.a3] src/app/(app)/stock-movements/page.tsx reaches the row file src/lib/stock/load.ts and '.$A3_TEXT,
+                '[b] src/components/StockPanel.tsx '.$B_TEXT,
+                '[b] src/components/stock/StockPanel.tsx '.$B_TEXT,
+                '[b] src/lib/stock/load.ts '.$B_TEXT,
+            ],
+            'P-41' => ["[c1] src/lib/stock/visibility.ts exports '\u{00A0}const y = 2;'; ".$GATE_ONLY],
+            'P-41b' => ["[c1] src/lib/stock/visibility.ts exports 'const z = 3;'; ".$GATE_ONLY],
+            'P-39d' => [$P39D_LINE],
+            'P-39d2' => [$P39D_LINE],
+            'P-39e' => [$P39E_LINE],
+            'P-39h' => [$P39E_LINE],
+            'P-39i' => ['[a2] src/app/(app)/stock/page.tsx must call stockRowsVisible( itself, imported from lib/stock/visibility'],
+            'P-39j' => [$P39E_LINE],
+            'P-39k' => [
+                '[a4.a2] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and '.$A2_TEXT,
+                '[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and '.$A3_TEXT,
+            ],
+            'P-39l' => [$P39L_LINE],
+            // ST-2a3 (stock-st2a2-commit-red.md L-1, L-3, L-5): an entry that is itself a row file prints both (b) lines; the
+            // server instrumentation arm; branch 1 (routes) before branch 2 (instrumentation).
+            'P-38' => [
+                '[b] src/app/(app)/stock/rows/route.ts is a route handler or server action naming the stock read; no route serves stock rows',
+                '[b] src/app/(app)/stock/rows/route.ts is a route handler or metadata route that reaches the row file src/app/(app)/stock/rows/route.ts; no route serves stock rows',
+            ],
+            'P-39l2' => ['[b] src/instrumentation.ts is an instrumentation file that reaches the row file src/lib/stock/levels.ts; no route serves stock rows'],
+            'P-39n' => [$P39D_LINE, $P39L_LINE],
+            // ST-2a3 amend (stock-st2a3-commit-red.md L-A, L-D).
+            'P-39o' => [
+                '[a4.a2] src/app/(app)/items/Self.ts reaches the row file src/lib/stock/levels.ts and '.$A2_TEXT,
+                '[a4.a3] src/app/(app)/items/Self.ts reaches the row file src/lib/stock/levels.ts and '.$A3_TEXT,
+            ],
+            'P-39l3' => [
+                $P39L_LINE,
+                '[b] src/instrumentation.ts is an instrumentation file that reaches the row file src/app/(app)/stock/source.ts; no route serves stock rows',
+            ],
+            'P-39d3' => [
+                '[b] src/app/bff/a/route.ts is a route handler or metadata route that reaches the row file src/app/(app)/stock/source.ts; no route serves stock rows',
+                '[b] src/app/bff/b/route.ts is a route handler or metadata route that reaches the row file src/lib/stock/levels.ts; no route serves stock rows',
+            ],
+        ];
+        foreach ($exactLines as $id => $lines) {
+            $found = array_values(array_filter($controls, static fn (array $control): bool => explode(' ', $control[0])[0] === $id));
+            self::assertCount(1, $found, \sprintf('%s is not among the planted controls.', $id));
+            [$p, $s, $c, $t] = $tree($found[0][1]);
+            self::assertSame($lines, self::stockRowDefects($p, $s, $c, $t), \sprintf('%s: the exact defect lines, in order.', $id));
+        }
+
+        // P-13 and P-14 (assertions on P-0): the movement pages carry no obligation, and the item page, which imports the
+        // gate helper for its link, owes nothing (helper files are not row files).
+        [$hp, $hs, $hc, $ht] = $tree();
+        $honest = self::stockRowDefects($hp, $hs, $hc, $ht);
+        self::assertSame([], array_values(array_filter($honest, static fn (string $line): bool => str_contains($line, 'stock-movements/page.tsx'))), 'P-13');
+        self::assertSame([], array_values(array_filter($honest, static fn (string $line): bool => str_contains($line, 'items/[id]/page.tsx'))), 'P-14');
+        // Positive controls: H makes the trigger true, so P-0's empty set is C1′ holding, not the rules switched off; and
+        // the test files are passed apart from the sources (rules (d)/(e) read them by fixed path, never from src).
+        self::assertNotSame([], self::stockRowTriggers($hp, $hs, $hc), 'P-0: the honest tree does not make the trigger true.');
+        self::assertSame([], array_values(array_filter(array_keys($hs), static fn (string $file): bool => str_starts_with($file, 'test/'))),
+            'H carries a test file among its sources.');
+
         self::assertSame([
             'the frontend serves a page at /stock (src/app/(app)/stock/page.tsx)',
             'src/components/A.tsx names ListStockLevels outside src/generated/',
@@ -1499,41 +1915,123 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         self::assertSame(['code', 'id'], $shape(self::resolveRef($spec, (array) ($row['properties']['storage_location'] ?? []))), $rowShape);
         self::assertSame(['id', 'name'], $shape(self::resolveRef($spec, (array) ($row['properties']['warehouse'] ?? []))), $rowShape);
 
+        // Real-tree controls for the entry set (BK-45 Amendment 2 step 5): both halves see real files, and every
+        // unimported entry is a Next convention.
+        ['named' => $named, 'unimported' => $unimported] = self::stockEntryHalves($sources);
+        // 1. Half (i) holds these six (a floor, not a list).
+        foreach (['app/layout.tsx', 'app/not-found.tsx', 'app/error.tsx', 'app/(app)/items/[id]/page.tsx', 'app/(app)/items/[id]/not-found.tsx', 'app/bff/session/route.ts'] as $file) {
+            self::assertContains($file, $named, \sprintf(
+                "Positive control: src/%s is not among the entry files named by a Next convention, so half (i) of (a4)'s "
+                .'entry set reads less than it should.', $file));
+        }
+        // 2. Half (ii) is not vacuous: an imported file is out of it, a file nothing imports is in it.
+        self::assertArrayHasKey('app/(app)/items/[id]/ItemPage.tsx', $sources,
+            'Positive control: src/app/(app)/items/[id]/ItemPage.tsx is gone; pick another imported app file for this control.');
+        self::assertNotContains('app/(app)/items/[id]/ItemPage.tsx', $unimported,
+            'src/app/(app)/items/[id]/ItemPage.tsx is imported by its page, yet half (ii) of the entry set counts it as '
+            .'imported by nothing: the reverse pass is broken.');
+        self::assertContains('app/layout.tsx', $unimported,
+            'Positive control: src/app/layout.tsx is imported by nothing, yet half (ii) of the entry set does not hold it: '
+            .'the reverse pass sees imports that are not there.');
+        // 3. Entries only half (ii) finds: a dead code file under src/app, or a Next convention newer than NEXT_ENTRY_NAMES.
+        self::assertSame([], array_values(array_diff($unimported, $named)),
+            'A code file under src/app is imported by nothing and is not named by a Next convention. Delete it if it is '
+            ."dead; if it is a Next convention, add its name to NEXT_ENTRY_NAMES (and the frontend twin's), or add it here "
+            .'with a reason.');
+
         $message = "G-47 is open (docs/RESIDUAL_GAPS.md G-47, Low; owner UX + SEC): a stock row (ListStockLevels) does not say\n"
             ."whether its bin can be picked -- quarantine bins, archived bins and bins of an archived warehouse look like\n"
-            ."pickable ones. Its frontend trigger was re-put on 2026-11-03 (docs/design/g47-ruling.md, adopted under the\n"
-            ."owner's delegation; the owner may strike it): stock rows may render in the web app ONLY to a viewer holding\n"
-            ."BOTH storage_location.view and warehouse.view, with a text badge (Quarantine / Archived) drawn client-side\n"
-            ."from ListStorageLocations (live and ?archived=true: kind, archived_at) and the warehouse's archived state\n"
-            ."(GetWarehouse / ListWarehouses?archived). Everyone else sees no stock rows until G-47 closes.\n\n"
-            ."FAIL CLOSED: a row whose marker inputs did not all load is never shown as pickable (a text state such as\n"
-            ."'Status unknown' -- UX wording -- or the rows withheld behind a retry).\n\n"
-            ."This check proves only that the marker inputs are NAMED. A stub naming them passes, so it is weaker than\n"
-            ."option (1), the full block, which the owner was offered as the fallback. The commit that builds the screen\n"
-            ."checks these seven by hand and says so:\n"
+            ."pickable ones. Its frontend trigger was re-put on 2026-11-03 (docs/design/g47-ruling.md) and re-keyed on\n"
+            ."2026-11-20 (docs/design/stock-st2-plan.md §5), both adopted under the owner's delegation; the owner may strike\n"
+            ."them. Stock rows may render in the web app ONLY to a viewer holding BOTH storage_location.view and\n"
+            ."warehouse.view, with a text badge (Quarantine / Archived) drawn client-side from ListStorageLocations (live\n"
+            ."and ?archived=true) and the warehouse's archived state. Everyone else sees no stock rows until G-47 closes.\n"
+            ."\n"
+            ."FAIL CLOSED: a row whose marker reads did not all load, whose bin is in neither loaded location list, or\n"
+            ."whose warehouse was not read, is never shown as pickable ('Status unknown').\n"
+            ."\n"
+            ."While the trigger holds, this check requires: (a) every page at /stock, and every other page, layout,\n"
+            ."template, loading, error, not-found or default file, or any file under src/app that nothing imports, whose\n"
+            ."imports reach a file naming the stock read (the two helper files do not count), is a server file that\n"
+            ."calls stockRowsVisible( itself (from lib/stock/visibility) and reaches a call of stockRowMarker( (from\n"
+            ."lib/stock/marker) under app/(app)/stock/; a page at /stock exists; (b) the stock read is named only in\n"
+            ."lib/stock/levels.ts, under app/(app)/stock/ (never in a route handler or server action), or in the gate\n"
+            ."helper, and no route handler, metadata route or instrumentation file reaches it; (c)\n"
+            ."lib/stock/visibility.ts spells the gates of ListStockLevels, ListStorageLocations, GetWarehouse and\n"
+            ."ListWarehouses, holds nothing else, and is the only lib/stock file reading the contract;\n"
+            ."lib/stock/marker.ts is pure; (d) frontend/test/wired/stock-gate.test.ts and (e)\n"
+            ."frontend/test/stock/marker.test.ts exist, name their cases and preconditions, and mock or spy on none of\n"
+            ."the helpers, the contract reader or the generated surface; (f) copy/stock.ts holds STOCK_LOCATION_MARKER\n"
+            ."and the /stock files use it.\n"
+            ."\n"
+            ."This check proves PRESENCE, not behaviour. A page that calls the helpers and shows rows anyway passes it;\n"
+            ."only an honest gate test catches that. The commit that builds the screen checks these ten by hand and says so:\n"
             ."  1. rows render only when the viewer holds both codes; otherwise the H-3a hint and an empty state, no rows;\n"
             ."  2. the badge uses all three inputs: kind = quarantine, the bin's archived_at, the warehouse's archived_at;\n"
-            ."  3. fail closed, as above;\n"
+            ."  3. fail closed: a row whose marker reads did not all load, whose bin is in neither loaded location list,\n"
+            ."     or whose warehouse was not read, is shown as Status unknown, never unmarked;\n"
             ."  4. the badge is text, never colour only;\n"
-            ."  5. IA.md H-3a's hint stays under qty_on_hand;\n"
+            ."  5. IA.md H-3a's hint stays under qty_on_hand (on /stock: the line directly above the table, tied to the\n"
+            ."     On hand column header);\n"
             ."  6. an item-scoped view covers every warehouse its rows name;\n"
-            ."  7. the server-side first render applies the same gate as the browser re-read.\n"
-            ."In that commit also add C2 (the badge copy key UX fixes) to this check and to its frontend twin, which is\n"
-            ."owed next on the frontend track (frontend/test/architecture.test.ts, FE-LEAD). G-47 itself stays open:\n"
-            ."closing it needs SEC's ruling on a row field, the owner's word, and UX's badge (RESIDUAL_GAPS.md G-47).";
+            ."  7. the server-side first render, generateMetadata included, applies the same gate as the browser re-read;\n"
+            ."  8. every input is read with the viewer's own session, and none is cached across viewers (no unstable_cache,\n"
+            ."     'use cache' or module-level memo around a stock loader; React's per-request cache() is allowed, it is\n"
+            ."     not a cross-viewer cache);\n"
+            ."  9. no BFF route serves the joined value;\n"
+            ." 10. no export or Ask path carries it (no Export on /stock while G-47 is open).\n"
+            ."G-47 itself stays open: closing it needs SEC's ruling on a row field, the owner's word, and UX's badge\n"
+            ."(RESIDUAL_GAPS.md G-47).";
 
-        $defects = self::stockRowDefects($pages, $sources, $clientOps);
+        // (d), (e): the two tests are read by fixed path from frontend/, and only while the trigger holds.
+        $due = [] !== self::stockRowTriggers($pages, $sources, $clientOps);
+        $tests = [];
+        foreach ([self::STOCK_GATE_TEST, self::STOCK_MARKER_TEST] as $path) {
+            $full = \dirname(__DIR__, 3).'/frontend/'.$path;
+            $tests[$path] = $due && is_file($full) ? (string) file_get_contents($full) : null;
+        }
+        $defects = self::stockRowDefects($pages, $sources, $clientOps, $tests);
         self::assertSame([], $defects, "  ".implode("\n  ", $defects)."\n\n".$message);
 
         // While T is false the implication above holds over nothing. The day it turns true a stock screen is being
-        // built, and the seven checks cannot be made here, so a person must.
+        // built, and the ten checks cannot be made here, so a person must.
         $lines = self::stockRowTriggers($pages, $sources, $clientOps);
         self::assertSame([], $lines, "  ".implode("\n  ", $lines)."\n\n"
             ."G-47's frontend trigger is now TRUE on the real tree and the implication above holds -- a stock screen is\n"
-            ."being built. Check the seven items below by hand against the screen, say so in the commit, and only then\n"
-            ."remove this control in that commit. Its frontend twin (owed, frontend/test/architecture.test.ts) will carry\n"
-            ."the same control; it moves in the frontend commit that builds the screen, and this one in the merge that\n"
-            ."brings that commit to main, citing that commit's hand check.\n\n".$message);
+            ."being built. Check the ten items below by hand against the screen, say so in the commit, and only then\n"
+            ."remove this control in that commit. Its frontend twin in frontend/test/architecture.test.ts carries the same\n"
+            ."control; it moves in the frontend commit that builds the screen, and this one in the merge that brings\n"
+            ."that commit to main, citing that commit's hand check.\n\n".$message);
+    }
+
+    /**
+     * **G-47's file-name lists and name strip, pinned** (BK-45 Amendment 3 items 1, 2 and 7; the frontend twin's
+     * `stock-st2a2-commit-red.md` M-1 and L-4, and review plant O-6). An edit to either list inside this twin goes red here;
+     * the frontend twin pins the same literals. The name strip removes one final `.ts`, `.tsx`, `.js` or `.jsx`, and only
+     * that; and a file under `app/` with any of the four extensions is an app-code file (dropping one would let such a
+     * file escape (a4) with no other test going red).
+     */
+    #[Test]
+    public function theStockRowFileNameListsAndTheNameStripArePinned(): void
+    {
+        self::assertSame(
+            ['page', 'layout', 'template', 'loading', 'error', 'global-error', 'not-found', 'global-not-found', 'forbidden', 'unauthorized', 'default', 'route', 'opengraph-image', 'twitter-image', 'icon', 'apple-icon', 'sitemap', 'robots', 'manifest'],
+            self::NEXT_ENTRY_NAMES,
+            "NEXT_ENTRY_NAMES changed. Change the frontend twin's list (frontend/test/architecture.test.ts) to the same names, in the same order, in the same step, then move this pin.");
+        self::assertSame(
+            ['route', 'opengraph-image', 'twitter-image', 'icon', 'apple-icon', 'sitemap', 'robots', 'manifest'],
+            self::NEXT_ROUTE_NAMES,
+            "NEXT_ROUTE_NAMES changed. Change the frontend twin's list (frontend/test/architecture.test.ts) to the same names, in the same order, in the same step, then move this pin.");
+        self::assertSame([], array_values(array_diff(self::NEXT_ROUTE_NAMES, self::NEXT_ENTRY_NAMES)),
+            'A name in NEXT_ROUTE_NAMES is missing from NEXT_ENTRY_NAMES, so a route or metadata file of that name is an entry only while nothing imports it, and (b) misses it once something does. Add it to NEXT_ENTRY_NAMES here and in the frontend twin\'s list (frontend/test/architecture.test.ts) in the same step.');
+        // L-4: the strip removes one final .ts, .tsx, .js or .jsx, and only that.
+        self::assertSame(['layout', 'layout', 'layout', 'layout'],
+            array_map(self::stockFileName(...), ['app/a/layout.ts', 'app/a/layout.tsx', 'app/a/layout.js', 'app/a/layout.jsx']));
+        self::assertSame('page.test', self::stockFileName('app/a/page.test.tsx'));
+        // O-6: every one of the four extensions makes a file under app/ an app-code file.
+        self::assertSame([true, true, true, true],
+            array_map(self::isAppCodeFile(...), ['app/a/x.ts', 'app/a/x.tsx', 'app/a/x.js', 'app/a/x.jsx']),
+            'A .ts, .tsx, .js or .jsx file under app/ is no longer an app-code file, so it would escape (a4).');
     }
 
     /** G-47 trigger (b): the stock read's operationId. */
@@ -1550,12 +2048,143 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
     /** G-47 trigger (d), relative to `frontend/`. */
     private const CLIENT_OPS_FILE = 'scripts/api-surface.client-ops.json';
 
-    /** C1: what a file making the trigger true, or a module it imports one level down, must name. */
-    private const STOCK_MARKER_INPUTS = [
-        'ListStorageLocations' => '/\bListStorageLocations\b/',
-        "'storage_location.view'" => "/'storage_location\\.view'/",
-        "'warehouse.view'" => "/'warehouse\\.view'/",
+    /** C1′ (stock-st2-plan.md §5.3): the two helper files. A closed class ((c1), (c2)); never row files. Relative to `src`. */
+    private const STOCK_HELPER_VISIBILITY = 'lib/stock/visibility.ts';
+
+    private const STOCK_HELPER_MARKER = 'lib/stock/marker.ts';
+
+    private const STOCK_HELPERS = [self::STOCK_HELPER_VISIBILITY, self::STOCK_HELPER_MARKER];
+
+    /** The row homes: the stock-on-hand route folder (the trailing slash keeps `app/(app)/stock-movements/` out) and one loader file. */
+    private const STOCK_ROW_DIR = 'app/(app)/stock/';
+
+    private const STOCK_ROW_LIB = 'lib/stock/levels.ts';
+
+    /** (d) and (e): the two mandatory tests, relative to `frontend/`, read by fixed path only while the trigger holds. */
+    private const STOCK_GATE_TEST = 'test/wired/stock-gate.test.ts';
+
+    private const STOCK_MARKER_TEST = 'test/stock/marker.test.ts';
+
+    /** (f): C2, the badge copy key. */
+    private const STOCK_COPY_FILE = 'copy/stock.ts';
+
+    private const STOCK_COPY_EXPORT = 'export const STOCK_LOCATION_MARKER';
+
+    private const STOCK_COPY_KEYS = ['quarantine', 'archived', 'unknown'];
+
+    /** The house forms `} as const;` and `} as const satisfies …;`. No match is a defect, never "to the end of the file". */
+    private const STOCK_COPY_CLOSE = '/\n\}(?:\s+as\s+const)?(?:\s+satisfies\s+[^;\n]+)?;/';
+
+    private const STOCK_COPY_USE = '/\bSTOCK_LOCATION_MARKER\b/';
+
+    /** (a2), (a3): the call shapes. A name alone (an import, a type) is not a call. */
+    private const STOCK_GATE_CALL = '/\bstockRowsVisible\s*\(/';
+
+    private const STOCK_MARKER_CALL = '/\bstockRowMarker\s*\(/';
+
+    /** (c1): what the gate helper must spell, each call written out (a list or a loop over names does not count). */
+    private const STOCK_VISIBILITY_MUST = [
+        'export function stockRowsVisible' => '/export function stockRowsVisible\b/',
+        "viewerMay('ListStockLevels'," => '/viewerMay\(\s*\'ListStockLevels\'\s*,/',
+        "viewerMay('ListStorageLocations'," => '/viewerMay\(\s*\'ListStorageLocations\'\s*,/',
+        "viewerMay('GetWarehouse'," => '/viewerMay\(\s*\'GetWarehouse\'\s*,/',
+        "viewerMay('ListWarehouses'," => '/viewerMay\(\s*\'ListWarehouses\'\s*,/',
     ];
+
+    private const STOCK_VISIBILITY_IMPORTS = ['../bff/surface', '@/lib/bff/surface'];
+
+    private const STOCK_VISIBILITY_EXPORT = '/\bexport\b/';
+
+    /** What must follow every `export` in the gate helper. */
+    private const STOCK_VISIBILITY_EXPORTS = '/^\s+(?:async\s+)?function\s+(?:stockRowsVisible|missingMarkerCodes)\b/';
+
+    private const STOCK_VISIBILITY_GATED_READ = '/viewerMay\(\s*\'ListStockLevels\'\s*,/';
+
+    /** (c2): the marker is pure. What it may never name, and what it may import. */
+    private const STOCK_MARKER_EXPORT = '/export function stockRowMarker\b/';
+
+    private const STOCK_MARKER_FORBIDDEN = [
+        'viewerMay' => '/\bviewerMay\b/',
+        'stockRowsVisible' => '/\bstockRowsVisible\b/',
+        'ListStockLevels' => '/\bListStockLevels\b/',
+        'fetch(' => '/\bfetch\s*\(/',
+        'require(' => '/\brequire\s*\(/',
+        'read(' => '/\bread\s*\(/',
+    ];
+
+    private const STOCK_MARKER_IMPORTS = ['../api/stock', '@/lib/api/stock'];
+
+    /** (c3): the contract reader, as {@see self::directImports()} resolves it. */
+    private const STOCK_SURFACE_FILE = 'lib/bff/surface.ts';
+
+    /** Every import specifier, bare packages included; `export … from` and `import(…)` count ((c1), (c2)). */
+    private const IMPORT_SPECIFIER = '~(?:\bfrom|\bimport)\s*\(?\s*[\'"]([^\'"]+)[\'"]~';
+
+    /** A leading directive, after one leading U+FEFF is stripped (the frontend twin's pattern, with the `s` flag). */
+    private const CLIENT_DIRECTIVE = '~^\s*(?://[^\n]*\n\s*|/\*.*?\*/\s*)*[\'"]use client[\'"]~s';
+
+    private const SERVER_DIRECTIVE = '~^\s*(?://[^\n]*\n\s*|/\*.*?\*/\s*)*[\'"]use server[\'"]~s';
+
+    /** (d), (e): a mock of a helper, the contract reader or the generated surface, in any of the house forms. */
+    private const STOCK_MOCK = '~\bvi\.(?:do)?[mM]ock\s*\(\s*(?:import\s*\(\s*)?[\'"][^\'"]*(?:lib/stock/(?:visibility|marker)|lib/bff/surface|generated/api-surface)[^\'"]*[\'"]~';
+
+    /** (d), (e): a spy on a helper or gate name only (a spy on `console` or `performance` is allowed). */
+    private const STOCK_SPY = '~\bvi\.spyOn\s*\(\s*[^,()]+,\s*[\'"](?:stockRowsVisible|stockRowMarker|missingMarkerCodes|viewerMay|gateAllows|gateCode|operation)[\'"]~';
+
+    /** (d)'s "a call of stockRowsVisible(" is subsumed by the two preconditions, which contain that text: it never fires alone (L-2). */
+    private const STOCK_GATE_TEST_MUST = [
+        "an import of '@/app/(app)/stock/page'" => '~[\'"]@/app/\(app\)/stock/page[\'"]~',
+        'a call of stockRowsVisible(' => '/\bstockRowsVisible\s*\(/',
+    ];
+
+    private const STOCK_GATE_TEST_CASES = [
+        "the case 'G-47 gate (i)'" => '/G-47 gate \(i\)/',
+        "the case 'G-47 gate (ii)'" => '/G-47 gate \(ii\)/',
+        "the case 'G-47 gate (iii)'" => '/G-47 gate \(iii\)/',
+    ];
+
+    private const STOCK_GATE_TEST_PRECONDITIONS = [
+        'the precondition expect(stockRowsVisible(OPERATOR)).toBe(true)' => '/expect\(\s*stockRowsVisible\(\s*OPERATOR\s*\)\s*\)\.toBe\(\s*true\s*\)/',
+        'the precondition expect(stockRowsVisible(BUYER)).toBe(false)' => '/expect\(\s*stockRowsVisible\(\s*BUYER\s*\)\s*\)\.toBe\(\s*false\s*\)/',
+    ];
+
+    private const STOCK_MARKER_TEST_MUST = [
+        'a call of stockRowsVisible(' => '/\bstockRowsVisible\s*\(/',
+        'a call of stockRowMarker(' => '/\bstockRowMarker\s*\(/',
+        "the pin wireEnum('StorageLocation', 'kind')" => '/wireEnum\(\s*\'StorageLocation\'\s*,\s*\'kind\'\s*\)/',
+    ];
+
+    /** ASCII whitespace only: space, \t, \n, \r, \v (U+000B), \f. PHP's default trim() strips \0 and not \f, so never use it here. */
+    private const ASCII_SPACE = " \t\n\r\v\f";
+
+    /** (a4), (b) (stock-st2-a4-recommendation.md R1.1): the files Next loads by name (Next 16.4.5 next-app-loader), in order. */
+    private const NEXT_ENTRY_NAMES = [
+        'page',
+        'layout',
+        'template',
+        'loading',
+        'error',
+        'global-error',
+        'not-found',
+        'global-not-found',
+        'forbidden',
+        'unauthorized',
+        'default',
+        'route',
+        'opengraph-image',
+        'twitter-image',
+        'icon',
+        'apple-icon',
+        'sitemap',
+        'robots',
+        'manifest',
+    ];
+
+    /** The subset that serves a response, not a rendered segment: refused under (b) when it reaches a row file. */
+    private const NEXT_ROUTE_NAMES = ['route', 'opengraph-image', 'twitter-image', 'icon', 'apple-icon', 'sitemap', 'robots', 'manifest'];
+
+    /** An instrumentation file at the top of src (L-2): refused under (b) when it reaches a row file. */
+    private const INSTRUMENTATION_FILE = '~^instrumentation(?:-client)?\.(?:ts|tsx|js|jsx)\z~';
 
     /**
      * One line per reason G-47's frontend trigger is true; empty when it is not. Pages first, then sources (byte
@@ -1620,47 +2249,375 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         return $reasons;
     }
 
+    /** One leading U+FEFF is stripped before a directive test, so a BOM-prefixed file reads the same in both twins (L-9). */
+    private static function withoutBom(string $text): string
+    {
+        return str_starts_with($text, "\xEF\xBB\xBF") ? substr($text, 3) : $text;
+    }
+
+    private static function isClientText(string $text): bool
+    {
+        return 1 === preg_match(self::CLIENT_DIRECTIVE, self::withoutBom($text));
+    }
+
+    private static function isServerDirectiveText(string $text): bool
+    {
+        return 1 === preg_match(self::SERVER_DIRECTIVE, self::withoutBom($text));
+    }
+
+    /** @return list<string> */
+    private static function importSpecifiers(string $text): array
+    {
+        preg_match_all(self::IMPORT_SPECIFIER, $text, $matches);
+
+        return $matches[1];
+    }
+
+    /** The name of a key: after its last `/`, minus one final .ts/.tsx/.js/.jsx (so `page.test.tsx` is `page.test`). */
+    private static function stockFileName(string $file): string
+    {
+        $slash = strrpos($file, '/');
+
+        return (string) preg_replace('~\.(?:ts|tsx|js|jsx)\z~', '', false === $slash ? $file : substr($file, $slash + 1));
+    }
+
+    /** A code file under app/ with no path segment starting `_`. */
+    private static function isAppCodeFile(string $file): bool
+    {
+        return str_starts_with($file, 'app/') && 1 === preg_match('~\.(?:ts|tsx|js|jsx)\z~', $file) && 0 === preg_match('~(?:^|/)_~', $file);
+    }
+
     /**
-     * C1 over every file that makes the trigger true. Fails closed when the trigger holds only through the client
-     * wiring list, since then no file can be checked.
+     * The entry files of `$sources`, byte order: code files under app/ that are (i) named by a Next convention, or (ii)
+     * imported by no other key of `$sources` ({@see self::directImports()}, the existing text resolver). `named` and
+     * `unimported` are the two halves.
      *
-     * @param list<string>          $pages
      * @param array<string, string> $sources
-     * @param list<mixed>           $clientOps
+     *
+     * @return array{entries: list<string>, named: list<string>, unimported: list<string>}
+     */
+    private static function stockEntryHalves(array $sources): array
+    {
+        $imported = [];
+        foreach ($sources as $g => $text) {
+            foreach (self::directImports((string) $g, $text) as $target) {
+                if ($target !== (string) $g) {
+                    $imported[$target] = true;
+                }
+            }
+        }
+        $code = array_values(array_filter(array_map('strval', array_keys($sources)), self::isAppCodeFile(...)));
+        sort($code, \SORT_STRING);
+        $named = array_values(array_filter($code, static fn (string $f): bool => \in_array(self::stockFileName($f), self::NEXT_ENTRY_NAMES, true)));
+        $unimported = array_values(array_filter($code, static fn (string $f): bool => !isset($imported[$f])));
+        $entries = array_values(array_filter($code, static fn (string $f): bool => \in_array(self::stockFileName($f), self::NEXT_ENTRY_NAMES, true) || !isset($imported[$f])));
+
+        return ['entries' => $entries, 'named' => $named, 'unimported' => $unimported];
+    }
+
+    /**
+     * The transitive set of files reached from `$file` through {@see self::directImports()} (resolved by text, one hop
+     * at a time), with a visited set, following only keys present in `$sources`; includes `$file` itself. Byte order.
+     *
+     * @param array<string, string> $sources
      *
      * @return list<string>
      */
-    private static function stockRowDefects(array $pages, array $sources, array $clientOps): array
+    private static function importClosure(string $file, array $sources): array
+    {
+        $seen = [$file => true];
+        $stack = [$file];
+        while ([] !== $stack) {
+            $current = (string) array_pop($stack);
+            foreach (self::directImports($current, $sources[$current] ?? '') as $imported) {
+                if (!\array_key_exists($imported, $sources) || isset($seen[$imported])) {
+                    continue;
+                }
+                $seen[$imported] = true;
+                $stack[] = $imported;
+            }
+        }
+        $closure = array_map('strval', array_keys($seen));
+        sort($closure, \SORT_STRING);
+
+        return $closure;
+    }
+
+    /**
+     * (a1)–(a3) for one page (relative to `src/app`): each breach as [sub-rule letter, text after the file name].
+     *
+     * @param array<string, string> $sources
+     *
+     * @return list<array{0: string, 1: string}>
+     */
+    private static function stockPageBreaches(string $page, array $sources): array
+    {
+        $file = 'app/'.$page;
+        $text = $sources[$file] ?? '';
+        $breaches = [];
+        if (self::isClientText($text)) {
+            $breaches[] = ['a1', "starts with 'use client'; the gate is computed only on the server"];
+        }
+        if (!(1 === preg_match(self::STOCK_GATE_CALL, $text) && \in_array(self::STOCK_HELPER_VISIBILITY, self::directImports($file, $text), true))) {
+            $breaches[] = ['a2', 'must call stockRowsVisible( itself, imported from lib/stock/visibility'];
+        }
+        $marked = false;
+        foreach (self::importClosure($file, $sources) as $reached) {
+            $reachedText = $sources[$reached] ?? '';
+            if (($reached === $file || str_starts_with($reached, self::STOCK_ROW_DIR))
+                && 1 === preg_match(self::STOCK_MARKER_CALL, $reachedText)
+                && \in_array(self::STOCK_HELPER_MARKER, self::directImports($reached, $reachedText), true)) {
+                $marked = true;
+                break;
+            }
+        }
+        if (!$marked) {
+            $breaches[] = ['a3', 'reaches no call of stockRowMarker( (imported from lib/stock/marker) under app/(app)/stock/'];
+        }
+
+        return $breaches;
+    }
+
+    /**
+     * (d) and (e): presence, case labels and preconditions by pattern, and no mock or spy of a G-47 input.
+     *
+     * @param array<string, string> $must name => pattern
+     *
+     * @return list<string>
+     */
+    private static function stockTestDefects(string $letter, string $file, ?string $text, array $must): array
+    {
+        if (null === $text) {
+            return [\sprintf('[%s] frontend/%s is absent', $letter, $file)];
+        }
+        $defects = [];
+        foreach ($must as $name => $pattern) {
+            if (1 !== preg_match($pattern, $text)) {
+                $defects[] = \sprintf('[%s] frontend/%s lacks %s', $letter, $file, $name);
+            }
+        }
+        if (1 === preg_match(self::STOCK_MOCK, $text) || 1 === preg_match(self::STOCK_SPY, $text)) {
+            $defects[] = \sprintf('[%s] frontend/%s mocks or spies on a G-47 input', $letter, $file);
+        }
+
+        return $defects;
+    }
+
+    /**
+     * C1′ (stock-st2-plan.md §5.4), when the trigger holds: rules (a0)–(f) in that order, one line per breach, each
+     * starting with its rule letter in brackets (`a4.aN` for an entry file that is not a stock page); within a rule,
+     * files in byte order (`SORT_STRING`). The defect lines are the frontend twin's, byte for byte.
+     *
+     * @param list<string>               $pages     files relative to `frontend/src/app`
+     * @param array<string, string>      $sources   contents keyed by path relative to `frontend/src`
+     * @param list<mixed>                $clientOps operationIds in the client wiring list
+     * @param array<string, string|null> $tests     the two test paths (relative to `frontend/`) to their text, or null when absent
+     *
+     * @return list<string>
+     */
+    private static function stockRowDefects(array $pages, array $sources, array $clientOps, array $tests): array
     {
         if ([] === self::stockRowTriggers($pages, $sources, $clientOps)) {
             return [];
         }
-        $files = array_map(static fn (string $page): string => 'app/'.$page, self::stockPages($pages));
-        foreach ($sources as $path => $text) {
-            if ([] !== self::stockSourceReasons((string) $path, $text)) {
-                $files[] = (string) $path;
-            }
-        }
-        $files = array_values(array_unique($files));
-        sort($files, \SORT_STRING);
-        if ([] === $files) {
-            return ['the client wiring list wires ListStockLevels, but no frontend source outside src/generated/ names it, '
-                .'so no file can be checked for the marker inputs (fail closed: name the stock read where it is used)'];
-        }
         $defects = [];
-        foreach ($files as $file) {
-            $text = $sources[$file] ?? '';
-            foreach (self::directImports($file, $text) as $import) {
-                $text .= "\n".($sources[$import] ?? '');
+        $stock = self::stockPages($pages);
+        sort($stock, \SORT_STRING);
+        $rowFiles = [];
+        foreach ($sources as $file => $text) {
+            if (!\in_array((string) $file, self::STOCK_HELPERS, true) && [] !== self::stockSourceReasons((string) $file, $text)) {
+                $rowFiles[] = (string) $file;
             }
-            $missing = array_keys(array_filter(self::STOCK_MARKER_INPUTS, static fn (string $pattern): bool => 1 !== preg_match($pattern, $text)));
-            if ([] !== $missing) {
-                $defects[] = \sprintf('src/%s makes the stock trigger true, but neither it nor a module it imports names %s',
-                    $file, implode(', ', $missing));
+        }
+        sort($rowFiles, \SORT_STRING);
+        $reachedRows = static fn (string $file): array => array_values(array_filter(
+            self::importClosure($file, $sources), static fn (string $reached): bool => \in_array($reached, $rowFiles, true)));
+
+        // (a0) fail closed: a wiring with no screen is not allowed.
+        if ([] === $stock) {
+            $defects[] = '[a0] the stock trigger is true but no page at /stock exists, so nothing can be checked (fail closed)';
+        }
+
+        // (a1)–(a3) for every stock page, rule by rule.
+        $breaches = [];
+        foreach ($stock as $page) {
+            $breaches[$page] = self::stockPageBreaches($page, $sources);
+        }
+        foreach (['a1', 'a2', 'a3'] as $rule) {
+            foreach ($stock as $page) {
+                foreach ($breaches[$page] as [$letter, $text]) {
+                    if ($letter === $rule) {
+                        $defects[] = \sprintf('[%s] src/app/%s %s%s', $letter, $page, 'a1' === $letter ? 'is a /stock page but ' : '', $text);
+                    }
+                }
+            }
+        }
+
+        // (a4) every other entry file (a Next convention file, or a code file under app/ that nothing imports) that is
+        // not a route or metadata file and whose closure reaches a row file (the two helper files do not count) owes the same.
+        $entries = self::stockEntryHalves($sources)['entries'];
+        $stockKeys = array_map(static fn (string $page): string => 'app/'.$page, $stock);
+        foreach ($entries as $entry) {
+            if (\in_array($entry, $stockKeys, true) || \in_array(self::stockFileName($entry), self::NEXT_ROUTE_NAMES, true)) {
+                continue;
+            }
+            $reached = $reachedRows($entry);
+            if ([] === $reached) {
+                continue;
+            }
+            foreach (self::stockPageBreaches(substr($entry, \strlen('app/')), $sources) as [$letter, $text]) {
+                $defects[] = \sprintf('[a4.%s] src/%s reaches the row file src/%s and %s', $letter, $entry, $reached[0], $text);
+            }
+        }
+
+        // (b) the stock read lives only in its homes, and never in a route handler or server action there.
+        foreach ($rowFiles as $file) {
+            if (!(str_starts_with($file, self::STOCK_ROW_DIR) || self::STOCK_ROW_LIB === $file)) {
+                $defects[] = '[b] src/'.$file.' names the stock read outside the stock-on-hand files; keep it out of the shared stock '
+                    .'files (lib/api/stock.ts, lib/stock/load.ts, copy/stock.ts), whose importers include the movement pages, and name '
+                    .'it only in lib/stock/levels.ts or under app/(app)/stock/';
+            } elseif (str_starts_with($file, self::STOCK_ROW_DIR)
+                && (1 === preg_match('~(?:^|/)route\.[^/]+\z~', $file) || self::isServerDirectiveText($sources[$file] ?? ''))) {
+                $defects[] = '[b] src/'.$file.' is a route handler or server action naming the stock read; no route serves stock rows';
+            }
+        }
+        // (b), branch 1: no route handler or metadata route reaches a row file (an entry that is itself a row file prints both lines).
+        foreach ($entries as $route) {
+            if (!\in_array(self::stockFileName($route), self::NEXT_ROUTE_NAMES, true)) {
+                continue;
+            }
+            $routeReached = $reachedRows($route);
+            if ([] !== $routeReached) {
+                $defects[] = \sprintf('[b] src/%s is a route handler or metadata route that reaches the row file src/%s; no route serves stock rows', $route, $routeReached[0]);
+            }
+        }
+        // (b), branch 2: no instrumentation file reaches a row file.
+        $instrumentationFiles = array_values(array_filter(array_map('strval', array_keys($sources)), static fn (string $f): bool => 1 === preg_match(self::INSTRUMENTATION_FILE, $f)));
+        sort($instrumentationFiles, \SORT_STRING);
+        foreach ($instrumentationFiles as $instrumentation) {
+            $instrumentationReached = $reachedRows($instrumentation);
+            if ([] !== $instrumentationReached) {
+                $defects[] = \sprintf('[b] src/%s is an instrumentation file that reaches the row file src/%s; no route serves stock rows', $instrumentation, $instrumentationReached[0]);
+            }
+        }
+
+        // (c1) the gate helper holds the gate, and only the gate.
+        $c1 = static function (string $what) use (&$defects): void {
+            $defects[] = \sprintf('[c1] src/%s %s; the gate helper holds the gate only', self::STOCK_HELPER_VISIBILITY, $what);
+        };
+        if (!\array_key_exists(self::STOCK_HELPER_VISIBILITY, $sources)) {
+            $c1('is absent');
+        } else {
+            $text = $sources[self::STOCK_HELPER_VISIBILITY];
+            foreach (self::STOCK_VISIBILITY_MUST as $name => $pattern) {
+                if (1 !== preg_match($pattern, $text)) {
+                    $c1('is missing '.$name);
+                }
+            }
+            foreach (self::importSpecifiers($text) as $specifier) {
+                if (!\in_array($specifier, self::STOCK_VISIBILITY_IMPORTS, true)) {
+                    $c1(\sprintf("imports '%s'", $specifier));
+                }
+            }
+            preg_match_all(self::STOCK_VISIBILITY_EXPORT, $text, $exports, \PREG_OFFSET_CAPTURE);
+            foreach ($exports[0] as [$word, $at]) {
+                $rest = substr($text, $at + \strlen($word));
+                if (1 !== preg_match(self::STOCK_VISIBILITY_EXPORTS, $rest)) {
+                    $c1(\sprintf("exports '%s'", trim(explode("\n", ltrim($rest, self::ASCII_SPACE), 2)[0], self::ASCII_SPACE)));
+                }
+            }
+            if (preg_match_all(self::STOCK_OPERATION_TOKEN, $text) !== preg_match_all(self::STOCK_VISIBILITY_GATED_READ, $text)) {
+                $c1('names ListStockLevels outside a viewerMay( gate');
+            }
+            if (1 === preg_match(self::STOCK_PATH_TOKEN, $text)) {
+                $c1('names the stock path');
+            }
+        }
+
+        // (c2) the marker is pure.
+        $c2 = static function (string $what) use (&$defects): void {
+            $defects[] = \sprintf('[c2] src/%s %s; the row marker is pure', self::STOCK_HELPER_MARKER, $what);
+        };
+        if (!\array_key_exists(self::STOCK_HELPER_MARKER, $sources)) {
+            $c2('is absent');
+        } else {
+            $text = $sources[self::STOCK_HELPER_MARKER];
+            if (1 !== preg_match(self::STOCK_MARKER_EXPORT, $text)) {
+                $c2('is missing export function stockRowMarker');
+            }
+            foreach (self::STOCK_MARKER_FORBIDDEN as $name => $pattern) {
+                if (1 === preg_match($pattern, $text)) {
+                    $c2('names '.$name);
+                }
+            }
+            if (1 === preg_match(self::STOCK_PATH_TOKEN, $text)) {
+                $c2('names the stock path');
+            }
+            foreach (self::importSpecifiers($text) as $specifier) {
+                if (!\in_array($specifier, self::STOCK_MARKER_IMPORTS, true)) {
+                    $c2(\sprintf("imports '%s'", $specifier));
+                }
+            }
+        }
+
+        // (c3) one stock lib file reads the contract.
+        $stockLib = array_values(array_filter(array_map('strval', array_keys($sources)), static fn (string $f): bool => str_starts_with($f, 'lib/stock/') && self::STOCK_HELPER_VISIBILITY !== $f));
+        sort($stockLib, \SORT_STRING);
+        foreach ($stockLib as $file) {
+            if (\in_array(self::STOCK_SURFACE_FILE, self::directImports($file, $sources[$file]), true)) {
+                $defects[] = \sprintf('[c3] src/%s imports the contract reader; only lib/stock/visibility.ts may', $file);
+            }
+        }
+
+        // (d), (e) the two tests, read by fixed path (never from `$sources`).
+        $gateTest = \array_key_exists(self::STOCK_GATE_TEST, $tests) ? $tests[self::STOCK_GATE_TEST] : null;
+        $markerTest = \array_key_exists(self::STOCK_MARKER_TEST, $tests) ? $tests[self::STOCK_MARKER_TEST] : null;
+        array_push($defects, ...self::stockTestDefects('d', self::STOCK_GATE_TEST, $gateTest, [...self::STOCK_GATE_TEST_MUST, ...self::STOCK_GATE_TEST_CASES, ...self::STOCK_GATE_TEST_PRECONDITIONS]));
+        array_push($defects, ...self::stockTestDefects('e', self::STOCK_MARKER_TEST, $markerTest, self::STOCK_MARKER_TEST_MUST));
+
+        // (f) C2: the badge copy key, and its use by the /stock files.
+        $copy = $sources[self::STOCK_COPY_FILE] ?? '';
+        $at = strpos($copy, self::STOCK_COPY_EXPORT);
+        if (false === $at) {
+            $defects[] = \sprintf('[f] src/%s lacks %s', self::STOCK_COPY_FILE, self::STOCK_COPY_EXPORT);
+        } elseif (1 !== preg_match(self::STOCK_COPY_CLOSE, substr($copy, $at), $close, \PREG_OFFSET_CAPTURE)) {
+            $defects[] = \sprintf('[f] src/%s: STOCK_LOCATION_MARKER has no closing line', self::STOCK_COPY_FILE);
+        } else {
+            $slice = substr($copy, $at, $close[0][1] + \strlen($close[0][0]));
+            foreach (self::STOCK_COPY_KEYS as $key) {
+                if (1 !== preg_match('/^\s*'.$key.'\s*:/m', $slice)) {
+                    $defects[] = \sprintf('[f] src/%s lacks STOCK_LOCATION_MARKER.%s', self::STOCK_COPY_FILE, $key);
+                }
+            }
+        }
+        foreach ($stock as $page) {
+            $used = array_filter(self::importClosure('app/'.$page, $sources), static fn (string $file): bool => str_starts_with($file, self::STOCK_ROW_DIR)
+                && 1 === preg_match(self::STOCK_COPY_USE, $sources[$file] ?? ''));
+            if ([] === $used) {
+                $defects[] = \sprintf('[f] no file under app/(app)/stock/ that src/app/%s reaches uses STOCK_LOCATION_MARKER', $page);
             }
         }
 
         return $defects;
+    }
+
+    /**
+     * The rule letters a defect list carries, as a sorted set (each control asserts its exact set; L-2).
+     *
+     * @param list<string> $defects
+     *
+     * @return list<string>
+     */
+    private static function stockRuleLetters(array $defects): array
+    {
+        $letters = [];
+        foreach ($defects as $line) {
+            $letters[] = 1 === preg_match('/^\[([a-z0-9.]+)\]/', $line, $m) ? $m[1] : 'unlettered: '.$line;
+        }
+        $letters = array_values(array_unique($letters));
+        sort($letters, \SORT_STRING);
+
+        return $letters;
     }
 
     /**
