@@ -1,13 +1,18 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: nav.refresh }) }));
 import { WarehousePage } from '@/app/(app)/warehouses/[id]/WarehousePage';
+import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
+import { WAITING } from '@/copy/roles';
+import { LIST_STATES } from '@/copy/shell';
+import { ADD_LOCATION, EDIT_LOCATION, RESTORE_LOCATION } from '@/copy/warehouses';
 import type { StorageLocation, Warehouse } from '@/lib/api/warehouses';
+import { wireEnum } from '@/lib/bff/surface';
 import type { LocationsLoad } from '@/lib/warehouses/load';
 import listStyles from '@/app/(app)/Lists.module.css';
-import { json, problem, refused, renderWired, stubFetch } from './harness';
+import { json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
 
 // Revision 7 §2 step 4.4 (R3-7, A-20, A-21), warehouses-ux-copy.md B-5 and STATES.md ST-9b: the Locations section on the
 // warehouse page. Columns Code · Kind (the label, or the value as sent); Edit changes the code only (Kind shown as a label,
@@ -429,5 +434,277 @@ describe('Edit location (LocationForm) — the mixed-422 line (I-2 follow-up)', 
     await u.click(within(dialog).getByRole('button', { name: 'Save' }));
     expect(await within(dialog).findByText('Refused here.')).toBeInTheDocument();
     expect(within(dialog).queryByText(MIXED_LINE)).toBeNull();
+  });
+});
+
+// locations-stale-banner-design.md "Revision 1 — FINAL" as corrected by locations-stale-banner-final-red.md and
+// locations-stale-banner-po-arch.md (H-1 option (a′)): Edit, Add and Restore whose view re-read fails show the section's
+// banner with that write's stale sentence, which the page's region also speaks; a refused or interrupted dialog's Close
+// shows the generic body and speaks nothing (FE-R8 R-2). The delete's cases and the banner's Retry are in
+// `warehouse-delete.test.tsx`.
+describe('/warehouses/[id] — Locations, the stale banner after a failed re-read (Edit, Add, Restore)', () => {
+  const retries = () => within(section()).queryAllByRole('button', { name: 'Retry' });
+  const bannerTexts = (retry: HTMLElement) => {
+    let el: HTMLElement | null = retry.parentElement;
+    while (el !== null && el.querySelectorAll('p').length < 2) el = el.parentElement;
+    return [...el!.querySelectorAll('p')].map((p) => p.textContent);
+  };
+  const settle = () =>
+    act(async () => {
+      await new Promise((t) => setTimeout(t, 50));
+    });
+  const editTo = async (u: ReturnType<typeof userEvent.setup>, from: string, to: string) => {
+    await u.click(within(section()).getByRole('button', { name: `Edit ${from}` }));
+    const dialog = await screen.findByRole('dialog');
+    const code = within(dialog).getByRole('textbox', { name: 'Code' });
+    await u.clear(code);
+    await u.type(code, to);
+    await u.click(within(dialog).getByRole('button', { name: 'Save' }));
+    return dialog;
+  };
+  const archivedView = async (extra: Parameters<typeof stubFetch>[0]) => {
+    const calls = stubFetch([json(200, coll([B1])), ...extra]);
+    const u = userEvent.setup();
+    show();
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await screen.findByRole('heading', { level: 2, name: 'Archived locations' });
+    return { calls, u };
+  };
+
+  // T-3 (Edit), over every stale failure (commit RED L-3: Add and Restore share `staleAfter` and the same `isStale`).
+  // Mutations M-1, M-14 (Edit keeps "saved") and P5 (a 404 not stale on Edit) → red.
+  const offline = () => {
+    throw new TypeError('Failed to fetch');
+  };
+  for (const [what, reply, heading] of [
+    ['503', () => json(503, {}), WENT_WRONG],
+    ['offline', offline, COULD_NOT_REACH],
+    ['404', () => problem(404, 'not-found'), WENT_WRONG],
+  ] as const) {
+    it(`T-3 an Edit saved, then the re-read fails (${what}): the banner and the region both say savedListStale`, async () => {
+      const saved = { ...A1, code: 'A2' };
+      stubFetch([json(200, saved), reply]);
+      const u = userEvent.setup();
+      show();
+      await editTo(u, 'A1', 'A2');
+      await waitFor(() => expect(retries()).toHaveLength(1));
+      expect(bannerTexts(retries()[0]!)).toEqual([heading, EDIT_LOCATION.savedListStale('A2')]);
+      await settle();
+      expect(pageRegion().textContent).toBe(EDIT_LOCATION.savedListStale('A2'));
+    });
+  }
+
+  it('T-3 an Add created, then the re-read fails: the banner and the region both say ADD_LOCATION.afterListStale', async () => {
+    const kind = wireEnum('StorageLocation', 'kind')[0]!;
+    const made = loc('66666666-6666-4666-8666-666666666666', 'B2', kind);
+    stubFetch([json(201, made), json(503, {})]);
+    const u = userEvent.setup();
+    show({ canCreate: true });
+    await u.click(within(section()).getByRole('button', { name: 'Add location' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add a location to MAIN' });
+    await u.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'B2');
+    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), kind);
+    await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, ADD_LOCATION.afterListStale('B2')]);
+    await settle();
+    expect(pageRegion().textContent).toBe(ADD_LOCATION.afterListStale('B2'));
+  });
+
+  it('T-3 a Restore restored, then the re-read fails: the banner and the region both say RESTORE_LOCATION.afterListStale', async () => {
+    const { u } = await archivedView([json(200, { ...B1, archived_at: null }), json(503, {})]);
+    await u.click(within(section()).getByRole('button', { name: 'Restore location B1' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, RESTORE_LOCATION.afterListStale('B1')]);
+    await settle();
+    expect(pageRegion().textContent).toBe(RESTORE_LOCATION.afterListStale('B1'));
+  });
+
+  it('T-3 a Restore refused but no longer archived (restored elsewhere), then the re-read fails: our stale sentence replaces the server\'s', async () => {
+    const msg = 'This location is not archived, so there is nothing to restore.';
+    const { u } = await archivedView([refused('storage_location.is_not_archived', msg), json(200, coll([])), json(503, {})]);
+    await u.click(within(section()).getByRole('button', { name: 'Restore location B1' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, RESTORE_LOCATION.afterListStale('B1')]);
+    await settle();
+    expect(pageRegion().textContent).toBe(RESTORE_LOCATION.afterListStale('B1'));
+  });
+
+  // T-3b's Edit half (final RED L-7): a refused or interrupted Edit's Close whose re-read fails is shown, not spoken.
+  it("T-3b an Edit refused (409), then Cancel, then the re-read fails: the generic banner; the region is not written", async () => {
+    stubFetch([refused('storage_location.code_is_unique_per_warehouse', 'Another location in this warehouse already uses this code.'), json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    const dialog = await editTo(u, 'A1', 'Q1');
+    await within(dialog).findByText('Not saved');
+    const before = pageRegion().textContent;
+    await u.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
+    await settle();
+    expect(pageRegion().textContent).toBe(before);
+  });
+
+  it('T-3b an Edit interrupted (offline), then Escape, then the re-read fails: the generic banner; the region is not written', async () => {
+    stubFetch([offline, json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    const dialog = await editTo(u, 'A1', 'A9');
+    await within(dialog).findByText("We couldn't reach the server.");
+    const before = pageRegion().textContent;
+    await u.keyboard('{Escape}');
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
+    await settle();
+    expect(pageRegion().textContent).toBe(before);
+  });
+
+  // T-3b's Add half (commit RED L-8; named in FE-R8 R-2's trigger). Mutation M-22 (a refused Add's Close speaks) → red.
+  it('T-3b-Add an Add refused (409), then Cancel, then the re-read fails: the generic banner; the region is not written', async () => {
+    const kind = wireEnum('StorageLocation', 'kind')[0]!;
+    stubFetch([refused('storage_location.code_is_unique_per_warehouse', 'Another location in this warehouse already uses this code. Choose a different code.'), json(503, {})]);
+    const u = userEvent.setup();
+    show({ canCreate: true });
+    await u.click(within(section()).getByRole('button', { name: 'Add location' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add a location to MAIN' });
+    await u.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'A1');
+    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), kind);
+    await u.click(within(dialog).getByRole('button', { name: 'Add location' }));
+    await within(dialog).findByText('Not added');
+    const before = pageRegion().textContent;
+    await u.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
+    await settle();
+    expect(pageRegion().textContent).toBe(before);
+  });
+
+  // T-8b′ (commit RED L-1): the same in the Archived view. Mutation M-19 (`listBannerUp` ignored in the Archived view) → red.
+  it("T-8b′ in the Archived view, a failed Back to locations, then a Restore whose re-read fails: exactly one banner (the list's); the region says RESTORE_LOCATION.afterListStale", async () => {
+    stubFetch([json(200, coll([B1])), json(503, {}), json(200, { ...B1, archived_at: null }), json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await screen.findByRole('heading', { level: 2, name: 'Archived locations' });
+    await u.click(within(section()).getByRole('button', { name: 'Back to locations' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await u.click(within(section()).getByRole('button', { name: 'Restore location B1' }));
+    await waitFor(() => expect(pageRegion().textContent).toBe(RESTORE_LOCATION.afterListStale('B1')));
+    await settle();
+    expect(retries()).toHaveLength(1);
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
+  });
+
+  // T-8b. Mutation M-11 (ignore `listBannerUp`) → red.
+  it("T-8b a failed switch, then an Edit whose re-read fails: exactly one banner (the list's); the region says savedListStale", async () => {
+    stubFetch([json(503, {}), json(200, { ...A1, code: 'A2' }), json(503, {})]);
+    const u = userEvent.setup();
+    show();
+    await u.click(within(section()).getByRole('button', { name: 'Archived' }));
+    await waitFor(() => expect(retries()).toHaveLength(1));
+    await editTo(u, 'A1', 'A2');
+    await waitFor(() => expect(pageRegion().textContent).toBe(EDIT_LOCATION.savedListStale('A2')));
+    await settle();
+    expect(retries()).toHaveLength(1);
+    expect(bannerTexts(retries()[0]!)).toEqual([WENT_WRONG, LIST_STATES.refetchFailed]);
+  });
+
+  // T-10.
+  it("T-10 a failed first load, and its Retry failing again: only the list's region error, never the section's banner", async () => {
+    const calls = stubFetch([json(503, {})]);
+    const u = userEvent.setup();
+    show({ initial: { kind: 'server-error' } });
+    // With a failed first load the page holds more than one level-2 heading, so the section is found by the list's heading id.
+    const list = () => document.getElementById('locations-heading')!.closest('section')!;
+    const listRetries = () => within(list()).queryAllByRole('button', { name: 'Retry' });
+    expect(listRetries()).toHaveLength(1);
+    await u.click(listRetries()[0]!);
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await settle();
+    expect(listRetries()).toHaveLength(1);
+    expect(within(list()).getByText("The locations couldn't be loaded.")).toBeInTheDocument();
+    expect(within(list()).queryByText(LIST_STATES.refetchFailed)).toBeNull();
+  });
+
+  it("T-10 an Edit whose re-read answers 403: the section's denied state, no banner", async () => {
+    stubFetch([json(200, { ...A1, code: 'A2' }), problem(403, 'permission-denied')]);
+    const u = userEvent.setup();
+    show();
+    await editTo(u, 'A1', 'A2');
+    await screen.findByText("You don't have access to this warehouse's locations.");
+    expect(screen.queryAllByRole('button', { name: 'Retry' })).toHaveLength(0);
+  });
+
+  // T-11: each NEW sentence is the write's own sentence followed by the shared list-stale sentence.
+  it('T-11 savedListStale and both afterListStale sentences are the write\'s sentence followed by WAITING.listStale', () => {
+    for (const c of ['A1', 'X-9']) {
+      expect(EDIT_LOCATION.savedListStale(c)).toBe(`${EDIT_LOCATION.saved(c)} ${WAITING.listStale}`);
+      expect(ADD_LOCATION.afterListStale(c)).toBe(`${ADD_LOCATION.after(c)} ${WAITING.listStale}`);
+      expect(RESTORE_LOCATION.afterListStale(c)).toBe(`${RESTORE_LOCATION.after(c)} ${WAITING.listStale}`);
+    }
+  });
+});
+
+// fe-r6-saving-status-design.md Revision 1 — FINAL commit A (RED H-2; final RED A-3): LocationsSection empties the page
+// region through the counted writer at each Edit Save press that sends a request, so a second identical
+// "{code} was saved." is given again.
+describe('Edit location — a second identical saved sentence is written again (FE-R6 commit A)', () => {
+  const SAVED = 'A1 was saved.';
+  const editKind = async (u: ReturnType<typeof userEvent.setup>, kind: string) => {
+    await u.click(within(section()).getByRole('button', { name: 'Edit A1' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit location A1' });
+    await u.selectOptions(within(dialog).getByRole('combobox', { name: 'Kind' }), kind);
+    await u.click(within(dialog).getByRole('button', { name: 'Save' }));
+  };
+
+  // Mutation A-M4 (no call in LocationForm) → red.
+  it('two Edits of the same location in a row each say "A1 was saved.": the region empties at the second press', async () => {
+    // Two served kinds other than A1's own, so each Edit changes something (the served list, never typed).
+    const [k1, k2] = wireEnum('StorageLocation', 'kind').filter((k) => k !== A1.kind) as [string, string];
+    const one = { ...A1, kind: k1 };
+    const two = { ...A1, kind: k2 };
+    stubFetch([json(200, one), json(200, coll([one, Q1, P1])), json(200, two), json(200, coll([two, Q1, P1]))]);
+    const u = userEvent.setup();
+    show();
+    const rec = textsOf(pageRegion());
+    await editKind(u, k1);
+    await waitFor(() => expect(pageRegion().textContent).toBe(SAVED));
+    await waitFor(() => expect(within(section()).getByRole('button', { name: 'Edit A1' })).toHaveFocus());
+    await editKind(u, k2);
+    await waitFor(() => expect(rec.texts).toEqual(['', SAVED, '', SAVED]));
+    rec.stop();
+  });
+});
+
+// S-4 RED-2 M-2 (shipped): FE-D1's order on Edit location — focus is back on the row's Edit BEFORE "{code} was saved." is
+// written. The dialog's own focus return runs on a timer after it unmounts, later than the sentence, so the section puts
+// focus back itself (the supplier catalogue's DV-16 shape). The spy tells a call inside the dialog from the page's.
+describe('/warehouses/[id] — Edit location: focus returns before the saved sentence (FE-D1)', () => {
+  it('after a 200 the row\'s Edit takes focus while the page region is still empty; "A2 was saved." follows', async () => {
+    const saved = { ...A1, code: 'A2' };
+    stubFetch([json(200, saved), json(200, coll([saved, Q1, P1]))]);
+    const u = userEvent.setup();
+    show();
+    await u.click(within(section()).getByRole('button', { name: 'Edit A1' }));
+    const code = within(screen.getByRole('dialog')).getByRole('textbox', { name: 'Code' });
+    await u.clear(code);
+    await u.type(code, 'A2');
+    const seen: { el: string; region: string }[] = [];
+    const real = HTMLElement.prototype.focus;
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, opts?: FocusOptions) {
+      seen.push({ el: (this.closest('[role="dialog"]') ? 'dialog:' : '') + (this.getAttribute('aria-label') ?? this.textContent ?? this.tagName), region: pageRegion().textContent ?? '' });
+      real.call(this, opts);
+    });
+    try {
+      await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(pageRegion().textContent).toBe('A2 was saved.'));
+      await waitFor(() => expect(within(section()).getByRole('button', { name: 'Edit A2' })).toHaveFocus());
+    } finally {
+      spy.mockRestore();
+    }
+    const onEdit = seen.filter((c) => c.el === 'Edit A1' || c.el === 'Edit A2');
+    expect(onEdit.length).toBeGreaterThan(0);
+    expect(onEdit[0]!.region).toBe('');
+    expect(pageRegion().textContent).toBe('A2 was saved.');
   });
 });

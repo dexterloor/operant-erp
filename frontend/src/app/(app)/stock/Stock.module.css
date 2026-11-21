@@ -1,0 +1,104 @@
+/*
+ * Stock on hand (stock-st2-plan.md §2.7; UX stock-st2-ux-copy.md §B-10, owner D5 and D6): the badges, the hint line, the
+ * picker's full-width links and, at phone width, stacked rows. The phone layout is a CSS-only change of the same table, so
+ * a row can never render without its badge. Tokens only. The focus ring is global.
+ */
+
+/* A badge is words (Quarantine, Archived, Status unknown); the border only frames them, colour never carries the meaning. */
+.badge {
+  display: inline-block;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--fg-default);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.notice {
+  margin: 0;
+  font-weight: 600;
+}
+
+.step {
+  margin: 0;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  margin: 0;
+}
+
+.find {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: 40rem;
+}
+
+/* Full-width rows with at least a 44 px target (gloved hands on the warehouse floor; UX §B-10). */
+.choice {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  border-block-end: 1px solid var(--border-default);
+  color: var(--fg-link);
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-link);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Below the table breakpoint each row stacks, its cells labelled by their column heading, in the same order. */
+@media (max-width: 640px) {
+  .stacked thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .stacked tr {
+    display: block;
+    padding-block: var(--space-4);
+    border-block-end: 1px solid var(--border-default);
+  }
+
+  .stacked td {
+    display: block;
+    padding: var(--space-1) 0;
+    border: 0;
+  }
+
+  .stacked td::before {
+    content: attr(data-label) ' ';
+    color: var(--fg-muted);
+  }
+}

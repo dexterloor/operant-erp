@@ -1431,8 +1431,9 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * **Where it runs.** Merge-time backstop. Its frontend twin is the G-47 block of
      * `frontend/test/architecture.test.ts` (FE-LEAD), so the rule also runs on every frontend gate; that gate runs
      * only locally. Both twins are at C1′ from this commit. The message below is the frontend twin's, character for
-     * character; the message-parity test (the G-51 precedent) lands on the frontend track in the merge of main back
-     * after this commit, and until then the two messages are kept equal by hand. The two test files of (d) and (e)
+     * character, and the two messages are held equal on every frontend gate by the frontend twin's message-parity test
+     * (the G-51 precedent; it reads this file); the rules, planted controls and file-name lists are still compared by
+     * the commit review of each change. The two test files of (d) and (e)
      * are read by fixed path (`frontend/test/…`, the {@see self::CLIENT_OPS_FILE} precedent) only while T holds.
      *
      * **Controls, same test:** planted trigger trees, each isolating ONE rule (page trees carry no sources; token
@@ -1444,7 +1445,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
      * `src/generated/` names `ListStockLevels` and the stock path; the navigation entry's shape occurs exactly once in
      * `lib/navigation.ts`; the client wiring list exists and is read; both halves of the entry set see real files (the
      * imported file the half-(ii) control uses is checked present first) and every file only half (ii) finds is pinned
-     * (`[]`); T is false on main today. The file-name lists, the name strip and the app-code extensions are pinned in
+     * (`[]`); the trigger lines are exactly the six of the stock-on-hand screen (ST-2b, whose commit records the ten
+     * hand checks), and its two helpers and two tests are real and not empty. The file-name lists, the name strip and the app-code extensions are pinned in
      * {@see self::theStockRowFileNameListsAndTheNameStripArePinned()}.
      */
     #[Test]
@@ -1754,6 +1756,15 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
                 ]],
                 ['b'],
             ],
+            // BK-45 build review L-4 / R-3 (owed to both twins): (a3) admits "F = the page" on purpose, so an entry outside the stock
+            // folder that calls the gate and the marker itself owes nothing more. Plant: drop `$reached === $file ||` from (a3) → red.
+            [
+                'P-39q an entry outside the stock folder that calls the gate and the marker itself reaches the row loader',
+                ['sources' => [
+                    'app/(app)/items/[id]/layout.tsx' => "import { stockRowsVisible } from '@/lib/stock/visibility';\nimport { stockRowMarker } from '@/lib/stock/marker';\n".$LV."\nif (stockRowsVisible(codes)) rows.map((r) => stockRowMarker(r, inputs));",
+                ]],
+                [],
+            ],
             // M-1: defect text and order are pinned (exact lines below).
             [
                 'P-40 four changes at once: two pages reach row files, two components and a shared file name the read',
@@ -1927,6 +1938,10 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         // 2. Half (ii) is not vacuous: an imported file is out of it, a file nothing imports is in it.
         self::assertArrayHasKey('app/(app)/items/[id]/ItemPage.tsx', $sources,
             'Positive control: src/app/(app)/items/[id]/ItemPage.tsx is gone; pick another imported app file for this control.');
+        // BK-45 commit RED RM-4: a negative control on half (i).
+        self::assertNotContains('app/(app)/items/[id]/ItemPage.tsx', $named,
+            'src/app/(app)/items/[id]/ItemPage.tsx is not named by a Next convention, yet half (i) of the entry set holds it: '
+            .'the name test admits non-convention files.');
         self::assertNotContains('app/(app)/items/[id]/ItemPage.tsx', $unimported,
             'src/app/(app)/items/[id]/ItemPage.tsx is imported by its page, yet half (ii) of the entry set counts it as '
             .'imported by nothing: the reverse pass is broken.');
@@ -1993,15 +2008,25 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         $defects = self::stockRowDefects($pages, $sources, $clientOps, $tests);
         self::assertSame([], $defects, "  ".implode("\n  ", $defects)."\n\n".$message);
 
-        // While T is false the implication above holds over nothing. The day it turns true a stock screen is being
-        // built, and the ten checks cannot be made here, so a person must.
-        $lines = self::stockRowTriggers($pages, $sources, $clientOps);
-        self::assertSame([], $lines, "  ".implode("\n  ", $lines)."\n\n"
-            ."G-47's frontend trigger is now TRUE on the real tree and the implication above holds -- a stock screen is\n"
-            ."being built. Check the ten items below by hand against the screen, say so in the commit, and only then\n"
-            ."remove this control in that commit. Its frontend twin in frontend/test/architecture.test.ts carries the same\n"
-            ."control; it moves in the frontend commit that builds the screen, and this one in the merge that brings\n"
-            ."that commit to main, citing that commit's hand check.\n\n".$message);
+        // Stock ST-2 (stock-st2-plan.md §5.6, stock-st2-red.md L-1): the "trigger is still false" control was removed in the
+        // merge that brought the stock-on-hand screen (ST-2b) to main, after that screen's commit made the ten hand checks
+        // (recorded in its commit message). In its place, the exact trigger lines, re-derived from the real tree and copied
+        // from the frontend twin: any new file naming the stock read is a deliberate edit of this pin, in both twins.
+        self::assertSame([
+            'the frontend serves a page at /stock (src/app/(app)/stock/page.tsx)',
+            'src/app/(app)/stock/StockStates.tsx names ListStockLevels outside src/generated/',
+            'src/app/(app)/stock/page.tsx names ListStockLevels outside src/generated/',
+            'src/lib/stock/levels.ts names ListStockLevels outside src/generated/',
+            'src/lib/stock/visibility.ts names ListStockLevels outside src/generated/',
+            'scripts/api-surface.client-ops.json wires ListStockLevels for the browser',
+        ], self::stockRowTriggers($pages, $sources, $clientOps), $message);
+        // Positive controls: the real helpers and the two tests are found, and are not empty.
+        foreach (self::STOCK_HELPERS as $helper) {
+            self::assertNotSame('', (string) ($sources[$helper] ?? ''), \sprintf('src/%s is missing or empty', $helper));
+        }
+        foreach ([self::STOCK_GATE_TEST, self::STOCK_MARKER_TEST] as $path) {
+            self::assertNotSame('', (string) ($tests[$path] ?? ''), \sprintf('frontend/%s is missing or empty', $path));
+        }
     }
 
     /**
@@ -2028,6 +2053,8 @@ final class OwedAmendmentTripwireTest extends ApiTestCase
         self::assertSame(['layout', 'layout', 'layout', 'layout'],
             array_map(self::stockFileName(...), ['app/a/layout.ts', 'app/a/layout.tsx', 'app/a/layout.js', 'app/a/layout.jsx']));
         self::assertSame('page.test', self::stockFileName('app/a/page.test.tsx'));
+        // BK-45 commit RED RM-1: a bare name (no folder) strips the same way.
+        self::assertSame('page.test', self::stockFileName('page.test.tsx'));
         // O-6: every one of the four extensions makes a file under app/ an app-code file.
         self::assertSame([true, true, true, true],
             array_map(self::isAppCodeFile(...), ['app/a/x.ts', 'app/a/x.tsx', 'app/a/x.js', 'app/a/x.jsx']),

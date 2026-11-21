@@ -10,7 +10,7 @@ import { NAVIGATION, type PermissionCodes } from './navigation';
  * The navigation hrefs whose page exists under src/app/(app). Each commit that adds a page adds its href here. The
  * sidebar, rail and 320 px menu read it too (b3b-followup C-3): they offer only these pages.
  */
-export const BUILT_PAGE_HREFS: readonly string[] = ['/items', '/warehouses', '/admin/users', '/admin/roles'];
+export const BUILT_PAGE_HREFS: readonly string[] = ['/purchase-orders', '/goods-receipts', '/suppliers', '/items', '/stock', '/stock-movements', '/warehouses', '/admin/users', '/admin/roles'];
 
 /**
  * Pages inside the signed-in frame reached from the user menu, not from navigation (Revision 6 A-13). Never navigation
@@ -22,7 +22,7 @@ export const ACCOUNT_PAGE_HREFS: readonly string[] = ['/account/password'];
  * Static pages below a built page, reached from that page, never from navigation (Revision 7 C-2c; §2 step 4.3). Never
  * navigation items, never in DECLARED_ROUTES, never a start destination.
  */
-export const CHILD_PAGE_HREFS: readonly string[] = ['/warehouses/new', '/items/new'];
+export const CHILD_PAGE_HREFS: readonly string[] = ['/warehouses/new', '/items/new', '/suppliers/new', '/purchase-orders/new'];
 
 const NAV_ITEMS = NAVIGATION.flatMap((g) => g.items);
 

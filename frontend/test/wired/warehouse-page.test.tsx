@@ -8,7 +8,7 @@ import type { Warehouse } from '@/lib/api/warehouses';
 import { REFUSED_WITHOUT_MESSAGE } from '@/copy/headings';
 import { PAGE_STATES } from '@/copy/shell';
 import { formatDate } from '@/lib/format/dates';
-import { TZ, json, problem, refused, renderWired, stubFetch } from './harness';
+import { TZ, json, problem, refused, renderWired, stubFetch, textsOf } from './harness';
 
 // warehouses-ux-copy.md B-3 (Revision 1), Revision 7 A-19, step 4.1: the warehouse page is the editor. Code, Name and
 // Country only; Save sends the changed fields alone; a 422's field sentences show beside their fields; a 409 shows the
@@ -609,5 +609,28 @@ describe('/warehouses/[id] (WarehouseForm) — the mixed-422 line (I-2 follow-up
     await u.click(save());
     expect(await screen.findByText('Refused here.')).toBeInTheDocument();
     expect(screen.queryByText(MIXED_LINE)).toBeNull();
+  });
+});
+
+// fe-r6-saving-status-design.md Revision 1 — FINAL commit A (RED H-2; final RED A-3): the page's counted writer empties the
+// region at each Save press that sends a request, so a second identical "{code} was saved." is given again.
+describe('/warehouses/[id] — a second identical saved sentence is written again (FE-R6 commit A)', () => {
+  const SAVED = 'MAIN was saved.';
+  // Mutation A-M3 (no call in WarehouseForm) → red.
+  it('two Saves of the same warehouse in a row each say "MAIN was saved.": the region empties at the second press', async () => {
+    const one = { ...MAIN, name: 'Main warehousex' };
+    const two = { ...MAIN, name: 'Main warehousexy' };
+    stubFetch([json(200, one), json(200, one), json(200, two), json(200, two)]);
+    const u = userEvent.setup();
+    show();
+    const rec = textsOf(region());
+    await u.type(field('Name'), 'x');
+    await u.click(save());
+    await waitFor(() => expect(region().textContent).toBe(SAVED));
+    await waitFor(() => expect(field('Name')).toHaveValue('Main warehousex'));
+    await u.type(field('Name'), 'y');
+    await u.click(save());
+    await waitFor(() => expect(rec.texts).toEqual(['', SAVED, '', SAVED]));
+    rec.stop();
   });
 });

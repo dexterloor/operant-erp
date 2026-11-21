@@ -46,10 +46,20 @@ export interface PageRequest {
  * The query of a paged list read, the one place it is built (R8-1 item 2): `archived=true` for the Archived view, `q` as
  * typed when not empty (an empty `q` is no search on the server), and at most one of `after` / `before`. `limit` is never
  * sent: the server's default page size is the page.
+ *
+ * Revision 10 R10-1: a list with named live segments (purchase orders' Open · Draft · Received · Cancelled) passes the
+ * segment, and a live read then sends `status=<segment>`. The Archived view ignores it, so a request never holds
+ * `archived` with `status` (the server refuses the pair). A list without segments passes none and sends no `status`.
+ *
+ * Revision 10 R10-4: a list may carry ONE fixed filter its caller supplies (`{ name, value }`; first use: the order page's
+ * Receipts section, `purchase_order_id`). It is sent with every request of that list, whatever the view, search or cursor;
+ * it never enters the address (no address writer reads it) and a list without it sends none.
  */
-export function pageQuery(archived: boolean, page: PageRequest): URLSearchParams {
+export function pageQuery(archived: boolean, page: PageRequest, segment?: string, fixed?: { readonly name: string; readonly value: string }): URLSearchParams {
   const query = new URLSearchParams();
   if (archived) query.set('archived', 'true');
+  else if (segment !== undefined) query.set('status', segment);
+  if (fixed !== undefined) query.set(fixed.name, fixed.value);
   if (page.q !== '') query.set('q', page.q);
   if (page.cursor !== null) {
     if (page.cursor.after !== undefined) query.set('after', page.cursor.after);

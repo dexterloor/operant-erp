@@ -57,6 +57,8 @@ export const PAGE_STATES = {
   notFoundTitle: "We couldn't find that",
   /** PROPOSED (§6 reduced motion: spinners become static text). */
   loading: 'Loading…',
+  /** NEW (fe-r6-saving-status-design.md Revision 1 B-2; FE-R6). */
+  saving: 'Saving…',
 } as const;
 
 /**

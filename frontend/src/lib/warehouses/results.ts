@@ -17,10 +17,11 @@ export type WarehouseField = (typeof WAREHOUSE_FIELDS)[number];
 /**
  * `PATCH /warehouses/{id}`. `saved` carries the 200 body. `invalid` is a 422 mapped onto the form (`fieldErrorsFrom`):
  * field sentences beside their fields, the rest at form level, all verbatim. `refused` is a 409 (code taken, archived,
- * contention), shown at form level as sent.
+ * contention), shown at form level as sent. On `saved`, `sentAsOf` is the stamp taken when this Save was sent: the page
+ * does not speak the save sentence when its own 204 arrived after that (the items page's UX M-3 rule).
  */
 export type SaveWarehouseResult =
-  | { kind: 'saved'; warehouse: Warehouse }
+  | { kind: 'saved'; warehouse: Warehouse; sentAsOf: number }
   | { kind: 'invalid'; fieldErrors: FieldErrors<WarehouseField>; formErrors: string[] }
   | Refused
   | Forbidden

@@ -45,6 +45,8 @@ async function press(r: RestoreResult<Payload>) {
   return spoken;
 }
 
+// FE-R9 (fe-r9-red.md M-1): every press that sends empties the region first (`announce('')`, after the guard, before the
+// request), so each spoken list starts with that ''. The answer itself is never ''.
 describe('components/records/RestoreActions — each branch renders its own copy field (RED M-1)', () => {
   it('the banner is archivedBefore + date + archivedAfter; the button is action', () => {
     render(<Harness restore={async () => ({ kind: 'unreachable' })} spoken={[]} />);
@@ -54,18 +56,18 @@ describe('components/records/RestoreActions — each branch renders its own copy
 
   it('restored: speaks after(payload) and moves focus to the heading', async () => {
     const spoken = await press({ kind: 'restored', thing: { code: 'K1' } });
-    await waitFor(() => expect(spoken).toEqual(['AFTER:K1']));
+    await waitFor(() => expect(spoken).toEqual(['', 'AFTER:K1']));
     expect(screen.getByRole('heading', { name: 'Page' })).toHaveFocus();
   });
 
   it('already-live with a sentence: speaks the sentence as sent', async () => {
     const spoken = await press({ kind: 'already-live', thing: { code: 'K2' }, message: 'X-planted it is live' });
-    await waitFor(() => expect(spoken).toEqual(['X-planted it is live']));
+    await waitFor(() => expect(spoken).toEqual(['', 'X-planted it is live']));
   });
 
   it("already-live with an empty sentence: speaks after(payload), never ''", async () => {
     const spoken = await press({ kind: 'already-live', thing: { code: 'K3' }, message: '' });
-    await waitFor(() => expect(spoken).toEqual(['AFTER:K3']));
+    await waitFor(() => expect(spoken).toEqual(['', 'AFTER:K3']));
   });
 
   it('a 403 is before + the permission label in <em> + after, as one sentence, under Not restored', async () => {
@@ -85,6 +87,6 @@ describe('components/records/RestoreActions — each branch renders its own copy
     expect(await screen.findByText('INTERRUPTED')).toBeInTheDocument();
     expect(screen.getByText(heading, { exact: false })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'ACTION' })).toBeInTheDocument();
-    expect(spoken).toEqual([]);
+    expect(spoken).toEqual(['']);
   });
 });

@@ -14,11 +14,13 @@ import { CREATE_ITEM_FIELDS, ITEM_FIELDS, type CreateItemAction, type DeleteItem
 // Save; live after a refused Restore). The ONE rule compared here is P1 (`PLATFORM_REFUSAL.contention`, R8-4: this file
 // is the items family's one `lib/api/problems` importer): a contention refusal is always returned as `refused`, never
 // `refused-archived`, because its sentence says "try again" (items-i1-red.md L-3, second option). A re-read that fails
-// after a refusal is told to the page (`onRereadFailed`), so a stale page is never left silent (M-1).
+// after a refusal is told to the page (`onRereadFailed`), so a stale page is never left silent (M-1) (except a Save sent
+// before the person's own 204: the page drops its region error, never the swap; po-6-red.md, the :384 residual).
 //
 // Blind spot, stated (the warehouses X-2 precedent): C-2's body-key check reads object-literal bodies only; the Save body
-// is built by `changedFields` over `ITEM_FIELDS` and copied by name below, which is what keeps `supplier_id` and
-// `unit_of_measure_code` out of it.
+// is built by `changedFields` over `ITEM_FIELDS` and copied by name below, which is what keeps `supplier_id` out of it
+// and the unit in it only when the person changed it. The unit's own refusal (in use) is not compared here either: it
+// takes the shared `refused` path and is shown as sent (items-i4-design.md Revision 1 — FINAL §3.2, option A).
 //
 // Blind spot, stated: C-2's body-key check reads object-literal bodies only; the create body is built by name over
 // `CREATE_ITEM_FIELDS`, which, with the item-create body test, keeps it to the six keys.
@@ -28,7 +30,9 @@ import { CREATE_ITEM_FIELDS, ITEM_FIELDS, type CreateItemAction, type DeleteItem
 // before it sends its re-read, after the write's answer has arrived, and passes it to every commit or failure that
 // follows, the fallback answer body included. The page drops anything older than what it shows.
 // A Save also takes a stamp when it sends its PATCH; its own answer body is committed only if no 204 arrived after that
-// (a Save that answers after a delete was processed before it; i3-0a0b RED H-1, the warehouse rule).
+// (a Save that answers after a delete was processed before it; i3-0a0b RED H-1, the warehouse rule). The same stamp goes
+// back with `saved` and `refused-archived` (`sentAsOf`), so the page can drop what such a Save would say (I-4 T-17, M-3),
+// and with a failed re-read at both of Save's sites, so the page can drop its region error (po-6-red.md, the :384 residual).
 
 export interface ItemWiring {
   readonly caller: ApiCaller;
@@ -40,8 +44,12 @@ export interface ItemWiring {
    * only with a write's own answer body, is the stamp taken when that write was sent.
    */
   readonly setItem: (item: Item, asOf: number, sentAsOf?: number) => Promise<void>;
-  /** A re-read after a write did not answer an item: the page shows its region error, or swaps (ST-4b / ST-5). */
-  readonly onRereadFailed: (failure: ReadFailure, asOf: number) => void;
+  /**
+   * A re-read after a write did not answer an item: the page shows its region error, or swaps (ST-4b / ST-5). `sentAsOf`,
+   * given only by Save (both sites), is the stamp taken when its PATCH was sent: the page drops the region error — never the
+   * swap — when a 204 of the person's own Delete arrived after it (po-6-red.md "Spar on the :384 residual", the item twin).
+   */
+  readonly onRereadFailed: (failure: ReadFailure, asOf: number, sentAsOf?: number) => void;
   /** After a 204, before the delete's re-read: the page raises what it shows to that re-read's stamp (the 204 floor). */
   readonly onDeleted?: (asOf: number) => void;
 }
@@ -61,15 +69,16 @@ export function itemSave(w: ItemWiring): SaveItemAction {
             if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, ITEM_FIELDS) };
             // 4.4 RED M-1: a refusal may prove the page stale (UX-I2: archived elsewhere). Re-read under the same
             // deadline; only an item that now reads archived is committed (the page turns read-only and shows the
-            // sentence). A live re-read is NOT committed, so the person's edits stay for another press (P1, UX-I1).
+            // sentence, unless a newer reading was committed first; the page decides, FE-R7). A live re-read is NOT
+            // committed, so the person's edits stay for another press (P1, UX-I1).
             const s = w.stamp();
             const again = await loadItem(readOf(w.caller), w.id, deadline.signal);
             if (again.kind === 'ok' && again.item.archived_at !== null) {
               await w.setItem(again.item, s);
               // P1 says "try again": it is never shown as the page's archived-elsewhere refusal (L-3).
-              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message };
+              return r.rule === PLATFORM_REFUSAL.contention ? r : { kind: 'refused-archived', message: r.message, sentAsOf: sent };
             }
-            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s);
+            if (again.kind !== 'ok') w.onRereadFailed(again.kind, s, sent);
             return r;
           }
           case 'not-found':
@@ -90,9 +99,9 @@ export function itemSave(w: ItemWiring): SaveItemAction {
         // The 200 body is the server's new state: commit it, so the page shows what was saved (L-1, Restore's rule),
         // unless a 204 arrived after this Save was sent (the body is then the item before the delete; RED H-1).
         await w.setItem(r.body, s, sent);
-        w.onRereadFailed(again.kind, s);
+        w.onRereadFailed(again.kind, s, sent);
       }
-      return { kind: 'saved', item: r.body };
+      return { kind: 'saved', item: r.body, sentAsOf: sent };
     } finally {
       deadline.cancel();
     }

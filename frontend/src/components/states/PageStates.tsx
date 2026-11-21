@@ -93,10 +93,13 @@ export function RegionError({ heading, body, onRetry, retrying = false, autoFocu
 
 /**
  * A refetch failed (ST-3 network row; §5.6 warning): the earlier data stays on the page; focus does not move. The heading
- * is R1-1's by cause, the body the caller's (`LIST_STATES.refetchFailed`). The banner has NO live role of its own: it is
- * born with the failure, and a region born speaking breaks principle 6 (one status region per list, mounted from first
- * render) — and an unkeyed banner whose text is unchanged is silent on a repeat failure (FE-R3). The caller writes the
- * heading into its own `LiveRegion` on every failure (`ArchivableList`).
+ * is R1-1's by cause, the body the caller's (by default `LIST_STATES.refetchFailed`). The banner has NO live role of its
+ * own: it is born with the failure, and a region born speaking breaks principle 6 (one status region per list, mounted
+ * from first render) — and an unkeyed banner whose text is unchanged is silent on a repeat failure (FE-R3). The caller
+ * writes the heading into its own `LiveRegion` on every failure (`ArchivableList`). One exception: the Locations
+ * section's re-read banner. After a successful write the body is that write's stale sentence, which the page's region
+ * speaks instead of the heading. After a refused or interrupted dialog's Close the body is `LIST_STATES.refetchFailed`
+ * and nothing is spoken (FE-R8 R-2). Its Retry writes the heading on failure.
  */
 export function RefetchFailedBanner({ heading, body, onRetry, retrying = false }: { heading: string; body: string; onRetry: () => void; retrying?: boolean }) {
   return (

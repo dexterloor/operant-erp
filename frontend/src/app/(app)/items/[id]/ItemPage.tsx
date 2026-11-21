@@ -2,6 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ItemForm } from '@/components/items/ItemForm';
 import styles from '@/components/items/Items.module.css';
@@ -10,13 +11,15 @@ import { RestoreActions } from '@/components/records/RestoreActions';
 import { RegionError } from '@/components/states/PageStates';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
-import { LiveRegion, useLiveRegion } from '@/components/ui/LiveRegion';
+import { LiveRegion, useLiveRegion, useWaitStatus } from '@/components/ui/LiveRegion';
 import { COULD_NOT_REACH, NOT_SAVED, WENT_WRONG } from '@/copy/headings';
+import { PAGE_STATES } from '@/copy/shell';
 import { DELETE_ITEM, ITEM_FORBIDDEN, ITEM_PAGE, ITEMS_LIST, RESTORE_ITEM } from '@/copy/items';
+import { unitSpoken } from '@/copy/units';
 import type { Item } from '@/lib/api/items';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
-import { gateCode } from '@/lib/bff/surface';
+import { gateCode, wireEnum } from '@/lib/bff/surface';
 import { renderQuantity } from '@/lib/format/quantity';
 import { loadItem } from '@/lib/items/load';
 import type { ItemChange } from '@/lib/items/results';
@@ -36,28 +39,52 @@ export interface ItemPageProps {
   canRestore: boolean;
   /** Holds DeleteItem's codes (from the contract): **Delete item** on a live item (items I-3). */
   canDelete?: boolean;
+  /** Holds ListStockMovements' codes (from the contract): the link to this item's movements (stock ST-1), live or archived. */
+  canListMovements?: boolean;
+  /**
+   * The server's `stockRowsVisible(codes)` (stock ST-2): the viewer may see stock rows and every marker read, so the link to
+   * this item's stock on hand is shown, live or archived. The page computes it; this file computes no gate.
+   */
+  canSeeStock?: boolean;
 }
 
 type Cause = 'unreachable' | 'server-error';
 
-/** A number as the page shows it read-only: QR-2's rendering, then the item's unit code (R1-2, F-4). */
-const withUnit = (served: string, unit: string) => `${renderQuantity(served)} ${unit}`;
+/** The served units, in served order: the edit form's Unit options (I-4; the `NewItemPage` precedent, the one contract reader). */
+const UNITS = wireEnum('Item.UpdateItemInput.jsonMergePatch', 'unit_of_measure_code');
+
+/**
+ * A number as the page shows it read-only: QR-2's rendering, then the item's unit (R1-2, F-4). S-3 (FE-R5): the code is
+ * shown but hidden from assistive technology, and the unit's bare spoken word is read instead (no full stop, no id).
+ */
+const withUnit = (served: string, code: string) => (
+  <>
+    {renderQuantity(served)} <span aria-hidden="true">{code}</span>
+    <span className="visually-hidden">{unitSpoken(code)}</span>
+  </>
+);
 
 /**
  * The item page (items-ux-copy.md B-3, B-5; IA L-4: the detail page is the editor; Revision 8 R8-2). It holds the item in
- * state and passes the re-read one to the form without a remount. Editable (SKU, Name, the three numbers) for an
- * UpdateItem holder on a live item; the same values as plain text otherwise. An archived item is read-only whatever the
+ * state and passes the re-read one to the form without a remount. Editable (SKU, Name, the Unit, the three numbers) for
+ * an UpdateItem holder on a live item; the same values as plain text otherwise, the Unit as its saved code. An archived item is read-only whatever the
  * viewer holds, under the ST-9 banner *"This item was archived on {date}."* with **Restore item** for a RestoreItem holder
  * (`components/records/RestoreActions`): a restore sets the re-read item here, so the page turns live without a remount.
  * A refused Save whose re-read finds the item archived (UX-I2 on a stale page) turns the page archived and shows the
- * server's sentence under **Not saved**, its heading focused. A failed re-read → the region error (focus on its heading),
- * Retry re-reads; 403 → ST-4b; 404 → ST-5. No stock, movements or links to them (G-47); no History (plan §2e). **Delete
+ * server's sentence under **Not saved**, its heading focused. Not when that reading was dropped because a newer live
+ * reading was committed first (FE-R7): the refusal is not kept. A failed re-read → the region error (focus on its heading),
+ * Retry re-reads; 403 → ST-4b; 404 → ST-5. No stock is read here; a link to this item's stock on hand only for a
+ * viewer `stockRowsVisible` admits (stock ST-2), and a link to this item's movements for a ListStockMovements holder
+ * (stock ST-1), both on a live and an archived item; no History (plan §2e). **Delete
  * item** (items I-3, the warehouse step-4.6 shape) on a live item for a DeleteItem holder: the shared danger dialog, its
  * stock line when the committed item's `holds_stock` is true (the only place the page shows it, I3-4); after a 204 the
- * page stays and turns archived. After a save's, restore's or delete's message is on screen the router cache is refreshed
+ * page stays and turns archived. The person's own Delete outranks their own Save (items-i4-ux.md M-4 T-17, M-3):
+ * once its 204 is handled, a **Not saved** banner already showing is cleared, and a Save sent before that 204 neither
+ * shows its refusal nor speaks its "saved" sentence, nor puts its failed re-read's region error over the delete (losing
+ * access is still shown). After a save's, restore's or delete's message is on screen the router cache is refreshed
  * once.
  */
-export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: ItemPageProps) {
+export function ItemPage({ initial, canEdit, canRestore, canDelete = false, canListMovements = false, canSeeStock = false }: ItemPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -68,6 +95,10 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   const [retrying, setRetrying] = useState(false);
   const [staleRefusal, setStaleRefusal] = useState<{ gen: number; message: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // FE-R6 (Revision 1 B-3): a Save request in flight, reported by the form; the wait-only region says "Saving…" once it
+  // has waited 1.5 s, and empties when it answers (after a Delete 204 too: it describes the request, not the form).
+  const [saving, setSaving] = useState(false);
+  const waiting = useWaitStatus(saving, PAGE_STATES.saving);
   // 4.6 RED M-1: a 204 here is a fact that outranks a stale snapshot. If the re-read after it failed, the item is still
   // treated as archived for the actions (no Delete item, no form) until a commit that is not dropped says otherwise.
   const [deletedHere, setDeletedHere] = useState(false);
@@ -86,21 +117,35 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   // when that re-read fails, so no reading requested before it can undo the delete. A write's own answer body is also
   // dropped when a 204 arrived after that write was sent: it describes the item before the delete. The 204 fact
   // (`deletedHere`) is cleared only by a commit that is not dropped. An older re-read landing first never drops a newer
-  // one. Known limit: when that re-read fails, the write's answer body describes the moment of the write but carries the
+  // one. A Save's refusal is dropped the same way when a 204 arrived after that Save was sent: it describes the item
+  // before the delete (UX T-17 ruling); so is its "saved" sentence (UX M-3), though its refresh stays, and its failed
+  // re-read's region error (swaps are kept). That `sentAsOf` is compared only with the 204 floor, never with the commit
+  // stamp: a Save's own re-read always commits above it.
+  // Known limit: when that re-read fails, the write's answer body describes the moment of the write but carries the
   // re-read's stamp, so it can overwrite a Retry, sent in between, that read someone else's later change; the next
   // reading corrects it.
+  // Known limit: the 204 floor is never lowered, so after a Restore a Save sent before the delete is still silenced (its
+  // sentence, body and failed re-read); safe while such a Save's 200 means it was processed before the delete.
   const stamps = useRef(0);
   const committedAsOf = useRef(0);
   const deletedAsOf = useRef(0);
   const committedSku = useRef(initial.sku);
+  // S-2 (items-i4-red.md L-4): whether the reading last committed is archived, for the delete's after-sentence and for
+  // the stale-refusal rule (FE-R7). Decided from what was committed, never from the render the dialog was opened in. A
+  // 204 sets it too: the delete is a fact even when its re-read fails, until a later commit says otherwise.
+  const committedArchived = useRef(initial.archived_at !== null);
   const stamp = useCallback(() => ++stamps.current, []);
-  const failed = useCallback((f: ReadFailure, asOf?: number) => {
+  const failed = useCallback((f: ReadFailure, asOf?: number, sentAsOf?: number) => {
     if (asOf !== undefined && asOf < committedAsOf.current) return;
     if (f === 'session-ended') return;
     if (f === 'forbidden' || f === 'not-found') {
       setSwap(f);
       return;
     }
+    // po-6-red.md (spar on :384; the items UX ruling L-1), the PO-6 twin: a Save sent before a 204 of the person's own
+    // Delete does not put its failed re-read over what the delete left; the delete's reading, sentence and focus stand.
+    // Compared only with the 204 floor. Swaps are kept: they say what the viewer may see now.
+    if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
     // After the form's own after-save focus, so the region error's heading takes it.
     setTimeout(() => setRereadError((cur) => ({ gen: (cur?.gen ?? 0) + 1, cause: f })), 0);
   }, []);
@@ -111,6 +156,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
       if (sentAsOf !== undefined && sentAsOf < deletedAsOf.current) return;
       committedAsOf.current = asOf;
       committedSku.current = i.sku;
+      committedArchived.current = i.archived_at !== null;
       setDeletedHere(false);
       setRereadError(null);
       // Live by any path (a restore, an already-live re-read, a Retry): the stale Save's sentence describes nothing on screen.
@@ -128,11 +174,29 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   const onDeleted = useCallback((s: number) => {
     if (s > committedAsOf.current) committedAsOf.current = s;
     deletedAsOf.current = s;
+    committedArchived.current = true;
     setDeletedHere(true);
+    // T-17: the item is archived by the person's own act; a stale Save refusal describes an edit they can no longer make.
+    setStaleRefusal(null);
   }, []);
   const remove = useCallback(() => itemDelete({ caller, id, stamp, setItem: commit, onRereadFailed: failed, onDeleted })(), [caller, id, stamp, commit, failed, onDeleted]);
   const onSaved = useCallback(() => router.refresh(), [router]);
-  const onRefusedArchived = useCallback((message: string) => setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message })), []);
+  const onRefusedArchived = useCallback((message: string, sentAsOf: number) => {
+    if (sentAsOf < deletedAsOf.current) return;
+    // FE-R7: the page is live (a restore committed after this Save's archived reading was asked for, so that reading was
+    // dropped): the refusal describes nothing on screen and is not kept for a later archived reading.
+    if (!committedArchived.current) return;
+    setStaleRefusal((cur) => ({ gen: (cur?.gen ?? 0) + 1, message }));
+  }, []);
+  const speak = region.announce;
+  // M-3: the same rule for a Save that succeeded: its sentence is not spoken over the person's own delete.
+  const announceSaved = useCallback(
+    (text: string, sentAsOf: number) => {
+      if (sentAsOf < deletedAsOf.current) return;
+      speak(text);
+    },
+    [speak],
+  );
   // A restore turns the page live: the stale Save's sentence no longer describes what is on screen.
   const onRestored = useCallback(() => {
     setStaleRefusal(null);
@@ -155,8 +219,8 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
   }, [archivedNow]);
 
   // Items I-3 (the WarehousePage.closeDelete shape, FE-D1). After a 204 the page stays: the item is archived, not gone,
-  // and `itemDelete` has already committed (or reported) the re-read, so the ST-9 banner and Restore item are on screen.
-  // Commit the close, focus the h1 (the opener is gone with the live state), speak "After" with the SKU last committed
+  // and `itemDelete` has already committed (or reported) the re-read, so the page shows what that re-read found:
+  // archived (the ST-9 banner and Restore item), or live if someone restored it in between (S-2). Commit the close, focus the h1 (the opener is gone with the live state), speak "After" with the SKU last committed
   // (a Save may have renamed it after Delete was pressed; i3-c1 RED L-2), refresh the router cache once. The deleted
   // branch does not set `deletedHere`: `onDeleted` already did, and only a commit that is not dropped may clear it (a
   // re-read that reads the item live, restored in between, must leave the page live; i3-c1 RED L-3). Any other close
@@ -167,7 +231,8 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
     flushSync(() => setDeleting(false));
     if (deleted) {
       h1.current?.focus();
-      region.announce(DELETE_ITEM.after(committedSku.current));
+      // S-2: a re-read that committed a live item means it was restored in between; "now in the archived items" would be false.
+      region.announce(committedArchived.current ? DELETE_ITEM.after(committedSku.current) : DELETE_ITEM.afterRestored(committedSku.current));
       router.refresh();
       return;
     }
@@ -220,6 +285,8 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
       </header>
       {/* Mounted from first render, above every branch below, so it never arrives already speaking. */}
       <LiveRegion message={region.message} visuallyHidden />
+      {/* FE-R6: the wait-only region, right after the page's own (so the first region found is still the page's). */}
+      <LiveRegion message={waiting} visuallyHidden />
       {rereadError ? (
         <RegionError key={`reread-${rereadError.gen}`} heading={rereadError.cause === 'unreachable' ? COULD_NOT_REACH : WENT_WRONG} body={ITEM_PAGE.rereadFailed} retrying={retrying} onRetry={() => void retry()} />
       ) : null}
@@ -250,7 +317,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
         />
       ) : null}
       {canEdit && !actionsArchived ? (
-        <ItemForm item={item} save={save} editCode={gateCode('UpdateItem')} announce={region.announce} fallbackFocusRef={h1} onSaved={onSaved} onRefusedArchived={onRefusedArchived} />
+        <ItemForm item={item} units={UNITS} save={save} editCode={gateCode('UpdateItem')} announce={announceSaved} fallbackFocusRef={h1} onSaved={onSaved} onSaveStarted={region.clear} onBusyChange={setSaving} onRefusedArchived={onRefusedArchived} />
       ) : (
         <dl className={styles.fields}>
           <dt>{ITEM_PAGE.sku}</dt>
@@ -269,6 +336,18 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
           <dd>{withUnit(item.safety_stock, item.unit_of_measure_code)}</dd>
         </dl>
       )}
+      {canSeeStock ? (
+        // stock ST-2 (stock-st2-plan.md §2.5): a link, not a stock panel; shown whether the item is live or archived.
+        <p>
+          <Link href={`/stock?inventory_item_id=${id}`}>{ITEM_PAGE.stockLink}</Link>
+        </p>
+      ) : null}
+      {canListMovements ? (
+        // stock ST-1 (stock-plan.md §2.4): a link, not a stock panel; shown whether the item is live or archived.
+        <p>
+          <Link href={`/stock-movements?inventory_item_id=${id}`}>{ITEM_PAGE.movementsLink}</Link>
+        </p>
+      ) : null}
       {deleting ? (
         <DeleteDialog
           copy={{
@@ -283,6 +362,7 @@ export function ItemPage({ initial, canEdit, canRestore, canDelete = false }: It
             forbidden: ITEM_FORBIDDEN,
           }}
           run={remove}
+          onDeleteStarted={region.clear}
           deleteCode={gateCode('DeleteItem')}
           onClose={(o) => void closeDelete(o)}
           fallbackFocusRef={h1}

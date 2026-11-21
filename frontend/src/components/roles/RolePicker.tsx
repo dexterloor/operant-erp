@@ -164,6 +164,10 @@ export function RolePicker({ person, viewerId, offered, pendingRoleIds, roles, p
     const plan = planSave(intents, offered, nameOf);
     const marginBefore = person.margin_exposure;
     const personId = person.id;
+    // FE-R9: after every guard, before the first request. Emptying the status line here, in its own render before the
+    // answer, makes the summary a change even when it repeats the last one word for word (a refused role still staged and
+    // saved again), so it is given again; an equal string written over itself is no DOM change.
+    status.clear();
     setBusy(true);
     const run = await runSave(plan, actions, (o: Outcome) => {
       if (!isSuccess(o.result)) return;

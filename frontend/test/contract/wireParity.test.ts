@@ -5,7 +5,10 @@ import type { RoleGrantProposal, UserDisplayReference } from '@/lib/api/proposal
 import type { OfferedRole, Role, RoleConflict } from '@/lib/api/roles';
 import type { RoleReference, User } from '@/lib/api/users';
 import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '@/lib/api/items';
+import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
+import type { ActorReference, ApprovePurchaseOrderInput, CancelPurchaseOrderInput, CreateGoodsReceiptInput, CreateGoodsReceiptLineInput, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, GoodsReceipt, GoodsReceiptLine, GoodsReceiptLocationReference, GoodsReceiptOrderLineReference, GoodsReceiptOrderReference, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
+import type { StockLevel, StockLevelItemReference, StockLevelLocationReference, StockLevelWarehouseReference, StockMovement, StockMovementItemReference, StockMovementLocationReference } from '@/lib/api/stock';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
 // C-1 (b3b §14): every hand-written wire type in lib/api has exactly the served property names. The literal is a
@@ -75,6 +78,55 @@ const MIRRORED: Record<string, string[]> = {
   SupplierReference: keysOf<SupplierReference>()({ id: true, name: true }),
   'Item.CreateItemInput': keysOf<CreateItemInput>()({ sku: true, name: true, unit_of_measure_code: true, supplier_id: true, reorder_point: true, reorder_quantity: true, safety_stock: true }),
   'Item.UpdateItemInput.jsonMergePatch': keysOf<UpdateItemInput>()({ sku: true, name: true, unit_of_measure_code: true, supplier_id: true, reorder_point: true, reorder_quantity: true, safety_stock: true }),
+  // Suppliers S-1 (suppliers-plan.md §R1-3): the supplier and its update input; S-2 adds the create input.
+  Supplier: keysOf<Supplier>()({ id: true, code: true, name: true, country_code: true, currency_code: true, payment_terms_days: true, archived_at: true }),
+  'Supplier.UpdateSupplierInput.jsonMergePatch': keysOf<UpdateSupplierInput>()({ code: true, name: true, country_code: true, currency_code: true, payment_terms_days: true }),
+  // S-2: the create input.
+  'Supplier.CreateSupplierInput': keysOf<CreateSupplierInput>()({ code: true, name: true, country_code: true, currency_code: true, payment_terms_days: true }),
+  // Suppliers S-3: the catalogue's two read shapes (suppliers-plan.md §R1-3).
+  SupplierProduct: keysOf<SupplierProduct>()({ id: true, supplier_sku: true, inventory_item: true, unit_cost: true, currency_code: true, lead_time_days: true, minimum_order_quantity: true, unit_of_measure_code: true }),
+  SupplierItemReference: keysOf<SupplierItemReference>()({ id: true, sku: true, name: true }),
+  // Suppliers S-4: Edit a catalogue entry's merge-patch body (suppliers-plan.md §R1-3).
+  'SupplierProduct.UpdateSupplierProductInput.jsonMergePatch': keysOf<UpdateSupplierProductInput>()({ supplier_sku: true, unit_cost: true, lead_time_days: true, minimum_order_quantity: true }),
+  // Suppliers S-5: Add to catalogue's body (suppliers-plan.md §R1-3).
+  'SupplierProduct.CreateSupplierProductInput': keysOf<CreateSupplierProductInput>()({ inventory_item_id: true, supplier_sku: true, unit_cost: true, lead_time_days: true, minimum_order_quantity: true }),
+  // Purchase orders PO-1 (purchase-orders-plan.md §3; Revision 10 R10-2): the order, its line, the line's inline item
+  // reference and the two references the order carries; each later commit adds the input it first sends.
+  PurchaseOrder: keysOf<PurchaseOrder>()({ id: true, order_number: true, status: true, supplier: true, warehouse: true, currency_code: true, total_amount: true, ordered_at: true, expected_at: true, created_by: true, archived_at: true }),
+  PurchaseOrderLine: keysOf<PurchaseOrderLine>()({ id: true, line_number: true, inventory_item: true, quantity: true, quantity_received: true, quantity_outstanding: true, unit_cost: true, archived_at: true, unit_of_measure_code: true }),
+  'PurchaseOrderLine.inventory_item': keysOf<PurchaseOrderItemReference>()({ id: true, sku: true, name: true }),
+  // Purchase orders PO-5: Add line's body (the new line row sends the chosen item and the two fields as typed).
+  'PurchaseOrderLine.CreatePurchaseOrderLineInput': keysOf<CreatePurchaseOrderLineInput>()({ inventory_item_id: true, quantity: true, unit_cost: true }),
+  NamedReference: keysOf<NamedReference>()({ id: true, name: true }),
+  // Purchase orders PO-3: Create purchase order's body (the page sends supplier, warehouse and the supplier's currency only).
+  'PurchaseOrder.CreatePurchaseOrderInput': keysOf<CreatePurchaseOrderInput>()({ supplier_id: true, warehouse_id: true, currency_code: true, expected_at: true, lines: true }),
+  // Purchase orders PO-4a: the draft header's merge-patch body (the editor sends the changed warehouse only).
+  'PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch': keysOf<UpdatePurchaseOrderInput>()({ supplier_id: true, warehouse_id: true, expected_at: true }),
+  // Purchase orders PO-4b: a line's merge-patch body (a row sends its changed quantity and unit cost only).
+  'PurchaseOrderLine.UpdatePurchaseOrderLineInput.jsonMergePatch': keysOf<UpdatePurchaseOrderLineInput>()({ quantity: true, unit_cost: true }),
+  ActorReference: keysOf<ActorReference>()({ id: true, display_name: true }),
+  // Purchase orders PO-7: Cancel order's body (the dialog sends the reason as typed, or nothing).
+  'PurchaseOrder.CancelPurchaseOrderInput': keysOf<CancelPurchaseOrderInput>()({ reason: true }),
+  // Purchase orders PO-8: Approve's body (the dialog always sends `{}`: no expected date while D-4 is unruled).
+  'PurchaseOrder.ApprovePurchaseOrderInput': keysOf<ApprovePurchaseOrderInput>()({ expected_at: true }),
+  // Goods receipts GR-1: the receipt (register, receipt page, the order page's section) and its inline references.
+  'GoodsReceipt.CreateGoodsReceiptInput': keysOf<CreateGoodsReceiptInput>()({ lines: true, received_at: true }),
+  'GoodsReceipt.CreateGoodsReceiptInput.lines[]': keysOf<CreateGoodsReceiptLineInput>()({ purchase_order_line_id: true, quantity: true, storage_location_id: true }),
+  GoodsReceipt: keysOf<GoodsReceipt>()({ id: true, receipt_number: true, received_at: true, purchase_order: true, received_by: true, lines: true }),
+  'GoodsReceipt.purchase_order': keysOf<GoodsReceiptOrderReference>()({ id: true, order_number: true }),
+  'GoodsReceipt.lines[]': keysOf<GoodsReceiptLine>()({ id: true, purchase_order_line: true, inventory_item: true, quantity: true, storage_location: true, unit_of_measure_code: true }),
+  'GoodsReceipt.lines[].purchase_order_line': keysOf<GoodsReceiptOrderLineReference>()({ id: true, line_number: true }),
+  'GoodsReceipt.lines[].inventory_item': keysOf<PurchaseOrderItemReference>()({ id: true, sku: true, name: true }),
+  'GoodsReceipt.lines[].storage_location': keysOf<GoodsReceiptLocationReference>()({ id: true, code: true }),
+  // Stock ST-1 (stock-plan.md §1.1): the movement and its two inline references (read only; no unit served yet, BK-41).
+  StockMovement: keysOf<StockMovement>()({ id: true, quantity: true, occurred_at: true, reason: true, source_type: true, source_id: true, inventory_item: true, storage_location: true }),
+  'StockMovement.inventory_item': keysOf<StockMovementItemReference>()({ id: true, sku: true, name: true }),
+  'StockMovement.storage_location': keysOf<StockMovementLocationReference>()({ id: true, code: true }),
+  // Stock ST-2 (stock-st2-plan.md §7.6): the stock-on-hand row (served inline in its collection) and its three references.
+  StockLevel: keysOf<StockLevel>()({ id: true, inventory_item: true, storage_location: true, warehouse: true, qty_on_hand: true, version: true }),
+  'StockLevel.inventory_item': keysOf<StockLevelItemReference>()({ id: true, sku: true, name: true }),
+  'StockLevel.storage_location': keysOf<StockLevelLocationReference>()({ id: true, code: true }),
+  'StockLevel.warehouse': keysOf<StockLevelWarehouseReference>()({ id: true, name: true }),
 };
 
 describe('C-1 — wire parity of the hand-written lib/api types', () => {

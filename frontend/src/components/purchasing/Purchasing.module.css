@@ -1,0 +1,112 @@
+/* The purchasing family's forms (purchase-orders-plan.md §3): the supplier and warehouse pages' look, tokens only. The
+   focus ring is global. */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 32rem;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+/* PO-3: the Supplier field (a group named by its legend): the chosen supplier with Change, or Choose a supplier. */
+.choiceField {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.choiceField legend {
+  padding: 0;
+  margin-bottom: var(--space-3);
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-line);
+  font-weight: var(--type-label-weight);
+}
+
+.choiceField p,
+.muted {
+  margin: 0;
+}
+
+.hint {
+  color: var(--fg-muted);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+/* A field's client or 422 sentence (TextField's `.error` look, tokens only). */
+.error {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  color: var(--danger-subtle-fg);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+}
+
+.error svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* The supplier choice dialog's list area, a full row above its Go back. */
+.choices {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* PO-4a: the draft header editor's read-only facts (Supplier, Currency): the order page's `fields` look, tokens only. */
+.readOnly {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.readOnly dd {
+  margin: 0;
+  grid-column: 2;
+}
+
+.readOnly dd p {
+  margin: 0;
+}
+
+/* PO-7: Cancel order's Reason, the first child of the dialog's action row, on a row of its own above the buttons (the
+   suppliers dialogs' `.choice` shape). */
+.dialogField {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+/* GR-2: the receive page's form — the table of rows with something still to come, then Record receipt. */
+.receiveForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.receiveTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.receiveTable th,
+.receiveTable td {
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+  vertical-align: top;
+}

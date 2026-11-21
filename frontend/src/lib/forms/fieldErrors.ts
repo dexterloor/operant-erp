@@ -10,7 +10,10 @@ import type { FieldErrors, Violation } from '../results';
 
 /**
  * A 422's violations onto a form's fields. A pointer `/<name>` with `<name>` in `fields` goes to that field, and the
- * first message for a field wins (a later one for the same field is not shown, as on the credential pages). Anything
+ * first NON-EMPTY message for a field wins (a later one for the same field is not shown, as on the credential pages; an
+ * empty message never hides a real one after it, because the field components show '' as no error). A field whose only
+ * messages are empty keeps '' and still shows nothing, and a form's first-error focus still lands on it — a stated
+ * residual: no known server answer sends one. Anything
  * else — an empty pointer, a query parameter (`?…`), an unknown or nested field — goes to `formErrors`, verbatim and in
  * order, so a 422 that maps nothing still shows its sentences.
  */
@@ -21,7 +24,7 @@ export function fieldErrorsFrom<F extends string>(violations: readonly Violation
     const name = v.pointer.startsWith('/') ? v.pointer.slice(1) : null;
     if (name !== null && (fields as readonly string[]).includes(name)) {
       const f = name as F;
-      if (fieldErrors[f] === undefined) fieldErrors[f] = v.message;
+      if (fieldErrors[f] === undefined || fieldErrors[f] === '') fieldErrors[f] = v.message;
     } else {
       formErrors.push(v.message);
     }

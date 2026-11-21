@@ -1,10 +1,11 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { vi } from 'vitest';
+import { expect, vi } from 'vitest';
 import { BffProvider } from '@/app/(app)/BffProvider';
 import { TooltipProvider } from '@/components/ui/Tooltip';
 import { createApiCaller, type ApiCaller } from '@/lib/bff/apiCall';
 import type { User } from '@/lib/api/users';
+import { unitSuffixSpoken } from '@/copy/units';
 
 // Shared harness for the wired surfaces (b3b-design.md §14 "Wiring per surface"): a sequential fetch stub that records
 // every request and answers in order (or never, for a deadline case), problem documents shaped as the backend serves
@@ -30,6 +31,49 @@ export type Reply = Response | 'hang' | ((req: Recorded) => Response | 'hang' | 
 
 /** A reply that arrives after `ms` (timer time, so fake timers drive it). */
 export const later = (ms: number, r: () => Response): Reply => () => new Promise<Response>((resolve) => setTimeout(() => resolve(r()), ms));
+
+/**
+ * A reply answered by hand (moved here from item-delete.test.tsx at I-4: the one ordering helper, items-i4-final-red.md
+ * L-5): queue `reply` in `stubFetch`, then call `release` when the test says so. An interleaving test releases each one
+ * explicitly, in the order it is about, and asserts the fetch order it relies on (`later(ms)` orders by timer and proves
+ * no order).
+ */
+export function held(): { reply: Reply; release: (r: Response) => void } {
+  let answer!: (r: Response) => void;
+  const p = new Promise<Response>((res) => (answer = res));
+  return { reply: () => p, release: (r) => answer(r) };
+}
+
+/** S-3: an element's text with every `.visually-hidden` node removed, whitespace collapsed — what a sighted reader sees. */
+export function shownText(el: Element): string {
+  const c = el.cloneNode(true) as Element;
+  c.querySelectorAll('.visually-hidden').forEach((n) => n.remove());
+  return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * S-3 (s3-fer8-final-red.md F-1; items-s3-commit-red.md L-2): an element's text with every `[aria-hidden="true"]` and
+ * every `[hidden]` subtree removed — what is read.
+ */
+export function atText(el: Element): string {
+  const c = el.cloneNode(true) as Element;
+  c.querySelectorAll('[aria-hidden="true"], [hidden]').forEach((n) => n.remove());
+  return (c.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+const escapeRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * S-3 T-S3-3, shared by the item page and delete tests: each number field's description starts with the unit's spoken
+ * suffix (full stop included), and the visible, aria-hidden suffix text is the code.
+ */
+export function expectSuffix(code: string) {
+  for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) {
+    const input = screen.getByRole('textbox', { name: n });
+    expect(input).toHaveAccessibleDescription(expect.stringMatching(new RegExp(`^${escapeRe(unitSuffixSpoken(code))} `)));
+    expect(input.parentElement!.querySelector('[aria-hidden="true"]')?.textContent).toBe(code);
+  }
+}
 
 export const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 export const empty = (status = 204) => new Response(null, { status });

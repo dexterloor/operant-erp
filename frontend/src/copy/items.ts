@@ -98,6 +98,12 @@ export const ITEM_PAGE = {
   reorderQuantityHint: "How much to order when it's due. A larger amount is suggested if stock has fallen further than this below the reorder point.",
   /** Safety stock help (NEW; changes with PO's D-C1-7 ruling). */
   safetyStockHint: "For your records only: it doesn't change when the item is due. Include it in the reorder point.",
+  /**
+   * items-i4-ux.md Revision 1 — FINAL (U4-6, NEW; second sentence as ruled on the final RED's M-2): the Unit select's
+   * hint, edit only. REPLACES B-3's "Unit hint, edit only — meaning change" and R1-1's last bullet (never built). PO TO
+   * CONFIRM.
+   */
+  unitHint: "Once stock, orders or supplier catalogues record quantities of this item, its unit can't be changed. The three numbers below are in this unit, so check them when you change it.",
   /** The shared line under the three numbers (NEW). */
   numbersNote: "Leave both reorder numbers at 0 if this item isn't reordered. Use a point for decimals, for example 2.5, and no commas.",
   /** R1-9: an emptied number field on Save, beside the field; no request is sent. */
@@ -113,6 +119,16 @@ export const ITEM_PAGE = {
   /** Archived item page banner (ST-9, RULED shape): "This item was archived on {date}." Its action is `RESTORE_ITEM.action`. */
   archivedOn: 'This item was archived on ',
   archivedAfter: '.',
+  /**
+   * `movementsLink` (stock-ux-copy.md B-7, NEW; stock ST-1): a link to this item's movements, only for a
+   * ListStockMovements holder, on a live and an archived item. A link, not a stock panel: no stock figure is shown.
+   */
+  movementsLink: 'Stock movements of this item',
+  /**
+   * `stockLink` (stock-st2-ux-copy.md B-7, NEW; stock ST-2): a link to this item's stock on hand, only for a viewer who
+   * may see stock rows and every location check, on a live and an archived item. A link, not a stock panel.
+   */
+  stockLink: 'Stock on hand of this item',
 } as const;
 
 /** B-4: `/items/new` (create), as amended by R1-1 (the Unit is a select over the served units, BK-22). */
@@ -136,19 +152,12 @@ export const NEW_ITEM = {
   /** R1-1: the Unit select's empty first option (no `disabled`) and the client refusal when nothing is chosen. */
   unitPrompt: 'Choose a unit',
   unitRequired: 'Choose a unit for this item.',
+  /**
+   * items-i4-ux.md Revision 1 — FINAL (U4-7, NEW in I-4 = items-i3-ux.md L-10): the create form's Unit hint. REPLACES
+   * items-i3-ux.md F-5 #3's "no Unit hint on the create form" (the "no suffix on create" half stays). PO TO CONFIRM.
+   */
+  unitHint: "Once stock, orders or supplier catalogues record quantities of this item, its unit can't be changed.",
 } as const;
-
-/** R1-1 / B-6 U-C: each served unit code's option label, keys in served order (held equal to the served enum by T-1). */
-export const UNIT_LABELS: Readonly<Record<string, { label: string }>> = {
-  EA: { label: 'Each (EA)' },
-  BOX: { label: 'Box (BOX)' },
-  KG: { label: 'Kilogram (KG)' },
-  L: { label: 'Litre (L)' },
-  M: { label: 'Metre (M)' },
-};
-
-/** A served unit code's label; a code with no entry renders as sent (the `kindLabel` precedent). */
-export const unitLabel = (code: string): string => UNIT_LABELS[code]?.label ?? code;
 
 /** B-5 Restore rows + R1-17 "already live" (the W4 treatment). In the archived banner, no dialog. */
 export const RESTORE_ITEM = {
@@ -168,12 +177,17 @@ export const DELETE_ITEM = {
   title: (sku: string, name: string) => `Delete ${sku} — ${name}?`,
   holdsStock: 'This item still holds stock in at least one location. Stock in quarantine is included.',
   /** items-ux-copy.md FINAL F-1, verbatim (I3-2; PO confirmed as G-51's interim, items-i3-po-sec.md P-4). */
-  body: "It moves to the archived items. Until it's restored, it can't be added to orders or price lists, it isn't due for reordering, and any stock of it can't be counted or moved between locations. Orders that already name it keep showing it, and can still be received and shipped.",
+  body: "It moves to the archived items. Until it's restored, it can't be added to orders or supplier catalogues, it isn't due for reordering, and any stock of it can't be counted or moved between locations. Orders that already name it keep showing it, and can still be received and shipped.",
   confirm: 'Delete item',
   cancel: 'Cancel',
   /** ST-9b: after a refusal other than P1, a 403 or an interrupted press, the Delete button is removed and only this remains. */
   close: 'Close',
   after: (sku: string) => `${sku} was deleted. It's now in the archived items.`,
+  /**
+   * items-i4-ux.md "S-2 sentences" (U4-24, NEW): after a 204 whose re-read commits a LIVE item (restored in between).
+   * REPLACES `after` for that case only; the normal and the failed re-read cases keep `after`.
+   */
+  afterRestored: (sku: string) => `${sku} was deleted, and has since been restored.`,
   interrupted: (sku: string) => `We can't tell whether ${sku} was deleted. Press Delete item to try again.`,
 } as const;
 

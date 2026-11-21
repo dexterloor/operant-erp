@@ -5,11 +5,12 @@ import type { CreateItemInput, Item, UpdateItemInput } from '../api/items';
 import type { DeleteResult, FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
- * The item page's editable fields, in screen order. NOT `unit_of_measure_code` (R8-2: the Unit is read-only on the item
- * page until I-4) and NOT `supplier_id` (S-B′: shown, never edited, in this build), so `changedFields` can never send
- * either. A name the mirrored input lacks is a type error.
+ * The item page's editable fields, in screen order (the first field with a 422 sentence takes focus). The unit is one of
+ * them since I-4 (items-i4-design.md Revision 1 — FINAL §3.2): like every field it is sent only when it differs from the
+ * saved one, so a Save that leaves the unit alone never asks the server to change it. NOT `supplier_id` (S-B′: shown,
+ * never edited, in this build), so `changedFields` can never send it. A name the mirrored input lacks is a type error.
  */
-export const ITEM_FIELDS = ['sku', 'name', 'reorder_point', 'reorder_quantity', 'safety_stock'] as const satisfies readonly (keyof UpdateItemInput & string)[];
+export const ITEM_FIELDS = ['sku', 'name', 'unit_of_measure_code', 'reorder_point', 'reorder_quantity', 'safety_stock'] as const satisfies readonly (keyof UpdateItemInput & string)[];
 export type ItemField = (typeof ITEM_FIELDS)[number];
 /** The three numbers, rendered by QR-2 into their inputs and checked for an emptied field before Save (UX R1-9). */
 export const QUANTITY_FIELDS = ['reorder_point', 'reorder_quantity', 'safety_stock'] as const satisfies readonly ItemField[];
@@ -19,14 +20,16 @@ export type ItemChange = Partial<Pick<UpdateItemInput, ItemField>>;
 
 /**
  * `PATCH /items/{id}`. `saved` carries the 200 body. `invalid` is a 422 mapped onto the form. `refused` is a 409 (UX-I1
- * SKU taken, P1 contention), shown at form level as sent. `refused-archived`: a 409 after which the re-read found the item
- * archived (UX-I2 on a stale live page, 4.4 RED M-1): the re-read item is already committed (the page is now archived and
- * read-only), and the page shows the server's sentence under **Not saved**.
+ * SKU taken, P1 contention, the unit already in use), shown at form level as sent. `refused-archived`: a 409 after which
+ * the re-read found the item archived (UX-I2 on a stale live page, 4.4 RED M-1): the re-read item is already committed
+ * (the page is now archived and read-only), and the page shows the server's sentence under **Not saved**. On `saved` and
+ * `refused-archived`, `sentAsOf` is the stamp taken when this Save was sent: the page drops the save sentence and the
+ * stale refusal when its own 204 arrived after that (items-i4-final-red.md H-1, items-i4-ux.md M-3).
  */
 export type SaveItemResult =
-  | { kind: 'saved'; item: Item }
+  | { kind: 'saved'; item: Item; sentAsOf: number }
   | { kind: 'invalid'; fieldErrors: FieldErrors<ItemField>; formErrors: string[] }
-  | { kind: 'refused-archived'; message: string }
+  | { kind: 'refused-archived'; message: string; sentAsOf: number }
   | Refused
   | Forbidden
   | NotFound

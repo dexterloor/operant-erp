@@ -147,7 +147,10 @@ interface Violation {
 
 /** The only importers of `src/lib/api/problems.ts` (A-18 S-1): a new one is a deliberate edit here. */
 // Revision 8 R8-4: one importer per family, each pinned. Items I-1 (items-i1-red.md L-3, second option) added lib/items/wired.ts.
-const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/warehouses/wired.ts'];
+// Suppliers S-1 (suppliers-plan.md Revision 0 §3, PROBLEMS_IMPORTERS row) added lib/suppliers/wired.ts (P1 on Save/Restore).
+// Purchase orders PO-4a (plan Revision 0 §3 PROBLEMS_IMPORTERS row, moved from PO-2 by po-2-progress.md D-2: the first
+// action that must tell P1 apart) added lib/purchasing/wired.ts (P1 on the draft header's Save).
+const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/purchasing/wired.ts', 'src/lib/suppliers/wired.ts', 'src/lib/warehouses/wired.ts'];
 
 /** The import rules. `files` is any set of {file, source}; returns every breach. */
 function importViolations(files: readonly SourceFile[]): Violation[] {
@@ -192,6 +195,15 @@ const LITERAL_SCAN_DIRS = [
   // Revision 8 R8-3 (items I-1): the item logic and components.
   'src/lib/items',
   'src/components/items',
+  // Suppliers S-1 (Revision 8 R8-2, R8-3 completeness): the supplier logic and components.
+  'src/lib/suppliers',
+  'src/components/suppliers',
+  // Purchase orders PO-1 (Revision 8 R8-2, R8-3 completeness; Revision 10 R10-2): the purchasing family's logic.
+  'src/lib/purchasing',
+  // Purchase orders PO-3 (R8-3 completeness): the family's components (NewOrderForm, the create page's form).
+  'src/components/purchasing',
+  // Stock ST-1 (stock-plan.md §3.1; Revision 11 R11-1): the stock family's logic.
+  'src/lib/stock',
   'src/components/roles',
   'src/components/permissions',
   'src/components/bulk',
@@ -263,6 +275,15 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
     'tenant_settings.edit',
   ],
   'src/lib/api/problems.ts': ['transaction.contention'],
+  // Purchase orders PO-4a (UX D-2: a status refusal is matched by rule code): P9's rule, compared in lib/purchasing/wired.ts.
+  // Purchase orders PO-5 (plan R1-5 PO-5 "L1 → … catalogue re-read"): L1's rule, compared in lib/purchasing/wired.ts.
+  // Purchase orders PO-7 (plan §2.2 "Stale page", C2 → re-read): the status guard's rule, compared in lib/purchasing/wired.ts.
+  // Purchase orders PO-8 (po-8-red.md L-1, A1 → re-read): DSoD-1's Approve rule, compared in lib/purchasing/wired.ts.
+  // Purchase orders PO-9 (po-9-red.md L-1, W24 → already restored): the line restore's not-archived rule, compared in lib/purchasing/wired.ts.
+  // Purchase orders PO-4b (po-4b-red.md L-4): the line update's archived-line rule, compared in lib/purchasing/wired.ts.
+  // Purchase orders GR-2 (plan §2.6 R1 → lines re-read, X-15; final RED M-1, R3 → the client's sentence): the over-receipt
+  // and the on-hand-fits rules, compared in lib/purchasing/wired.ts.
+  'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived', 'purchase_order_line.is_archived', 'purchase_order_line.is_not_over_received', 'stock_level.on_hand_fits'],
 };
 
 /** The code-shaped literals a home's top-level declarations hold (the ones `literalViolations` exempts there). */
@@ -317,13 +338,26 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // RoleProposals}.tsx; preview/fixtures/roles.ts.
   // Revision 7 step 4.1 added: copy/warehouses.ts.
   // Items I-1 (Revision 8 R8-2) added: copy/items.ts.
-  'src/copy': 10,
+  // Suppliers S-1 (Revision 8 R8-2) added: copy/suppliers.ts.
+  // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: copy/purchasing.ts.
+  // delete-swap-arch-red.md H-1 added: copy/units.ts (the unit vocabulary, moved out of copy/items.ts).
+  // Stock ST-1 (Revision 11 R11-1) added: copy/stock.ts.
+  'src/copy': 14,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
   // Revision 7 step 4.6 added: lib/api/problems.ts (PLATFORM_REFUSAL, its first consumer is Delete; A-18 S-1).
   // Items I-1 (Revision 8 R8-2) added: lib/api/items.ts, lib/format/quantity.ts, lib/items/{load,results,wired}.ts.
-  'src/lib': 65,
+  // Suppliers S-1 added: lib/api/suppliers.ts, lib/suppliers/{load,results,wired}.ts (R8-2) and
+  // lib/forms/wholeNumberOrText.ts (Revision 9 R9-2).
+  // Suppliers S-3 added: lib/format/money.ts (renderMoney, Revision 9 R9-2).
+  // Purchase orders PO-1 added: lib/api/purchasing.ts, lib/purchasing/load.ts (R8-2; no results or wired before PO-2's
+  // first action). PO-2 added: lib/purchasing/results.ts, lib/purchasing/wired.ts (Restore purchase order). PO-3 added
+  // nothing here (Create purchase order joins the three files).
+  // Purchase orders GR-2 H-1 added: lib/bff/heldKey.ts (the held Idempotency-Key of a stock- or money-moving create).
+  // Stock ST-1 (Revision 11 R11-1) added: lib/api/stock.ts, lib/stock/{load,source}.ts (no results or wired: nothing is written).
+  // Stock ST-2 (stock-st2-plan.md §4) added: lib/stock/{levels,visibility,marker}.ts (G-47's row loader and two helpers).
+  'src/lib': 82,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -339,21 +373,51 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Items I-1 added: components/items/ItemForm.tsx.
   // Items I-2 (Revision 8 R8-5) added: components/ui/SelectField.tsx (KindField.tsx stays, a thin caller) and
   // components/items/ItemCreateForm.tsx.
-  'src/components': 63,
-  // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts.
-  'src/lib/api': 8,
+  // Suppliers S-1 added: components/suppliers/SupplierForm.tsx. Suppliers S-2 added: components/suppliers/SupplierCreateForm.tsx.
+  // Suppliers S-4 added: components/suppliers/EntryForm.tsx (the catalogue entry's Edit dialog, suppliers-plan.md §3).
+  // Suppliers S-5 added: components/suppliers/AddEntryForm.tsx (Add to catalogue's dialog, suppliers-plan.md §R1-3).
+  // Purchase orders PO-3 added: components/purchasing/NewOrderForm.tsx (the create page's form, plan §3).
+  // Purchase orders PO-4a added: components/purchasing/OrderHeaderForm.tsx (the draft header's editor, plan §3).
+  // Purchase orders PO-5 added: components/purchasing/AddLineRow.tsx (the lines table's new line row, plan §3).
+  // Purchase orders PO-7 added: components/purchasing/CancelOrderDialog.tsx (Cancel order's reason dialog, plan §3).
+  // Purchase orders PO-8 added: components/purchasing/PlaceOrderDialog.tsx (Approve's confirm dialog, plan §3).
+  // Purchase orders PO-4b added: components/purchasing/EditLineRow.tsx (a live line's edit row, R10-6).
+  // Purchase orders GR-2 added: components/purchasing/ReceiveForm.tsx (the receive page's form, plan R1-4: the M-6 map lives here).
+  'src/components': 74,
+  // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
+  // Purchase orders PO-1 added: lib/api/purchasing.ts. Stock ST-1 added: lib/api/stock.ts.
+  'src/lib/api': 11,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
   'src/lib/people': 4,
-  // Revision 7 step 3 (A-19 item 4): the forms helpers.
-  'src/lib/forms': 1,
+  // Revision 7 step 3 (A-19 item 4): the forms helpers. Revision 9 R9-2 (suppliers S-1) added: wholeNumberOrText.ts.
+  'src/lib/forms': 2,
   // Revision 7 step 4.1 added: the warehouse loaders, results and Save.
   'src/lib/warehouses': 3,
   // Items I-1 (Revision 8 R8-2, R8-3) added: the item loaders, results, Save and Restore; the item page's editor.
   'src/lib/items': 3,
   // Items I-2 added: ItemCreateForm.tsx (the create page's form).
   'src/components/items': 2,
+  // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
+  'src/lib/suppliers': 3,
+  // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: the purchasing loaders. PO-2 added: results and
+  // wired (Restore purchase order, the family's first action).
+  'src/lib/purchasing': 3,
+  // Stock ST-1 (Revision 11 R11-1) added: the movement loaders (with the two narrow cross-family reads) and the source table.
+  // Stock ST-2 added: levels.ts (the one lib row file), visibility.ts (the gate helper), marker.ts (the pure row marker).
+  'src/lib/stock': 5,
+  // Suppliers S-2 added: SupplierCreateForm.tsx (the create page's form). Suppliers S-4 added: EntryForm.tsx (Edit entry).
+  // Suppliers S-5 added: AddEntryForm.tsx (Add to catalogue).
+  'src/components/suppliers': 4,
+  // Purchase orders PO-3 added: NewOrderForm.tsx (the create page's form, with the supplier choice dialog).
+  // Purchase orders PO-4a added: OrderHeaderForm.tsx (the draft header's editor).
+  // Purchase orders PO-5 added: AddLineRow.tsx (the lines table's new line row).
+  // Purchase orders PO-7 added: CancelOrderDialog.tsx (Cancel order's reason dialog).
+  // Purchase orders PO-8 added: PlaceOrderDialog.tsx (Approve's confirm dialog).
+  // Purchase orders PO-4b added: EditLineRow.tsx (a live line's edit row, R10-6).
+  // Purchase orders GR-2 added: ReceiveForm.tsx (the receive page's form and its confirm dialog).
+  'src/components/purchasing': 7,
   'src/components/roles': 4,
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   'src/components/permissions': 3,
@@ -374,7 +438,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/preview': 5,
   'src/lib/auth': 2,
   // Items I-1 (Revision 8 R8-2) added: lib/format/quantity.ts (renderQuantity, the one screen-side QR-2).
-  'src/lib/format': 4,
+  // Suppliers S-3 added: lib/format/money.ts (renderMoney, the QR-6 interim's one home; Revision 9 R9-2).
+  'src/lib/format': 5,
   // Revision 7 step 3 (A-19 item 1) added: TextField.tsx. Items I-2 (Revision 8 R8-5) added: SelectField.tsx.
   'src/components/ui': 13,
   [FIXTURE_DIR]: 4,
@@ -391,7 +456,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // B-3b C6 added: lib/roles/{load,wired}.ts.
   // B-3b C7 added: lib/permissions/{load,wired}.ts; app/(app)/ArchivableList.tsx (the list both pages share; moved from admin/ by Revision 7 A-16, count unchanged),
   // app/(app)/admin/roles/{page,RolesList,RoleStates}.tsx, app/(app)/admin/roles/[id]/{page,RolePage,not-found}.tsx.
-  'src/lib/bff': 16,
+  // Purchase orders GR-2 H-1 added: lib/bff/heldKey.ts (gr-2-h1-spar.md converged text; its guard is at the end of this file).
+  'src/lib/bff': 17,
   'src/lib/bff/server': 7,
   // b3b-followup C-2 added: app/error.tsx, app/(app)/error.tsx, app/not-found.tsx.
   // c10 commit B added: app/bff/me/password/route.ts; moved (count unchanged) app/account/password/{page,
@@ -404,7 +470,24 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.4 added: app/(app)/warehouses/[id]/LocationsSection.tsx (a section of the page, no route).
   // Items I-1 added: app/(app)/items/{page,ItemsList,ItemStates}.tsx, app/(app)/items/[id]/{page,ItemPage,not-found}.tsx.
   // Items I-2 added: app/(app)/items/new/{page,NewItemPage}.tsx.
-  'src/app': 59,
+  // Suppliers S-1 added: app/(app)/suppliers/{page,SuppliersList,SupplierStates}.tsx,
+  // app/(app)/suppliers/[id]/{page,SupplierPage,not-found}.tsx.
+  // Suppliers S-2 added: app/(app)/suppliers/new/{page,NewSupplierPage}.tsx.
+  // Suppliers S-3 added: app/(app)/suppliers/[id]/CatalogueSection.tsx (a section of the page, no route; ARCH (a)).
+  // Purchase orders PO-1 added: app/(app)/useSegmentAddress.ts (Revision 10 R10-1, a segmented list's address writer),
+  // app/(app)/purchase-orders/{page,PurchaseOrdersList,PurchaseOrderStates}.tsx,
+  // app/(app)/purchase-orders/[id]/{page,PurchaseOrderPage,LinesSection,not-found}.tsx.
+  // Purchase orders PO-3 added: app/(app)/purchase-orders/new/{page,NewPurchaseOrderPage}.tsx.
+  // Goods receipts GR-1 (Revision 10 R10-2: the purchasing family's second route folder) added:
+  // app/(app)/goods-receipts/{page,GoodsReceiptsList,GoodsReceiptStates}.tsx,
+  // app/(app)/goods-receipts/[id]/{page,GoodsReceiptPage,not-found}.tsx, and app/(app)/purchase-orders/[id]/ReceiptsSection.tsx
+  // (the order page's Receipts section, no route).
+  // Purchase orders GR-2 added: app/(app)/purchase-orders/[id]/receive/{page,ReceivePage}.tsx.
+  // Stock ST-1 (Revision 11 R11-1) added: app/(app)/stock-movements/{page,StockMovementsList,StockMovementStates}.tsx,
+  // app/(app)/stock-movements/[id]/{page,StockMovementPage,not-found}.tsx (its CSS module is not counted: .ts/.tsx only).
+  // Stock ST-2 (stock-st2-plan.md §4) added: app/(app)/stock/{page,StockLevelsView,StockPicker,LocationLinks,StockStates}.tsx
+  // (Stock.module.css is not counted).
+  'src/app': 98,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -648,6 +731,10 @@ const NETWORK_SCAN_DIRS = [
   'src/components/records',
   // Items I-1 (Revision 8 R8-3): the item page's editor.
   'src/components/items',
+  // Suppliers S-1 (Revision 8 R8-3 completeness): the supplier page's editor.
+  'src/components/suppliers',
+  // Purchase orders PO-3 (Revision 8 R8-3 completeness): the create page's form, props-only (its reads are the page's).
+  'src/components/purchasing',
   'src/components/auth',
   'src/components/shell',
   'src/components/states',
@@ -849,6 +936,12 @@ const BULK_LITERAL_DIRS = [
   'src/lib/warehouses',
   // Items I-1 (Revision 8 R8-3): the item family's logic (`inventory_item` is a bulk key, G-3).
   'src/lib/items',
+  // Suppliers S-1 (suppliers-plan.md Revision 0 §1.5, G-3): `supplier` is a bulk key.
+  'src/lib/suppliers',
+  // Purchase orders PO-1 (purchase-orders-plan.md §1.5, G-3): `purchase_order` is a bulk key.
+  'src/lib/purchasing',
+  // Stock ST-1 (stock-plan.md §3.1, G-3): `inventory_item` and `storage_location` are bulk keys; the movement reads name neither.
+  'src/lib/stock',
   'src/lib/api',
   'src/lib/auth',
   'src/lib/format',
@@ -880,6 +973,32 @@ function bulkLiteralViolations(files: readonly SourceFile[], keys: readonly stri
 describe('architecture — G-3: no typed bulk resource key or bulk cap (A-8)', () => {
   const keys = bulkResources();
   const cap = bulkMaxIds();
+
+  // Suppliers S-1 test 13 (suppliers-plan.md Revision 0 §1.5): `supplier` is a bulk key, so lib/suppliers is scanned and
+  // a typed 'supplier' there goes red; the real lib/suppliers holds none.
+  it("suppliers S-1: lib/suppliers is scanned, holds no 'supplier' literal, and a planted one goes red", () => {
+    expect(keys).toContain('supplier');
+    const real = walk('src/lib/suppliers');
+    expect(real.map((f) => f.file)).toEqual(['src/lib/suppliers/load.ts', 'src/lib/suppliers/results.ts', 'src/lib/suppliers/wired.ts']);
+    expect(bulkLiteralViolations(real, keys, cap)).toEqual([]);
+    const planted: SourceFile[] = [{ file: 'src/lib/suppliers/load.ts', source: "export const r = 'supplier';" }];
+    expect(bulkLiteralViolations(planted, keys, cap).map((v) => `${v.file} — ${v.detail}`)).toEqual(["src/lib/suppliers/load.ts — literal 'supplier'"]);
+  });
+
+  // Purchase orders PO-1 test 13 (purchase-orders-plan.md §4 PO-1, §1.5): `purchase_order` is a bulk key, so
+  // lib/purchasing is scanned and a typed 'purchase_order' there goes red; the real lib/purchasing holds none. PO-2 added
+  // results.ts and wired.ts (Restore purchase order); the planted control now also covers wired.ts.
+  it("purchase orders PO-1: lib/purchasing is scanned, holds no 'purchase_order' literal, and a planted one goes red", () => {
+    expect(keys).toContain('purchase_order');
+    const real = walk('src/lib/purchasing');
+    expect(real.map((f) => f.file)).toEqual(['src/lib/purchasing/load.ts', 'src/lib/purchasing/results.ts', 'src/lib/purchasing/wired.ts']);
+    expect(bulkLiteralViolations(real, keys, cap)).toEqual([]);
+    const planted: SourceFile[] = [
+      { file: 'src/lib/purchasing/load.ts', source: "export const r = 'purchase_order';" },
+      { file: 'src/lib/purchasing/wired.ts', source: "export const r = 'purchase_order';" },
+    ];
+    expect(bulkLiteralViolations(planted, keys, cap).map((v) => `${v.file} — ${v.detail}`)).toEqual(["src/lib/purchasing/load.ts — literal 'purchase_order'", "src/lib/purchasing/wired.ts — literal 'purchase_order'"]);
+  });
 
   it('reads a non-empty key set and a cap from the generated surface', () => {
     expect(keys.length).toBeGreaterThan(0);
@@ -1336,6 +1455,25 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       // Items I-2 (G-F2 row): the create page's form.
       'src/components/items/ItemCreateForm.tsx',
       'src/components/items/ItemForm.tsx',
+      // Purchase orders PO-5 (G-F2 row; plan M-9's form-attribute mechanism): the new line row's form, in its last cell;
+      // the row's fields join it with the `form` attribute, which this guard does not forbid.
+      'src/components/purchasing/AddLineRow.tsx',
+      // Purchase orders PO-4b (G-F2 row; R10-6): each live line's edit row's form, in its last cell, as Add line's.
+      'src/components/purchasing/EditLineRow.tsx',
+      // Purchase orders PO-3 (G-F2 row): the create page's form (its supplier dialog is a sibling after it, never in it).
+      'src/components/purchasing/NewOrderForm.tsx',
+      // Purchase orders PO-4a (G-F2 row): the draft header's editor.
+      'src/components/purchasing/OrderHeaderForm.tsx',
+      // Purchase orders GR-2 (G-F2 row): the receive page's form (its confirm dialog is a sibling after it, never in it).
+      'src/components/purchasing/ReceiveForm.tsx',
+      // Suppliers S-5 (G-F2 row): Add to catalogue's dialog is a <form> (its item list sits before it, never in it).
+      'src/components/suppliers/AddEntryForm.tsx',
+      // Suppliers S-4 (G-F2 row): the catalogue entry's Edit dialog is a <form>, so it joins here.
+      'src/components/suppliers/EntryForm.tsx',
+      // Suppliers S-2 (G-F2 row): the create page's form.
+      'src/components/suppliers/SupplierCreateForm.tsx',
+      // Suppliers S-1 (G-F2 row): the supplier page's editor.
+      'src/components/suppliers/SupplierForm.tsx',
       // Revision 7 step 4.1 (A-19 G-F2 row): the warehouse page's editor.
       // Revision 7 step 4.3: the create page's form.
       // Revision 7 step 4.4 (R3-7 "Silent", G-F2 row): the code-only Edit location dialog is a <form>, so it joins here.
@@ -1355,6 +1493,10 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       { file: 'src/components/a/Button.tsx', source: 'export const D = () => <form method="post"><button formMethod="get">Go</button></form>;' },
       { file: 'src/app/x/page.tsx', source: "import Form from 'next/form';\nexport const E = () => null;" },
       { file: 'src/components/a/Ok.tsx', source: 'export const F = () => <form method="post" onSubmit={f} noValidate><button type="submit">Go</button></form>;' },
+      // PO-5 (plan M-9): a field outside its form, joined by the `form` attribute, to a post form with no action — not a breach.
+      { file: 'src/components/a/FormAttribute.tsx', source: 'export const G = () => <tr><td><input name="q" form="f1" /></td><td><form id="f1" method="post" onSubmit={f}><button type="submit">Go</button></form></td></tr>;' },
+      // PO-5 (po-5-arch.md (a)): a per-control override is red wherever the control sits — here outside its form, joined by `form`.
+      { file: 'src/components/a/FormAttributeOverride.tsx', source: 'export const H = () => <tr><td><input name="q" form="f1" /><button type="submit" form="f1" formMethod="get">Go</button></td><td><form id="f1" method="post" onSubmit={f}></form></td></tr>;' },
     ];
     expect(formMethodViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
       'src/components/a/NoMethod.tsx — <form> without method="post"',
@@ -1362,6 +1504,7 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/a/EncType.tsx — encType on <form>',
       'src/components/a/Button.tsx — formMethod on <button>',
       "src/app/x/page.tsx — imports 'next/form'",
+      'src/components/a/FormAttributeOverride.tsx — formMethod on <button>',
     ]);
   });
 
@@ -1783,9 +1926,18 @@ describe('architecture — R8-3: components/records is props-only and names no f
  * binary arithmetic (`x * 1`, `x - 0`) or a quantity under another name is not seen; the per-site DOM tests are what
  * catch those.
  */
-const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items'] as const;
-const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts'] as const;
-const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served/i;
+// Suppliers S-3 (suppliers-plan.md §R1-3 L-8, Revision 9 R9-2): the supplier dirs (the catalogue's minimum order is a
+// served quantity, its unit cost a served decimal) and `lib/format/money.ts` join the scan.
+// Purchase orders PO-1 (purchase-orders-plan.md §3 QUANTITY_SCAN_DIRS row): the purchasing dirs (order totals, line
+// quantities and unit costs are served decimals); the receipt route dir joins at GR-1. PO-3: components/purchasing joins
+// with its first file (plan §3 lists the three purchasing dirs; the folder exists from PO-3, so it is scanned from PO-3).
+// Goods receipts GR-1: the receipt route dir joins (a receipt line's quantity is a served decimal).
+// Stock ST-1 (stock-plan.md §3.1; Revision 11 R11-5): the stock logic and the movement route dir (a movement's quantity is a
+// served signed decimal).
+const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/components/purchasing', 'src/app/(app)/purchase-orders', 'src/app/(app)/goods-receipts', 'src/lib/stock', 'src/app/(app)/stock-movements', 'src/app/(app)/stock'] as const;
+const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts', 'src/lib/format/money.ts'] as const;
+// Suppliers S-3 RED L-7: widened to the money names (`amount`, `unit_cost`, `unitCost`) now that `money.ts` is scanned.
+const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served|amount|unit_cost|unitCost/i;
 
 function quantityNumberViolations(files: readonly SourceFile[]): Violation[] {
   const out: Violation[] = [];
@@ -1830,9 +1982,21 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
   it('the item dirs and the renderer hold no such token', () => {
     const files = scanned();
     // Positive control: the scan reads the item family and the renderer, not an empty set.
-    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx']));
-    // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8.
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1);
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining(['src/lib/format/quantity.ts', 'src/lib/items/load.ts', 'src/components/items/ItemForm.tsx', 'src/app/(app)/items/[id]/ItemPage.tsx', 'src/components/items/ItemCreateForm.tsx', 'src/app/(app)/items/new/NewItemPage.tsx', 'src/lib/format/money.ts', 'src/lib/suppliers/load.ts', 'src/app/(app)/suppliers/[id]/CatalogueSection.tsx', 'src/components/suppliers/EntryForm.tsx', 'src/components/suppliers/AddEntryForm.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/purchase-orders/PurchaseOrdersList.tsx', 'src/app/(app)/purchase-orders/[id]/PurchaseOrderPage.tsx', 'src/app/(app)/purchase-orders/[id]/LinesSection.tsx', 'src/components/purchasing/NewOrderForm.tsx', 'src/app/(app)/purchase-orders/new/NewPurchaseOrderPage.tsx', 'src/components/purchasing/OrderHeaderForm.tsx', 'src/components/purchasing/AddLineRow.tsx', 'src/app/(app)/goods-receipts/GoodsReceiptsList.tsx', 'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx', 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx', 'src/components/purchasing/ReceiveForm.tsx', 'src/app/(app)/purchase-orders/[id]/receive/ReceivePage.tsx', 'src/lib/purchasing/results.ts']));
+    // src/app/(app)/items: 6 at I-1; Items I-2 added new/{page,NewItemPage}.tsx → 8. Suppliers S-3 added the supplier
+    // dirs (src/app/(app)/suppliers: 9 files at S-3) and lib/format/money.ts (+1). Suppliers S-4: EntryForm.tsx (the Edit
+    // dialog, which holds a cost and a minimum order) is in the positive control; it is counted by EXPECTED_COUNTS.
+    // Suppliers S-5: AddEntryForm.tsx (the Add dialog, the same four fields) likewise. Purchase orders PO-1: lib/purchasing
+    // and the order route dir (src/app/(app)/purchase-orders: 7 files at PO-1). PO-2: lib/purchasing gains results.ts and
+    // wired.ts, counted by EXPECTED_COUNTS. PO-3: components/purchasing (counted by EXPECTED_COUNTS) and the order route
+    // dir's new/{page,NewPurchaseOrderPage}.tsx → 9. PO-4a: components/purchasing/OrderHeaderForm.tsx (counted by
+    // EXPECTED_COUNTS) is in the positive control. PO-5: components/purchasing/AddLineRow.tsx (the new line row, which holds a
+    // quantity and a cost) likewise. Goods receipts GR-1: the order route dir gains [id]/ReceiptsSection.tsx → 10, and the
+    // receipt route dir joins with its 6 files. GR-2: the order route dir gains [id]/receive/{page,ReceivePage}.tsx → 12; the
+    // receive form (a quantity typed and sent as text) and the zero rule (`isNotReceived`, results.ts) are in the control.
+    // Stock ST-1: lib/stock (counted by EXPECTED_COUNTS) and the movement route dir with its 6 files. Stock ST-2: the
+    // stock-on-hand route dir with its 5 files (plan §7.1-2).
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 12 + 6 + EXPECTED_COUNTS['src/lib/stock']! + 6 + 5);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 
@@ -1857,6 +2021,8 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
       { file: 'src/components/items/O.tsx', source: 'export const o = (q: string) => BigInt(q);' },
       { file: 'src/components/items/P.tsx', source: 'export const p = (q: number) => Math.floor(q);' },
       { file: 'src/lib/format/quantity.ts', source: 'export const renderQuantity = (served: string) => String(Number(served));' },
+      // Suppliers S-3 RED L-7: a unary `+` on a money value is seen (the name pattern covers amount / unit_cost / unitCost).
+      { file: 'src/lib/format/money.ts', source: 'export const r = (amount: string) => String(+amount);' },
       { file: 'src/components/items/Ok.tsx', source: "export const ok = (served: string, n: number) => served.slice(0, served.indexOf('.')) + String(n - 1);" },
     ];
     expect(quantityNumberViolations(planted).map((v) => `${v.file} — ${v.detail}`)).toEqual([
@@ -1880,7 +2046,318 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
       'src/components/items/O.tsx — BigInt(',
       'src/components/items/P.tsx — Math.floor(',
       'src/lib/format/quantity.ts — Number(',
+      'src/lib/format/money.ts — unary + on amount',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Goods receipts GR-1 — Revision 10 R10-2: the receipt pages import no other family's components or lib
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** The receipt route folder (Revision 10 R10-2: the purchasing family's second folder). */
+const RECEIPTS_ROUTE_DIR = 'src/app/(app)/goods-receipts';
+/**
+ * What a goods-receipts page may import under `src/components/` and `src/lib/`: its own family's (`purchasing`), and the
+ * shared, family-free folders and files the other families' pages share. Anything else under those two roots belongs to
+ * another family (items, suppliers, warehouses, people, roles, permissions, bulk, …) or to a family not built yet — a new
+ * shared folder is a deliberate edit here, never a silent pass.
+ */
+const RECEIPTS_MAY_IMPORT = {
+  components: ['purchasing', 'ui', 'states', 'records', 'shell'],
+  lib: ['purchasing', 'bff', 'format', 'forms', 'results', 'routes', 'navigation', 'session'],
+  libApi: ['purchasing'],
+} as const;
+
+/** R10-2's check: a goods-receipts file whose import reaches another family's `components/`, `lib/` or `lib/api/`. */
+function receiptsFamilyViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, RECEIPTS_ROUTE_DIR)) continue;
+    for (const spec of specifiersOf(sf)) {
+      const t = targetOf(sf.file, spec).replace(/\.(ts|tsx|css)$/, '');
+      const parts = t.split('/');
+      let ok = true;
+      if (parts[0] === 'src' && parts[1] === 'components') ok = (RECEIPTS_MAY_IMPORT.components as readonly string[]).includes(parts[2] ?? '');
+      else if (parts[0] === 'src' && parts[1] === 'lib' && parts[2] === 'api') ok = (RECEIPTS_MAY_IMPORT.libApi as readonly string[]).includes(parts[3] ?? '');
+      else if (parts[0] === 'src' && parts[1] === 'lib') ok = (RECEIPTS_MAY_IMPORT.lib as readonly string[]).includes(parts[2] ?? '');
+      if (!ok) out.push({ file: sf.file, detail: `a goods-receipts page imports another family's components or lib (R10-2): '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — goods receipts GR-1: R10-2, the receipt pages stay inside the purchasing family', () => {
+  it('the real receipt folder (6 files) imports only purchasing and shared components/lib', () => {
+    const files = walk(RECEIPTS_ROUTE_DIR);
+    expect(files.map((f) => f.file)).toEqual([
+      'src/app/(app)/goods-receipts/GoodsReceiptStates.tsx',
+      'src/app/(app)/goods-receipts/GoodsReceiptsList.tsx',
+      'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx',
+      'src/app/(app)/goods-receipts/[id]/not-found.tsx',
+      'src/app/(app)/goods-receipts/[id]/page.tsx',
+      'src/app/(app)/goods-receipts/page.tsx',
+    ]);
+    // Positive control: the check sees the folder's real family and shared imports and accepts them (not an empty domain).
+    const targets = files.flatMap((f) => specifiersOf(f).map((s) => targetOf(f.file, s)));
+    expect(targets).toEqual(expect.arrayContaining(['src/lib/purchasing/load', 'src/lib/api/purchasing', 'src/components/ui/DateTime', 'src/lib/bff/surface', 'src/lib/format/quantity']));
+    expect(receiptsFamilyViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: another family’s lib, components or api goes red in each spelling; its own and the shared ones do not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/goods-receipts/A.tsx', source: "import { loadItem } from '@/lib/items/load';" },
+      { file: 'src/app/(app)/goods-receipts/B.tsx', source: "import { EntryForm } from '@/components/suppliers/EntryForm';" },
+      { file: 'src/app/(app)/goods-receipts/C.tsx', source: "import type { Warehouse } from '@/lib/api/warehouses';" },
+      { file: 'src/app/(app)/goods-receipts/[id]/D.tsx', source: "import { loadSuppliers } from '../../../../lib/suppliers/load';" },
+      { file: 'src/app/(app)/goods-receipts/E.tsx', source: "export type P = import('@/lib/people/load').PersonLoad;" },
+      { file: 'src/app/(app)/goods-receipts/Ok.tsx', source: "import { loadReceipts } from '@/lib/purchasing/load';\nimport { Button } from '@/components/ui/Button';\nimport { renderQuantity } from '@/lib/format/quantity';\nimport type { GoodsReceipt } from '@/lib/api/purchasing';\nimport { ArchivableList } from '../ArchivableList';" },
+      // Outside the folder the rule does not apply (the order page's section is in the purchase-orders folder).
+      { file: 'src/app/(app)/items/Z.tsx', source: "import { loadItem } from '@/lib/items/load';" },
+    ];
+    expect(receiptsFamilyViolations(planted).map((v) => v.file)).toEqual([
+      'src/app/(app)/goods-receipts/A.tsx',
+      'src/app/(app)/goods-receipts/B.tsx',
+      'src/app/(app)/goods-receipts/C.tsx',
+      'src/app/(app)/goods-receipts/[id]/D.tsx',
+      'src/app/(app)/goods-receipts/E.tsx',
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Revision 10 R10-2 (amended, gr-1-followups-arch.md item 2 / A-3, as corrected by gr-1-followups-red.md L-4, L-5): route
+// folders import only their own family's route folders and the shared (app)-root modules; nothing under src/app outside
+// (app)/ is imported from (app)/ at all. CSS modules included (one of the two purchasing edges is a stylesheet), so unlike
+// importViolations this check does not skip `.css` specifiers.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const APP_ROOT = 'src/app/(app)';
+/** Families that own more than one route folder (R10-2). A new entry is a deliberate edit and needs an architecture line. */
+const ROUTE_FAMILIES: readonly (readonly string[])[] = [['purchase-orders', 'goods-receipts']];
+/** The route folder a path is in: the first folder under (app)/ (`admin/<folder>` for the admin pages); null for an (app)-root module. */
+function routeFolderOf(p: string): string | null {
+  if (!under(p, APP_ROOT)) return null;
+  const parts = p.slice(APP_ROOT.length + 1).split('/');
+  if (parts.length === 1) return null;
+  return parts[0] === 'admin' ? `admin/${parts[1]}` : parts[0]!;
+}
+const sameFamily = (a: string, b: string) => a === b || ROUTE_FAMILIES.some((f) => f.includes(a) && f.includes(b));
+/** A specifier naming a directory under (app)/ means that directory's index file (a barrel; gr-1b-red M-1). */
+const isDirIn = (files: readonly SourceFile[], t: string) => files.some((f) => f.file.startsWith(`${t}/`));
+const folderOfTarget = (files: readonly SourceFile[], t: string) => (isDirIn(files, t) ? routeFolderOf(`${t}/index.ts`) : routeFolderOf(t));
+
+function routeFolderViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, APP_ROOT)) continue;
+    const from = routeFolderOf(sf.file);
+    for (const spec of specifiersOf(sf)) {
+      const t = targetOf(sf.file, spec);
+      if (!under(t, 'src/app')) continue;
+      const to = folderOfTarget(files, t);
+      let ok: boolean;
+      if (!under(t, APP_ROOT)) ok = false; // src/app outside (app)/: (auth), (dev), bff, fonts, the root layout — from any (app) file
+      else if (from === null) ok = to === null; // an (app)-root module imports no route folder
+      else ok = to === null || sameFamily(from, to);
+      if (!ok) out.push({ file: sf.file, detail: `a route folder imports another family's route folder, or an (app) file imports a route folder it may not or src/app outside (app)/ (R10-2): '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — R10-2: route folders import only their own family’s route folders and the (app)-root modules', () => {
+  it('the real (app) tree has no violation, and the two purchasing edges are really seen (not an empty domain)', () => {
+    const files = walk('src/app');
+    // Distinct pairs (RED L-5): a second import statement between the same two files is not a new edge.
+    const edges = [
+      ...new Set(
+        files
+          .flatMap((f) => specifiersOf(f).map((s) => `${f.file} -> ${targetOf(f.file, s)}`))
+          .filter((e) => {
+            const [a, b] = e.split(' -> ') as [string, string];
+            return routeFolderOf(a) !== null && folderOfTarget(files, b) !== null && routeFolderOf(a) !== folderOfTarget(files, b);
+          }),
+      ),
+    ].sort();
+    // An exact pin: a third cross-folder edge, even inside the family, turns this red on purpose, so whoever adds it records it.
+    expect(edges).toEqual([
+      'src/app/(app)/goods-receipts/[id]/GoodsReceiptPage.tsx -> src/app/(app)/purchase-orders/PurchaseOrders.module.css',
+      'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx -> src/app/(app)/goods-receipts/GoodsReceiptsList',
+    ]);
+    expect(routeFolderViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: each clause goes red; its own family both ways, its own folder and the (app)-root modules do not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/goods-receipts/F.tsx', source: "import '../items/ItemsList';" }, // gr-1-red P-1 / L-9
+      { file: 'src/app/(app)/goods-receipts/[id]/G.tsx', source: "import styles from '@/app/(app)/suppliers/Suppliers.module.css';" }, // CSS counts
+      { file: 'src/app/(app)/purchase-orders/H.tsx', source: "export type W = import('../warehouses/WarehousesList').X;" },
+      { file: 'src/app/(app)/admin/users/I.tsx', source: "import { RolesList } from '../roles/RolesList';" }, // admin/<x> are separate folders
+      { file: 'src/app/(app)/items/J.tsx', source: "import { LoginRoute } from '@/app/(auth)/login/LoginRoute';" }, // outside (app)/
+      { file: 'src/app/(app)/K.tsx', source: "import { ItemsList } from './items/ItemsList';" }, // (app)-root → route folder
+      { file: 'src/app/(app)/L.tsx', source: "import { x } from '../fonts';" }, // (app)-root → src/app outside (app)/ (RED L-4)
+      { file: 'src/app/(app)/items/index.ts', source: "export * from './ItemsList';" }, // allowed: its own folder
+      { file: 'src/app/(app)/goods-receipts/B.tsx', source: "import { ItemsList } from '../items';" }, // a barrel import of another family (gr-1b-red M-1)
+      // Allowed: own family both ways, own folder, (app)-root modules, other roots.
+      { file: 'src/app/(app)/goods-receipts/Ok.tsx', source: "import s from '../purchase-orders/PurchaseOrders.module.css';\nimport { ArchivableList } from '../ArchivableList';\nimport { GoodsReceiptsDenied } from './GoodsReceiptStates';\nimport { loadReceipts } from '@/lib/purchasing/load';" },
+      { file: 'src/app/(app)/purchase-orders/[id]/Ok2.tsx', source: "import { receiptColumns } from '../../goods-receipts/GoodsReceiptsList';" },
+    ];
+    expect(routeFolderViolations(planted).map((v) => v.file)).toEqual([
+      'src/app/(app)/goods-receipts/F.tsx',
+      'src/app/(app)/goods-receipts/[id]/G.tsx',
+      'src/app/(app)/purchase-orders/H.tsx',
+      'src/app/(app)/admin/users/I.tsx',
+      'src/app/(app)/items/J.tsx',
+      'src/app/(app)/K.tsx',
+      'src/app/(app)/L.tsx',
+      'src/app/(app)/goods-receipts/B.tsx',
+    ]);
+  });
+});
+
+// A-3 copy clause (delete-swap-arch-red.md H-1): a family's route folder(s) and components/<family>/ import only that family's
+// copy files and the shared ones; admin is one group (R8-2 is for non-admin families); foreign edges are named exceptions.
+// Scope: `src/app/(app)` and `src/components`; `(auth)`, `(dev)` and the `src/app` root files are outside it; `src/lib` imports no copy (A-6).
+const COPY_DIR = 'src/copy';
+const SHARED_COPY: readonly string[] = ['headings', 'shell', 'permissionLabels', 'units'];
+const COPY_GROUPS: Readonly<Record<string, readonly string[]>> = {
+  items: ['items'], warehouses: ['warehouses'], suppliers: ['suppliers'], purchasing: ['purchasing'],
+  account: ['password'], admin: ['people', 'roles', 'sod', 'bulk'],
+  // Stock ST-1 (Revision 11 R11-1).
+  stock: ['stock'],
+};
+const GROUP_OF_FOLDER: Readonly<Record<string, string>> = {
+  items: 'items', warehouses: 'warehouses', suppliers: 'suppliers', 'purchase-orders': 'purchasing', 'goods-receipts': 'purchasing',
+  // Stock ST-1 (Revision 11 R11-1, RED L-6): the movement folder. Stock ST-2 (Revision 12 R12-1) adds `stock`;
+  // there is no `components/stock` (plan D-5).
+  'stock-movements': 'stock',
+  stock: 'stock',
+  account: 'account', 'admin/users': 'admin', 'admin/roles': 'admin',
+  'components/items': 'items', 'components/warehouses': 'warehouses', 'components/suppliers': 'suppliers',
+  'components/purchasing': 'purchasing', 'components/auth': 'account', 'components/people': 'admin', 'components/roles': 'admin',
+  'components/permissions': 'admin', 'components/preview': 'admin', 'components/bulk': 'admin',
+};
+/** One file → one foreign copy file, each a deliberate edit with its reason. */
+const COPY_EXCEPTIONS: readonly string[] = [
+  'src/components/purchasing/ReceiveForm.tsx -> src/copy/warehouses', // GR-2: a location's kind label (purchase-orders-plan.md §2.6, M-2)
+  'src/app/(app)/stock/LocationLinks.tsx -> src/copy/warehouses', // ST-2: the picker's kind label (UX locationOption; Revision 12 R12-5)
+];
+function copyFolderKey(p: string): string | null {
+  if (under(p, APP_ROOT)) return routeFolderOf(p);
+  const m = /^src\/components\/([^/]+)\//.exec(p);
+  return m ? `components/${m[1]}` : null;
+}
+function copyViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, APP_ROOT) && !under(sf.file, 'src/components')) continue;
+    const key = copyFolderKey(sf.file);
+    const own = key !== null ? (COPY_GROUPS[GROUP_OF_FOLDER[key] ?? ''] ?? []) : [];
+    for (const spec of specifiersOf(sf)) {
+      const t = targetOf(sf.file, spec);
+      if (!under(t, COPY_DIR)) continue;
+      const name = t.slice(COPY_DIR.length + 1).replace(/\.tsx?$/, '');
+      if (SHARED_COPY.includes(name) || own.includes(name) || COPY_EXCEPTIONS.includes(`${sf.file} -> ${COPY_DIR}/${name}`)) continue;
+      out.push({ file: sf.file, detail: `imports another family's copy file (A-3 copy clause): '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — A-3 copy clause: a family imports only its own copy files and the shared ones', () => {
+  it('the real tree has no violation; each named exception is a real edge; the scan sees real copy edges', () => {
+    const files = walk('src');
+    expect(copyViolations(files)).toEqual([]);
+    const edges = new Set(files.flatMap((f) => specifiersOf(f).map((s) => `${f.file} -> ${targetOf(f.file, s)}`)));
+    for (const e of COPY_EXCEPTIONS) expect(edges.has(e)).toBe(true); // a stale exception is red
+    expect(edges.has('src/app/(app)/suppliers/[id]/CatalogueSection.tsx -> src/copy/units')).toBe(true); // the move landed and is seen
+  });
+
+  it('planted controls: foreign copy is red from a route folder, a component, a relative specifier and records/; the group and shared copy are not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/goods-receipts/P1.tsx', source: "import { ITEMS_LIST } from '@/copy/items';" }, // gr-1-followups L-7's case
+      { file: 'src/components/purchasing/P2.tsx', source: "import { ITEMS_LIST } from '@/copy/items';" }, // the component hop
+      { file: 'src/app/(app)/suppliers/P3.tsx', source: "import { X } from '../../../copy/purchasing';" }, // relative specifier
+      { file: 'src/components/records/P4.tsx', source: "import { X } from '@/copy/warehouses';" }, // no family
+      { file: 'src/app/(app)/items/P5.tsx', source: "import { X } from '@/copy/sod';" }, // admin copy outside admin
+      { file: 'src/app/(app)/admin/users/Ok.tsx', source: "import { X } from '@/copy/roles';\nimport { Y } from '@/copy/units';" },
+      { file: 'src/components/purchasing/Ok2.tsx', source: "import { X } from '@/copy/purchasing';\nimport { Y } from '@/copy/units';\nimport { Z } from '@/copy/headings';" },
+    ];
+    expect(copyViolations(planted).map((v) => v.file)).toEqual([
+      'src/app/(app)/goods-receipts/P1.tsx',
+      'src/components/purchasing/P2.tsx',
+      'src/app/(app)/suppliers/P3.tsx',
+      'src/components/records/P4.tsx',
+      'src/app/(app)/items/P5.tsx',
+    ]);
+  });
+});
+
+// Goods receipts GR-1 (purchase-orders-plan.md §4 GR-1: "no money rendered on any receipt surface"; UX D-6), Revision 10
+// A-5 (gr-1-followups-arch.md item 6, as corrected by gr-1-followups-red.md M-1): no receipt surface — the receipt folder and
+// the order page's Receipts section, and the receive page (`purchase-orders/[id]/receive/`, `components/purchasing/ReceiveForm.tsx`;
+// GR-2, UX D-6; delete-swap-arch-red.md) — reaches `lib/format/money.ts` through ANY chain of imports. This holds the money
+// helper only; the receipt wire types carrying no cost is held by `wireParity.test.ts`.
+const RECEIPT_SURFACES = (files: readonly SourceFile[]) => files.filter((f) => under(f.file, RECEIPTS_ROUTE_DIR) || f.file === 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx' || under(f.file, 'src/app/(app)/purchase-orders/[id]/receive') || f.file === 'src/components/purchasing/ReceiveForm.tsx');
+const MONEY = 'src/lib/format/money.ts';
+/**
+ * Every src file reachable from `from` through any import kind specifiersOf sees (type imports included: conservative).
+ * An import that resolves to no scanned file throws: a silent unresolved import would be a hole in the closure.
+ */
+function reachableFrom(files: readonly SourceFile[], from: SourceFile): Set<string> {
+  const byFile = new Map(files.map((f) => [f.file, f] as const)); // later entries (planted) override real ones
+  const seen = new Set<string>();
+  const stack = [from];
+  while (stack.length > 0) {
+    const sf = stack.pop()!;
+    for (const spec of specifiersOf(sf)) {
+      const t = targetOf(sf.file, spec);
+      if (t.startsWith('pkg:') || /\.css$/.test(t)) continue;
+      const hit = [t, `${t}.ts`, `${t}.tsx`, `${t}/index.ts`, `${t}/index.tsx`].map((c) => byFile.get(c)).find((x) => x !== undefined);
+      if (hit === undefined) throw new Error(`reachableFrom: ${sf.file} imports '${spec}', which resolves to no scanned file`);
+      if (!seen.has(hit.file)) {
+        seen.add(hit.file);
+        stack.push(hit);
+      }
+    }
+  }
+  return seen;
+}
+const moneyOnReceipts = (files: readonly SourceFile[]) => RECEIPT_SURFACES(files).filter((f) => reachableFrom(files, f).has(MONEY)).map((f) => f.file);
+
+describe('architecture — goods receipts GR-1: no money reachable from any receipt surface', () => {
+  it('no receipt surface reaches lib/format/money through any chain of imports (10 surfaces)', () => {
+    const files = walk('src'); // the closure leaves src/app
+    expect(RECEIPT_SURFACES(files).length).toBe(10);
+    expect(moneyOnReceipts(files)).toEqual([]);
+    // Positive controls on real files: the closure is not empty, and it really follows chains.
+    const section = files.find((f) => f.file === 'src/app/(app)/purchase-orders/[id]/ReceiptsSection.tsx')!;
+    expect([...reachableFrom(files, section)]).toEqual(expect.arrayContaining(['src/app/(app)/goods-receipts/GoodsReceiptsList.tsx', 'src/lib/purchasing/load.ts', 'src/app/(app)/ArchivableList.tsx']));
+    const orderPage = files.find((f) => f.file === 'src/app/(app)/purchase-orders/[id]/page.tsx')!;
+    expect(specifiersOf(orderPage).map((s) => targetOf(orderPage.file, s))).not.toContain('src/lib/format/money'); // not a direct import…
+    expect(reachableFrom(files, orderPage).has(MONEY)).toBe(true); // …yet reached (page → PurchaseOrderPage → money)
+    expect([...reachableFrom(files, files.find((f) => f.file === 'src/app/(app)/purchase-orders/[id]/receive/page.tsx')!)]).toContain('src/components/purchasing/ReceiveForm.tsx');
+  });
+
+  /**
+   * Plants never reuse a real file's path: a planted file replaces the real one for every importer, so a real surface
+   * importing it would reach money through the plant.
+   */
+  it('planted controls: a direct import, a components hop, a route-folder hop and a two-hop chain go red; family logic does not', () => {
+    const real = walk('src');
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/goods-receipts/[id]/Direct.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/components/purchasing/CostCell.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/app/(app)/goods-receipts/X.tsx', source: "import { CostCell } from '@/components/purchasing/CostCell';" },
+      { file: 'src/app/(app)/goods-receipts/Y.tsx', source: "import { LinesSection } from '../purchase-orders/[id]/LinesSection';" }, // real file, real money import
+      { file: 'src/lib/purchasing/costText.ts', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/components/purchasing/Two.tsx', source: "import { costText } from '@/lib/purchasing/costText';" },
+      { file: 'src/app/(app)/goods-receipts/W.tsx', source: "import { Two } from '@/components/purchasing/Two';" },
+      { file: 'src/app/(app)/goods-receipts/Z.tsx', source: "import { loadReceipts } from '@/lib/purchasing/load';\nimport { ArchivableList } from '../ArchivableList';" },
+      { file: 'src/app/(app)/purchase-orders/[id]/receive/Direct2.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+    ];
+    expect(moneyOnReceipts([...real, ...planted]).sort()).toEqual(['src/app/(app)/goods-receipts/W.tsx', 'src/app/(app)/goods-receipts/X.tsx', 'src/app/(app)/goods-receipts/Y.tsx', 'src/app/(app)/goods-receipts/[id]/Direct.tsx', 'src/app/(app)/purchase-orders/[id]/receive/Direct2.tsx']);
   });
 });
 
@@ -1952,35 +2429,36 @@ const REAL_GUARD_LISTS: GuardLists = {
 describe('architecture — guard enrolment is complete (items-red.md M-2, items I-0a)', () => {
   it('every folder under src/components and src/lib is in each applicable guard list, or exempt with a reason', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items']));
+    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items', 'src/components/suppliers', 'src/lib/suppliers']));
     expect(folders.length).toBeGreaterThan(15);
     expect(enrolmentGaps(folders, REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([]);
   });
 
   it('planted controls: an unlisted new folder, a dropped enrolment and a stale exemption all go red', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    // A new folder nobody enrolled. It was the items family's folders until I-1 enrolled them; now a family that does not
-    // exist yet (suppliers), so the control still names folders absent from every list.
-    expect(enrolmentGaps([...folders, 'src/components/suppliers', 'src/lib/suppliers'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
-      'literal: src/components/suppliers is in no list and has no exemption',
-      'literal: src/lib/suppliers is in no list and has no exemption',
-      'network: src/components/suppliers is in no list and has no exemption',
-      'bulk: src/lib/suppliers is in no list and has no exemption',
-      'counts: src/components/suppliers is in no list and has no exemption',
-      'counts: src/lib/suppliers is in no list and has no exemption',
+    // A new folder nobody enrolled. It was the items family's folders until I-1 enrolled them, then the suppliers family's
+    // until S-1 enrolled those; now a family that does not exist yet (customers), so the control still names folders
+    // absent from every list.
+    expect(enrolmentGaps([...folders, 'src/components/customers', 'src/lib/customers'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
+      'literal: src/components/customers is in no list and has no exemption',
+      'literal: src/lib/customers is in no list and has no exemption',
+      'network: src/components/customers is in no list and has no exemption',
+      'bulk: src/lib/customers is in no list and has no exemption',
+      'counts: src/components/customers is in no list and has no exemption',
+      'counts: src/lib/customers is in no list and has no exemption',
     ]);
     // records/ dropped from one list (the move silently unscanning the dialogs, M-2's last bullet).
     const dropped: GuardLists = { ...REAL_GUARD_LISTS, network: NETWORK_SCAN_DIRS.filter((d) => d !== RECORDS_DIR) };
     expect(enrolmentGaps(folders, dropped, GUARD_EXEMPT)).toEqual(['network: src/components/records is in no list and has no exemption']);
     // An exemption with no reason (an empty or near-empty string) is a gap, not an exemption (RED L-1).
-    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/suppliers': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/suppliers': '  tbd  ' } };
-    expect(enrolmentGaps([...folders, 'src/components/suppliers', 'src/lib/suppliers'], REAL_GUARD_LISTS, unreasoned)).toEqual([
-      "literal: src/components/suppliers's exemption has no reason",
-      'literal: src/lib/suppliers is in no list and has no exemption',
-      'network: src/components/suppliers is in no list and has no exemption',
-      "bulk: src/lib/suppliers's exemption has no reason",
-      'counts: src/components/suppliers is in no list and has no exemption',
-      'counts: src/lib/suppliers is in no list and has no exemption',
+    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/customers': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/customers': '  tbd  ' } };
+    expect(enrolmentGaps([...folders, 'src/components/customers', 'src/lib/customers'], REAL_GUARD_LISTS, unreasoned)).toEqual([
+      "literal: src/components/customers's exemption has no reason",
+      'literal: src/lib/customers is in no list and has no exemption',
+      'network: src/components/customers is in no list and has no exemption',
+      "bulk: src/lib/customers's exemption has no reason",
+      'counts: src/components/customers is in no list and has no exemption',
+      'counts: src/lib/customers is in no list and has no exemption',
     ]);
     // An exemption left behind after enrolment, and one naming a folder that does not exist.
     const stale = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/records': 'x', 'src/lib/nowhere': 'y' } };
@@ -2108,25 +2586,68 @@ describe('architecture — FE-R2: no /sales-orders screen or pick operation with
 // G-47 (docs/RESIDUAL_GAPS.md, Low; owner UX + SEC): a ListStockLevels row does not say whether its bin can be picked --
 // quarantine bins, archived bins and bins of an archived warehouse look like pickable ones. G-47 is NOT closed and nothing
 // here may be read as closing it. Trigger re-put by the owner's delegation on 2026-11-03 (docs/design/g47-ruling.md;
-// g47-owner-questions-recommendation.md FINAL R-1…R-3). The backend check runs only when this app reaches main; this twin
-// runs on every frontend gate. Same rule, ported line for line from the backend method (keep the two in step — a change
-// to one is a change to both):
-//   The trigger T (outside src/generated/): (a) a page served at /stock or below (pageUrl, shared with FE-R2); (b) source
-//   naming ListStockLevels, minus the one navigation-map `operation:` entry in lib/navigation.ts (path AND shape, never
-//   path alone); (c) source naming the stock path /api/v1/stock or /bff/api/stock (not /stock-movements); (d)
+// g47-owner-questions-recommendation.md FINAL R-1…R-3); implication re-keyed from C1 to C1′ on 2026-11-20
+// (docs/design/stock-st2-plan.md §5, Revision 1 — FINAL), also under the owner's delegation. The backend check runs only
+// when this app reaches main; this twin runs on every frontend gate. Same rule as the backend method (keep the two in
+// step — a change to one is a change to both).
+// The two messages are held equal, byte for byte, by the G-47 message-parity test below (it reads ../backend/, the G-51
+// precedent), so the twins cannot drift apart unseen.
+//   The trigger T (outside src/generated/), unchanged: (a) a page served at /stock or below (pageUrl, shared with FE-R2);
+//   (b) source naming ListStockLevels, minus the one navigation-map `operation:` entry in lib/navigation.ts (path AND
+//   shape, never path alone); (c) source naming the stock path /api/v1/stock or /bff/api/stock (not /stock-movements); (d)
 //   scripts/api-surface.client-ops.json wiring ListStockLevels for the browser.
-//   T ⇒ C1 (FINAL R-3, option 2): every file making T true through (a), (b) or (c), together with the modules it imports
-//   one level down (relative or `@/` path, resolved by text, no AST), names ListStorageLocations, 'storage_location.view'
-//   and 'warehouse.view'. When T holds through (d) alone no file can be checked, so the pin fails closed. C2 (the badge
-//   copy key) joins in the screen's commit, once UX fixes the key.
-// Weaker than option (1), and said so: a stub naming the three tokens satisfies C1; the safety rests on the seven hand
-// checks in the failure message. Known limits (as the backend states them): a path or operation name built by
-// concatenation or a template literal evades (b) and (c); a comment naming a token fires them (loud and safe); a
-// nav-driven generic page (`[module]`) is held on its route half by the shared dynamic-segment refusal and on its client
-// half by (d), and not on its server half; an intercepting `(..)stock` page that names nothing evades (a); a link to
-// /stock from a caller of deriveNavigation() without the built filter is not watched; this walk refuses every symlink
-// under src (the backend reads file links and does not descend into directory links). Movements (/stock-movements,
-// GetStockMovement) are out of G-47's scope (FINAL R-4), but a new member on the shared location schema reaches them too.
+//   T ⇒ C1′ (plan §5.3–§5.4), one bracketed rule letter per defect line, rules in this order, files in byte order:
+//   (a0) a page at /stock exists (fail closed); (a1) no /stock page is a client file; (a2) the page itself calls
+//   stockRowsVisible( and imports lib/stock/visibility; (a3) some file of its import closure that is the page or lies under
+//   app/(app)/stock/ calls stockRowMarker( and imports lib/stock/marker;
+//   (a4) any other entry file (plan §5.4: a Next convention file, or a code file under app/ that nothing imports) whose closure reaches a row file (a file naming the read or the path, other than the two helpers) owes (a1)–(a3), lettered a4.aN; a route handler, metadata route or instrumentation file that does is refused under (b);
+//   (b) a row file lives
+//   only under app/(app)/stock/ (never as a route handler or a 'use server' file) or is lib/stock/levels.ts; (c1)
+//   lib/stock/visibility.ts spells the four viewerMay( gates and holds nothing else (imports only the contract reader,
+//   exports only stockRowsVisible / missingMarkerCodes, names ListStockLevels only inside its gate, never the stock path);
+//   (c2) lib/stock/marker.ts is pure (imports only lib/api/stock types, names no gate, read, fetch, require or stock path);
+//   (c3) no other lib/stock file imports the contract reader; (d) frontend/test/wired/stock-gate.test.ts and (e)
+//   frontend/test/stock/marker.test.ts exist, read by fixed path only while T holds, name their cases and preconditions,
+//   and mock or spy on no G-47 input; (f) copy/stock.ts holds STOCK_LOCATION_MARKER with quarantine/archived/unknown
+//   (closed by `} as const;` or `} as const satisfies …;`), and a file under app/(app)/stock/ that each /stock page reaches
+//   uses it. The planted controls P-0…P-41b each assert their exact rule-letter set, identical in both twins.
+// Limits (plan §5.7, stated in both docblocks):
+//   1. Presence, not behaviour: a page that calls the helpers and shows rows anyway passes (P-30, P-31, P-31b are pinned as
+//      passing). The gate test and the ten hand checks in the screen's commit carry behaviour.
+//   2. The gate test is checked for presence, case labels, its two preconditions and no mock or spy, not for content; an
+//      empty it('G-47 gate (i)', () => {}) passes. A mock is refused only for the helpers, the contract reader and the
+//      generated surface.
+//   3. A path or operation name built by concatenation or a template literal evades (b) and (c) (P-32); `Read` takes a
+//      plain string.
+//   4. Imports are resolved by text without checking that the target exists; a computed import() or a require is not
+//      followed; `export … from` is.
+//   5. A client or server-directive file is recognised by a leading directive only, after one leading U+FEFF is stripped.
+//      A U+00A0 before the directive is whitespace here and not in the backend twin.
+//   6. Hand checks 8–10 have partial mechanisms only: no mechanism sees a module-level memo, a BFF route elsewhere that does
+//      not name the read, an Ask path, or an inline 'use server' action inside a file under app/(app)/stock/.
+//   7. The helper files are a closed class; an aliased import beside a same-named local function is not seen (P-31b).
+//   8. The old limits stay: a comment naming a token fires the trigger (loud and safe); a nav-driven generic page
+//      (`[module]`) is held on its route half by the shared dynamic-segment refusal and on its client half by (d), not on its
+//      server half; an intercepting `(..)stock` page that names nothing evades (a); a link to /stock from a caller of
+//      deriveNavigation() without the built filter is not watched; this walk refuses every symlink under src (the backend
+//      reads file links and does not descend into directory links).
+//   9. Nothing compares the two twins' planted controls mechanically; the commit review compares their letter sets. P-20,
+//      P-29, P-38, P-39d, P-39d2, P-39d3, P-39e, P-39h…P-39l, P-39l2, P-39l3, P-39n, P-39o, P-40, P-41 and P-41b pin exact
+//      defect lines, so the text and order of those lines are held in each twin.
+//      NEXT_ENTRY_NAMES and NEXT_ROUTE_NAMES must be identical in both twins; until the G-47 message-parity test covers
+//      them, the commit review compares them.
+//  10. (a4) checks entry files: a code file under src/app (.ts, .tsx, .js or .jsx, with no path segment starting `_`) whose
+//      name is a Next convention (NEXT_ENTRY_NAMES) or that nothing under src imports. A route handler, metadata route or instrumentation
+//      file that reaches a row file is refused under (b). A segment file under app/(app)/stock/ (layout, loading, error,
+//      not-found, template, default) is an entry: it must not import StockStates.tsx or any other file naming the stock read,
+//      or it owes (a1)-(a3); an error file never can (P-39c). Not seen: a convention newer than NEXT_ENTRY_NAMES, or a
+//      numbered metadata file (icon1.tsx), that something imports; a frontend/instrumentation-client.* outside src, which
+//      Next's webpack build loads when src/ has none (create-compiler-aliases.js:181-183) and neither walk reads.
+//  11. Patterns read \s, which in JS matches Unicode spaces and in PHP matches ASCII only (byte mode) or Unicode spaces
+//      but not U+FEFF (/u); a file holding one where a pattern reads whitespace may get different letters in the twins;
+//      no control plants it (P-41 pins only the exports text).
+// Movements (/stock-movements, GetStockMovement) are out of G-47's scope (FINAL R-4), but a new member on the shared
+// location schema reaches them too.
 // Row-shape control (G-47 RED A-M5): read here from the committed contract ../contracts/openapi.json (the backend reads
 // the spec it regenerates; `npm run surface -- --check` ties src/generated/ to the same file).
 
@@ -2139,11 +2660,80 @@ const STOCK_NAV_ENTRY = /operation:\s*'ListStockLevels'/g;
 const STOCK_NAV_FILE = 'lib/navigation.ts';
 /** G-47 trigger (d), relative to `frontend/`. */
 const CLIENT_OPS_FILE = 'scripts/api-surface.client-ops.json';
-/** C1: what a file making the trigger true, or a module it imports one level down, must name. */
-const STOCK_MARKER_INPUTS: readonly (readonly [string, RegExp])[] = [
-  ['ListStorageLocations', /\bListStorageLocations\b/],
-  ["'storage_location.view'", /'storage_location\.view'/],
-  ["'warehouse.view'", /'warehouse\.view'/],
+/** C1′ (stock-st2-plan.md §5.3): the two helper files. A closed class ((c1), (c2)); never row files. Paths relative to `src`. */
+const STOCK_HELPER_VISIBILITY = 'lib/stock/visibility.ts';
+const STOCK_HELPER_MARKER = 'lib/stock/marker.ts';
+const STOCK_HELPERS: readonly string[] = [STOCK_HELPER_VISIBILITY, STOCK_HELPER_MARKER];
+/** The row homes: the stock-on-hand route folder (the trailing slash keeps app/(app)/stock-movements/ out) and one loader file. */
+const STOCK_ROW_DIR = 'app/(app)/stock/';
+const STOCK_ROW_LIB = 'lib/stock/levels.ts';
+/** (d) and (e): the two mandatory tests, relative to `frontend/`, read by fixed path only while the trigger holds. */
+const STOCK_GATE_TEST = 'test/wired/stock-gate.test.ts';
+const STOCK_MARKER_TEST = 'test/stock/marker.test.ts';
+/** (f): C2, the badge copy key. */
+const STOCK_COPY_FILE = 'copy/stock.ts';
+const STOCK_COPY_EXPORT = 'export const STOCK_LOCATION_MARKER';
+const STOCK_COPY_KEYS: readonly string[] = ['quarantine', 'archived', 'unknown'];
+/** The house forms `} as const;` and `} as const satisfies …;`. No match is a defect, never "to the end of the file". */
+const STOCK_COPY_CLOSE = /\n\}(?:\s+as\s+const)?(?:\s+satisfies\s+[^;\n]+)?;/;
+const STOCK_COPY_USE = /\bSTOCK_LOCATION_MARKER\b/;
+/** (a2), (a3): the call shapes. A name alone (an import, a type) is not a call. */
+const STOCK_GATE_CALL = /\bstockRowsVisible\s*\(/;
+const STOCK_MARKER_CALL = /\bstockRowMarker\s*\(/;
+/** (c1): what the gate helper must spell, each call written out (a list or a loop over names does not count). */
+const STOCK_VISIBILITY_MUST: readonly (readonly [string, RegExp])[] = [
+  ['export function stockRowsVisible', /export function stockRowsVisible\b/],
+  ["viewerMay('ListStockLevels',", /viewerMay\(\s*'ListStockLevels'\s*,/],
+  ["viewerMay('ListStorageLocations',", /viewerMay\(\s*'ListStorageLocations'\s*,/],
+  ["viewerMay('GetWarehouse',", /viewerMay\(\s*'GetWarehouse'\s*,/],
+  ["viewerMay('ListWarehouses',", /viewerMay\(\s*'ListWarehouses'\s*,/],
+];
+const STOCK_VISIBILITY_IMPORTS: readonly string[] = ['../bff/surface', '@/lib/bff/surface'];
+const STOCK_VISIBILITY_EXPORT = /\bexport\b/g;
+/** What must follow every `export` in the gate helper. */
+const STOCK_VISIBILITY_EXPORTS = /^\s+(?:async\s+)?function\s+(?:stockRowsVisible|missingMarkerCodes)\b/;
+const STOCK_OPERATION_WORD = /\bListStockLevels\b/g;
+const STOCK_VISIBILITY_GATED_READ = /viewerMay\(\s*'ListStockLevels'\s*,/g;
+/** (c2): the marker is pure. What it may never name, and what it may import. */
+const STOCK_MARKER_EXPORT = /export function stockRowMarker\b/;
+const STOCK_MARKER_FORBIDDEN: readonly (readonly [string, RegExp])[] = [
+  ['viewerMay', /\bviewerMay\b/],
+  ['stockRowsVisible', /\bstockRowsVisible\b/],
+  ['ListStockLevels', /\bListStockLevels\b/],
+  ['fetch(', /\bfetch\s*\(/],
+  ['require(', /\brequire\s*\(/],
+  ['read(', /\bread\s*\(/],
+];
+const STOCK_MARKER_IMPORTS: readonly string[] = ['../api/stock', '@/lib/api/stock'];
+/** (c3): the contract reader, as `directImports` resolves it. */
+const STOCK_SURFACE_FILE = 'lib/bff/surface.ts';
+/** Every import specifier, bare packages included; `export … from` and `import(…)` count ((c1), (c2)). */
+const IMPORT_SPECIFIER = /(?:\bfrom|\bimport)\s*\(?\s*['"]([^'"]+)['"]/g;
+/** A leading directive, after one leading U+FEFF is stripped (the backend's PCRE is the same pattern with the `s` flag). */
+const CLIENT_DIRECTIVE = /^\s*(?:\/\/[^\n]*\n\s*|\/\*[\s\S]*?\*\/\s*)*['"]use client['"]/;
+const SERVER_DIRECTIVE = /^\s*(?:\/\/[^\n]*\n\s*|\/\*[\s\S]*?\*\/\s*)*['"]use server['"]/;
+/** (d), (e): a mock of a helper, the contract reader or the generated surface, in any of the house forms. */
+const STOCK_MOCK = /\bvi\.(?:do)?[mM]ock\s*\(\s*(?:import\s*\(\s*)?['"][^'"]*(?:lib\/stock\/(?:visibility|marker)|lib\/bff\/surface|generated\/api-surface)[^'"]*['"]/;
+/** (d), (e): a spy on a helper or gate name only (a spy on `console` or `performance` is allowed). */
+const STOCK_SPY = /\bvi\.spyOn\s*\(\s*[^,()]+,\s*['"](?:stockRowsVisible|stockRowMarker|missingMarkerCodes|viewerMay|gateAllows|gateCode|operation)['"]/;
+/** (d)'s "a call of stockRowsVisible(" is subsumed by the two preconditions, which contain that text: it never fires alone (L-2). */
+const STOCK_GATE_TEST_MUST: readonly (readonly [string, RegExp])[] = [
+  ["an import of '@/app/(app)/stock/page'", /['"]@\/app\/\(app\)\/stock\/page['"]/],
+  ['a call of stockRowsVisible(', /\bstockRowsVisible\s*\(/],
+];
+const STOCK_GATE_TEST_CASES: readonly (readonly [string, RegExp])[] = [
+  ["the case 'G-47 gate (i)'", /G-47 gate \(i\)/],
+  ["the case 'G-47 gate (ii)'", /G-47 gate \(ii\)/],
+  ["the case 'G-47 gate (iii)'", /G-47 gate \(iii\)/],
+];
+const STOCK_GATE_TEST_PRECONDITIONS: readonly (readonly [string, RegExp])[] = [
+  ['the precondition expect(stockRowsVisible(OPERATOR)).toBe(true)', /expect\(\s*stockRowsVisible\(\s*OPERATOR\s*\)\s*\)\.toBe\(\s*true\s*\)/],
+  ['the precondition expect(stockRowsVisible(BUYER)).toBe(false)', /expect\(\s*stockRowsVisible\(\s*BUYER\s*\)\s*\)\.toBe\(\s*false\s*\)/],
+];
+const STOCK_MARKER_TEST_MUST: readonly (readonly [string, RegExp])[] = [
+  ['a call of stockRowsVisible(', /\bstockRowsVisible\s*\(/],
+  ['a call of stockRowMarker(', /\bstockRowMarker\s*\(/],
+  ["the pin wireEnum('StorageLocation', 'kind')", /wireEnum\(\s*'StorageLocation'\s*,\s*'kind'\s*\)/],
 ];
 
 /** Byte-order sort, as the backend's `sort(…, SORT_STRING)` / `ksort(…, SORT_STRING)` (code-unit order; ASCII paths). */
@@ -2197,29 +2787,239 @@ function directImports(file: string, text: string): string[] {
   return [...found];
 }
 
-/** C1 over every file that makes the trigger true. Fails closed when the trigger holds only through the client wiring list. */
-function stockRowDefects(pages: readonly string[], sources: Readonly<Record<string, string>>, clientOps: readonly unknown[]): string[] {
+/** One leading U+FEFF is stripped before a directive test, so a BOM-prefixed file reads the same in both twins (L-9). */
+const withoutBom = (text: string): string => text.replace(/^\uFEFF/, '');
+const isClientText = (text: string): boolean => CLIENT_DIRECTIVE.test(withoutBom(text));
+const isServerDirectiveText = (text: string): boolean => SERVER_DIRECTIVE.test(withoutBom(text));
+const importSpecifiers = (text: string): string[] => [...text.matchAll(IMPORT_SPECIFIER)].map((match) => match[1] ?? '');
+/** ASCII whitespace only: space, \t, \n, \r, \v (U+000B), \f. JS trim() also strips U+00A0 and other Unicode spaces; PHP's default trim() strips \0 and not \f, so the PHP twin passes the list: " \t\n\r\v\f". */
+const asciiTrimStart = (text: string): string => text.replace(/^[ \t\n\r\v\f]+/, '');
+const asciiTrim = (text: string): string => text.replace(/^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, '');
+/** `pattern` must be global. */
+const countOf = (text: string, pattern: RegExp): number => (text.match(pattern) ?? []).length;
+
+/** (a4), (b) (stock-st2-a4-recommendation.md R1.1): the files Next loads by name (Next 16.4.5 next-app-loader), in order. */
+const NEXT_ENTRY_NAMES: readonly string[] = [
+  'page',
+  'layout',
+  'template',
+  'loading',
+  'error',
+  'global-error',
+  'not-found',
+  'global-not-found',
+  'forbidden',
+  'unauthorized',
+  'default',
+  'route',
+  'opengraph-image',
+  'twitter-image',
+  'icon',
+  'apple-icon',
+  'sitemap',
+  'robots',
+  'manifest',
+];
+/** The subset that serves a response, not a rendered segment: refused under (b) when it reaches a row file. */
+const NEXT_ROUTE_NAMES: readonly string[] = ['route', 'opengraph-image', 'twitter-image', 'icon', 'apple-icon', 'sitemap', 'robots', 'manifest'];
+/** An instrumentation file at the top of src (L-2): refused under (b) when it reaches a row file. */
+const INSTRUMENTATION_FILE = /^instrumentation(?:-client)?\.(?:ts|tsx|js|jsx)$/;
+/** The name of a key: after its last `/`, minus one final .ts/.tsx/.js/.jsx (so `page.test.tsx` is `page.test`). */
+const stockFileName = (f: string): string => f.slice(f.lastIndexOf('/') + 1).replace(/\.(?:ts|tsx|js|jsx)$/, '');
+/** A code file under app/ with no path segment starting `_`. */
+const isAppCodeFile = (f: string): boolean => f.startsWith('app/') && /\.(?:ts|tsx|js|jsx)$/.test(f) && !/(?:^|\/)_/.test(f);
+
+/**
+ * The entry files of `sources`, byte order: code files under app/ that are (i) named by a Next convention, or (ii) imported
+ * by no other key of `sources` (directImports, the existing text resolver). `named` and `unimported` are the two halves.
+ */
+function stockEntryHalves(sources: Readonly<Record<string, string>>): { entries: string[]; named: string[]; unimported: string[] } {
+  const imported = new Set<string>();
+  for (const [g, text] of Object.entries(sources)) {
+    for (const target of directImports(g, text)) if (target !== g) imported.add(target);
+  }
+  const code = Object.keys(sources).filter(isAppCodeFile).sort(byteOrder);
+  const named = code.filter((f) => NEXT_ENTRY_NAMES.includes(stockFileName(f)));
+  const unimported = code.filter((f) => !imported.has(f));
+  const entries = code.filter((f) => NEXT_ENTRY_NAMES.includes(stockFileName(f)) || !imported.has(f));
+  return { entries, named, unimported };
+}
+
+/**
+ * The transitive set of files reached from `file` through `directImports` (resolved by text, one hop at a time), with a
+ * visited set, following only keys present in `sources`; includes `file` itself. Byte order.
+ */
+function importClosure(file: string, sources: Readonly<Record<string, string>>): string[] {
+  const seen = new Set<string>([file]);
+  const stack = [file];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    for (const imported of directImports(current, own(sources, current))) {
+      if (!Object.hasOwn(sources, imported) || seen.has(imported)) continue;
+      seen.add(imported);
+      stack.push(imported);
+    }
+  }
+  return [...seen].sort(byteOrder);
+}
+
+/** (a1)–(a3) for one page (relative to src/app): each breach as [sub-rule letter, text after the file name]. */
+function stockPageBreaches(page: string, sources: Readonly<Record<string, string>>): [string, string][] {
+  const file = `app/${page}`;
+  const text = own(sources, file);
+  const breaches: [string, string][] = [];
+  if (isClientText(text)) breaches.push(['a1', "starts with 'use client'; the gate is computed only on the server"]);
+  if (!(STOCK_GATE_CALL.test(text) && directImports(file, text).includes(STOCK_HELPER_VISIBILITY))) {
+    breaches.push(['a2', 'must call stockRowsVisible( itself, imported from lib/stock/visibility']);
+  }
+  const marked = importClosure(file, sources).some((reached) => {
+    const reachedText = own(sources, reached);
+    return (reached === file || reached.startsWith(STOCK_ROW_DIR)) && STOCK_MARKER_CALL.test(reachedText) && directImports(reached, reachedText).includes(STOCK_HELPER_MARKER);
+  });
+  if (!marked) breaches.push(['a3', 'reaches no call of stockRowMarker( (imported from lib/stock/marker) under app/(app)/stock/']);
+  return breaches;
+}
+
+/** (d) and (e): presence, case labels and preconditions by pattern, and no mock or spy of a G-47 input. */
+function stockTestDefects(letter: string, file: string, text: string | null, must: readonly (readonly [string, RegExp])[]): string[] {
+  if (text === null) return [`[${letter}] frontend/${file} is absent`];
+  const defects = must.filter(([, pattern]) => !pattern.test(text)).map(([name]) => `[${letter}] frontend/${file} lacks ${name}`);
+  if (STOCK_MOCK.test(text) || STOCK_SPY.test(text)) defects.push(`[${letter}] frontend/${file} mocks or spies on a G-47 input`);
+  return defects;
+}
+
+/**
+ * C1′ (stock-st2-plan.md §5.4), when the trigger holds: rules (a0)–(f) in that order, one line per breach, each starting
+ * with its rule letter in brackets (`a4.aN` for a page that is not a stock page); within a rule, files in byte order.
+ * `pages`: files relative to src/app. `sources`: relative to src. `tests`: the two test paths (relative to `frontend/`) to
+ * their text, or null when absent.
+ */
+function stockRowDefects(
+  pages: readonly string[],
+  sources: Readonly<Record<string, string>>,
+  clientOps: readonly unknown[],
+  tests: Readonly<Record<string, string | null>>,
+): string[] {
   if (stockRowTriggers(pages, sources, clientOps).length === 0) return [];
-  const files = stockPages(pages).map((page) => `app/${page}`);
-  for (const [file, text] of Object.entries(sources)) {
-    if (stockSourceReasons(file, text).length > 0) files.push(file);
-  }
-  const unique = [...new Set(files)].sort(byteOrder);
-  if (unique.length === 0) {
-    return [
-      'the client wiring list wires ListStockLevels, but no frontend source outside src/generated/ names it, ' +
-        'so no file can be checked for the marker inputs (fail closed: name the stock read where it is used)',
-    ];
-  }
   const defects: string[] = [];
-  for (const file of unique) {
-    let text = own(sources, file);
-    for (const imported of directImports(file, text)) text += `\n${own(sources, imported)}`;
-    const missing = STOCK_MARKER_INPUTS.filter(([, pattern]) => !pattern.test(text)).map(([name]) => name);
-    if (missing.length > 0) defects.push(`src/${file} makes the stock trigger true, but neither it nor a module it imports names ${missing.join(', ')}`);
+  const stock = stockPages(pages).sort(byteOrder);
+  const rowFiles = Object.entries(sources)
+    .filter(([file, text]) => !STOCK_HELPERS.includes(file) && stockSourceReasons(file, text).length > 0)
+    .map(([file]) => file)
+    .sort(byteOrder);
+
+  // (a0) fail closed: a wiring with no screen is not allowed.
+  if (stock.length === 0) defects.push('[a0] the stock trigger is true but no page at /stock exists, so nothing can be checked (fail closed)');
+
+  // (a1)–(a3) for every stock page, rule by rule.
+  const breaches = new Map(stock.map((page) => [page, stockPageBreaches(page, sources)] as const));
+  for (const rule of ['a1', 'a2', 'a3']) {
+    for (const page of stock) {
+      for (const [letter, text] of breaches.get(page) ?? []) {
+        if (letter === rule) defects.push(`[${letter}] src/app/${page} ${letter === 'a1' ? 'is a /stock page but ' : ''}${text}`);
+      }
+    }
+  }
+
+  // (a4) every other entry file (a Next convention file, or a code file under app/ that nothing imports) that is not a
+  // route or metadata file and whose closure reaches a row file (the two helper files do not count) owes the same.
+  const entries = stockEntryHalves(sources).entries;
+  const stockKeys = stock.map((page) => `app/${page}`);
+  for (const entry of entries.filter((e) => !stockKeys.includes(e) && !NEXT_ROUTE_NAMES.includes(stockFileName(e)))) {
+    const reached = importClosure(entry, sources).filter((file) => rowFiles.includes(file));
+    if (reached.length === 0) continue;
+    for (const [letter, text] of stockPageBreaches(entry.slice('app/'.length), sources)) {
+      defects.push(`[a4.${letter}] src/${entry} reaches the row file src/${reached[0]} and ${text}`);
+    }
+  }
+
+  // (b) the stock read lives only in its homes, and never in a route handler or server action there.
+  for (const file of rowFiles) {
+    if (!(file.startsWith(STOCK_ROW_DIR) || file === STOCK_ROW_LIB)) {
+      defects.push(
+        `[b] src/${file} names the stock read outside the stock-on-hand files; keep it out of the shared stock files ` +
+          '(lib/api/stock.ts, lib/stock/load.ts, copy/stock.ts), whose importers include the movement pages, and name it only ' +
+          'in lib/stock/levels.ts or under app/(app)/stock/',
+      );
+    } else if (file.startsWith(STOCK_ROW_DIR) && (/(?:^|\/)route\.[^/]+$/.test(file) || isServerDirectiveText(own(sources, file)))) {
+      defects.push(`[b] src/${file} is a route handler or server action naming the stock read; no route serves stock rows`);
+    }
+  }
+  // (b), branch 1: no route handler or metadata route reaches a row file (an entry that is itself a row file prints both lines).
+  for (const route of entries.filter((e) => NEXT_ROUTE_NAMES.includes(stockFileName(e)))) {
+    const routeReached = importClosure(route, sources).filter((file) => rowFiles.includes(file));
+    if (routeReached.length > 0) defects.push(`[b] src/${route} is a route handler or metadata route that reaches the row file src/${routeReached[0]}; no route serves stock rows`);
+  }
+  // (b), branch 2: no instrumentation file reaches a row file.
+  for (const instrumentation of Object.keys(sources).filter((f) => INSTRUMENTATION_FILE.test(f)).sort(byteOrder)) {
+    const instrumentationReached = importClosure(instrumentation, sources).filter((file) => rowFiles.includes(file));
+    if (instrumentationReached.length > 0) {
+      defects.push(`[b] src/${instrumentation} is an instrumentation file that reaches the row file src/${instrumentationReached[0]}; no route serves stock rows`);
+    }
+  }
+
+  // (c1) the gate helper holds the gate, and only the gate.
+  const c1 = (what: string) => defects.push(`[c1] src/${STOCK_HELPER_VISIBILITY} ${what}; the gate helper holds the gate only`);
+  if (!Object.hasOwn(sources, STOCK_HELPER_VISIBILITY)) c1('is absent');
+  else {
+    const text = own(sources, STOCK_HELPER_VISIBILITY);
+    for (const [name, pattern] of STOCK_VISIBILITY_MUST) if (!pattern.test(text)) c1(`is missing ${name}`);
+    for (const specifier of importSpecifiers(text)) if (!STOCK_VISIBILITY_IMPORTS.includes(specifier)) c1(`imports '${specifier}'`);
+    for (const match of text.matchAll(STOCK_VISIBILITY_EXPORT)) {
+      const rest = text.slice((match.index ?? 0) + match[0].length);
+      if (!STOCK_VISIBILITY_EXPORTS.test(rest)) c1(`exports '${asciiTrim(asciiTrimStart(rest).split('\n')[0] ?? '')}'`);
+    }
+    if (countOf(text, STOCK_OPERATION_WORD) !== countOf(text, STOCK_VISIBILITY_GATED_READ)) c1('names ListStockLevels outside a viewerMay( gate');
+    if (STOCK_PATH_TOKEN.test(text)) c1('names the stock path');
+  }
+
+  // (c2) the marker is pure.
+  const c2 = (what: string) => defects.push(`[c2] src/${STOCK_HELPER_MARKER} ${what}; the row marker is pure`);
+  if (!Object.hasOwn(sources, STOCK_HELPER_MARKER)) c2('is absent');
+  else {
+    const text = own(sources, STOCK_HELPER_MARKER);
+    if (!STOCK_MARKER_EXPORT.test(text)) c2('is missing export function stockRowMarker');
+    for (const [name, pattern] of STOCK_MARKER_FORBIDDEN) if (pattern.test(text)) c2(`names ${name}`);
+    if (STOCK_PATH_TOKEN.test(text)) c2('names the stock path');
+    for (const specifier of importSpecifiers(text)) if (!STOCK_MARKER_IMPORTS.includes(specifier)) c2(`imports '${specifier}'`);
+  }
+
+  // (c3) one stock lib file reads the contract.
+  for (const file of Object.keys(sources).filter((f) => f.startsWith('lib/stock/') && f !== STOCK_HELPER_VISIBILITY).sort(byteOrder)) {
+    if (directImports(file, own(sources, file)).includes(STOCK_SURFACE_FILE)) defects.push(`[c3] src/${file} imports the contract reader; only lib/stock/visibility.ts may`);
+  }
+
+  // (d), (e) the two tests, read by fixed path (never from `sources`).
+  const gateTest = Object.hasOwn(tests, STOCK_GATE_TEST) ? (tests[STOCK_GATE_TEST] ?? null) : null;
+  const markerTest = Object.hasOwn(tests, STOCK_MARKER_TEST) ? (tests[STOCK_MARKER_TEST] ?? null) : null;
+  defects.push(...stockTestDefects('d', STOCK_GATE_TEST, gateTest, [...STOCK_GATE_TEST_MUST, ...STOCK_GATE_TEST_CASES, ...STOCK_GATE_TEST_PRECONDITIONS]));
+  defects.push(...stockTestDefects('e', STOCK_MARKER_TEST, markerTest, STOCK_MARKER_TEST_MUST));
+
+  // (f) C2: the badge copy key, and its use by the /stock files.
+  const copy = own(sources, STOCK_COPY_FILE);
+  const at = copy.indexOf(STOCK_COPY_EXPORT);
+  if (at < 0) defects.push(`[f] src/${STOCK_COPY_FILE} lacks ${STOCK_COPY_EXPORT}`);
+  else {
+    const close = STOCK_COPY_CLOSE.exec(copy.slice(at));
+    if (close === null) defects.push(`[f] src/${STOCK_COPY_FILE}: STOCK_LOCATION_MARKER has no closing line`);
+    else {
+      const slice = copy.slice(at, at + close.index + close[0].length);
+      for (const key of STOCK_COPY_KEYS) {
+        if (!new RegExp(`^\\s*${key}\\s*:`, 'm').test(slice)) defects.push(`[f] src/${STOCK_COPY_FILE} lacks STOCK_LOCATION_MARKER.${key}`);
+      }
+    }
+  }
+  for (const page of stock) {
+    if (!importClosure(`app/${page}`, sources).some((file) => file.startsWith(STOCK_ROW_DIR) && STOCK_COPY_USE.test(own(sources, file)))) {
+      defects.push(`[f] no file under app/(app)/stock/ that src/app/${page} reaches uses STOCK_LOCATION_MARKER`);
+    }
   }
   return defects;
 }
+
+/** The rule letters a defect list carries, as a sorted set (each control asserts its exact set; L-2). */
+const stockRuleLetters = (defects: readonly string[]): string[] =>
+  [...new Set(defects.map((line) => /^\[([a-z0-9.]+)\]/.exec(line)?.[1] ?? `unlettered: ${line}`))].sort(byteOrder);
 
 type Json = Record<string, unknown>;
 const asObject = (value: unknown): Json => (value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : {});
@@ -2255,26 +3055,47 @@ const schemaShape = (schema: Json) => Object.keys(asObject(schema.properties)).m
 const G47_MESSAGE =
   'G-47 is open (docs/RESIDUAL_GAPS.md G-47, Low; owner UX + SEC): a stock row (ListStockLevels) does not say\n' +
   'whether its bin can be picked -- quarantine bins, archived bins and bins of an archived warehouse look like\n' +
-  'pickable ones. Its frontend trigger was re-put on 2026-11-03 (docs/design/g47-ruling.md, adopted under the\n' +
-  "owner's delegation; the owner may strike it): stock rows may render in the web app ONLY to a viewer holding\n" +
-  'BOTH storage_location.view and warehouse.view, with a text badge (Quarantine / Archived) drawn client-side\n' +
-  'from ListStorageLocations (live and ?archived=true: kind, archived_at) and the warehouse\'s archived state\n' +
-  '(GetWarehouse / ListWarehouses?archived). Everyone else sees no stock rows until G-47 closes.\n\n' +
-  'FAIL CLOSED: a row whose marker inputs did not all load is never shown as pickable (a text state such as\n' +
-  "'Status unknown' -- UX wording -- or the rows withheld behind a retry).\n\n" +
-  'This check proves only that the marker inputs are NAMED. A stub naming them passes, so it is weaker than\n' +
-  'option (1), the full block, which the owner was offered as the fallback. The commit that builds the screen\n' +
-  'checks these seven by hand and says so:\n' +
+  'pickable ones. Its frontend trigger was re-put on 2026-11-03 (docs/design/g47-ruling.md) and re-keyed on\n' +
+  "2026-11-20 (docs/design/stock-st2-plan.md §5), both adopted under the owner's delegation; the owner may strike\n" +
+  'them. Stock rows may render in the web app ONLY to a viewer holding BOTH storage_location.view and\n' +
+  'warehouse.view, with a text badge (Quarantine / Archived) drawn client-side from ListStorageLocations (live\n' +
+  "and ?archived=true) and the warehouse's archived state. Everyone else sees no stock rows until G-47 closes.\n" +
+  '\n' +
+  'FAIL CLOSED: a row whose marker reads did not all load, whose bin is in neither loaded location list, or\n' +
+  "whose warehouse was not read, is never shown as pickable ('Status unknown').\n" +
+  '\n' +
+  'While the trigger holds, this check requires: (a) every page at /stock, and every other page, layout,\n' +
+  'template, loading, error, not-found or default file, or any file under src/app that nothing imports, whose\n' +
+  'imports reach a file naming the stock read (the two helper files do not count), is a server file that\n' +
+  'calls stockRowsVisible( itself (from lib/stock/visibility) and reaches a call of stockRowMarker( (from\n' +
+  'lib/stock/marker) under app/(app)/stock/; a page at /stock exists; (b) the stock read is named only in\n' +
+  'lib/stock/levels.ts, under app/(app)/stock/ (never in a route handler or server action), or in the gate\n' +
+  'helper, and no route handler, metadata route or instrumentation file reaches it; (c)\n' +
+  'lib/stock/visibility.ts spells the gates of ListStockLevels, ListStorageLocations, GetWarehouse and\n' +
+  'ListWarehouses, holds nothing else, and is the only lib/stock file reading the contract;\n' +
+  'lib/stock/marker.ts is pure; (d) frontend/test/wired/stock-gate.test.ts and (e)\n' +
+  'frontend/test/stock/marker.test.ts exist, name their cases and preconditions, and mock or spy on none of\n' +
+  'the helpers, the contract reader or the generated surface; (f) copy/stock.ts holds STOCK_LOCATION_MARKER\n' +
+  'and the /stock files use it.\n' +
+  '\n' +
+  'This check proves PRESENCE, not behaviour. A page that calls the helpers and shows rows anyway passes it;\n' +
+  'only an honest gate test catches that. The commit that builds the screen checks these ten by hand and says so:\n' +
   '  1. rows render only when the viewer holds both codes; otherwise the H-3a hint and an empty state, no rows;\n' +
   "  2. the badge uses all three inputs: kind = quarantine, the bin's archived_at, the warehouse's archived_at;\n" +
-  '  3. fail closed, as above;\n' +
+  '  3. fail closed: a row whose marker reads did not all load, whose bin is in neither loaded location list,\n' +
+  '     or whose warehouse was not read, is shown as Status unknown, never unmarked;\n' +
   '  4. the badge is text, never colour only;\n' +
-  "  5. IA.md H-3a's hint stays under qty_on_hand;\n" +
+  "  5. IA.md H-3a's hint stays under qty_on_hand (on /stock: the line directly above the table, tied to the\n" +
+  '     On hand column header);\n' +
   '  6. an item-scoped view covers every warehouse its rows name;\n' +
-  '  7. the server-side first render applies the same gate as the browser re-read.\n' +
-  'In that commit also add C2 (the badge copy key UX fixes) to this check and to its frontend twin, which is\n' +
-  'owed next on the frontend track (frontend/test/architecture.test.ts, FE-LEAD). G-47 itself stays open:\n' +
-  "closing it needs SEC's ruling on a row field, the owner's word, and UX's badge (RESIDUAL_GAPS.md G-47).";
+  '  7. the server-side first render, generateMetadata included, applies the same gate as the browser re-read;\n' +
+  "  8. every input is read with the viewer's own session, and none is cached across viewers (no unstable_cache,\n" +
+  "     'use cache' or module-level memo around a stock loader; React's per-request cache() is allowed, it is\n" +
+  '     not a cross-viewer cache);\n' +
+  '  9. no BFF route serves the joined value;\n' +
+  ' 10. no export or Ask path carries it (no Export on /stock while G-47 is open).\n' +
+  "G-47 itself stays open: closing it needs SEC's ruling on a row field, the owner's word, and UX's badge\n" +
+  '(RESIDUAL_GAPS.md G-47).';
 
 const G47_ROW_SHAPE_MESSAGE =
   "The stock row (ListStockLevels' items) changed shape. If this is G-47's marker field (or a member on the\n" +
@@ -2283,8 +3104,13 @@ const G47_ROW_SHAPE_MESSAGE =
   'docs/RESIDUAL_GAPS.md. Otherwise update the expected shape with a stated reason.';
 
 const realClientOps = (): unknown => JSON.parse(readFileSync(path.join(ROOT, CLIENT_OPS_FILE), 'utf8'));
+/** (d), (e): a test file read by fixed path from `frontend/`; null when it is not a file. */
+const realStockTest = (file: string): string | null => {
+  const full = path.join(ROOT, file);
+  return existsSync(full) && statSync(full).isFile() ? readFileSync(full, 'utf8') : null;
+};
 
-describe('architecture — G-47: no stock rows without the marker inputs while G-47 is open (twin of the backend G-47 check)', () => {
+describe('architecture — G-47: no stock rows without the gate and the row marker while G-47 is open (twin of the backend G-47 check)', () => {
   it('planted trigger trees: each isolates one rule and is due or not exactly as the backend check says', () => {
     const admin = ['(app)/admin/page.tsx'];
     const nav = { 'lib/navigation.ts': "{ label: 'Stock on hand', href: '/stock', operation: 'ListStockLevels', permission: 'stock_level.view' }" };
@@ -2323,26 +3149,408 @@ describe('architecture — G-47: no stock rows without the marker inputs while G
     expect(verdicts).toEqual(triggers.map(([name, , , , due]) => [name, due]));
   });
 
-  it('planted implication trees: C1 and its one-level import resolution trip and pass exactly as the backend check says', () => {
-    const admin = ['(app)/admin/page.tsx'];
-    const marker = "listLocations('ListStorageLocations'); need('storage_location.view'); need('warehouse.view');";
-    const page = ['(app)/stock/page.tsx'];
-    const implications: [string, string[], Record<string, string>, string[], boolean][] = [
-      ['the screen names all three marker inputs', page, { 'app/(app)/stock/page.tsx': marker }, [], true],
-      ['the screen without ListStorageLocations', page, { 'app/(app)/stock/page.tsx': "need('storage_location.view'); need('warehouse.view');" }, [], false],
-      ['the screen without storage_location.view', page, { 'app/(app)/stock/page.tsx': "x('ListStorageLocations'); need('warehouse.view');" }, [], false],
-      ['the screen without warehouse.view', page, { 'app/(app)/stock/page.tsx': "x('ListStorageLocations'); need('storage_location.view');" }, [], false],
-      ['the screen with no source at all', page, {}, [], false],
-      ['the marker one level down by a relative import', page, { 'app/(app)/stock/page.tsx': "import { m } from './marker';", 'app/(app)/stock/marker.ts': marker }, [], true],
-      ['the marker one level down by an @/ import', page, { 'app/(app)/stock/page.tsx': "import { m } from '@/lib/stock/marker';", 'lib/stock/marker.ts': marker }, [], true],
-      ['the marker two levels down', page, { 'app/(app)/stock/page.tsx': "import { a } from './a';", 'app/(app)/stock/a.ts': "import { m } from './marker';", 'app/(app)/stock/marker.ts': marker }, [], false],
-      ['a stock panel naming the read and the marker', admin, { 'components/StockPanel.tsx': `read('ListStockLevels'); ${marker}` }, [], true],
-      ['a stock panel naming the read alone', admin, { 'components/StockPanel.tsx': "read('ListStockLevels')" }, [], false],
-      ['the stock read wired for the browser, no file to check', admin, {}, ['ListStockLevels'], false],
-      ['no stock screen at all', admin, {}, [], true],
+  it("planted controls P-0…P-41b: the honest tree H and each one-change variant give exactly their rule letters, as the backend check says", () => {
+    // The honest tree H (stock-st2-plan.md §5.6): the §2 layout of stock-f1-replacement-red.md, in the forms ST-2b writes.
+    const PAGE = 'app/(app)/stock/page.tsx';
+    const VIEW = 'app/(app)/stock/StockLevelsView.tsx';
+    const MOVEMENTS = 'app/(app)/stock-movements/page.tsx';
+    const ITEM = 'app/(app)/items/[id]/page.tsx';
+    const LEVELS = 'lib/stock/levels.ts';
+    const LOAD = 'lib/stock/load.ts';
+    const COPY = 'copy/stock.ts';
+    const H_PAGES = ['(app)/stock/page.tsx', '(app)/stock-movements/page.tsx', '(app)/items/[id]/page.tsx'];
+    const H_SOURCES: Record<string, string> = {
+      [PAGE]:
+        "import { stockRowsVisible } from '@/lib/stock/visibility';\nimport { stockRowMarker } from '@/lib/stock/marker';\nimport { loadStockForItem } from '@/lib/stock/levels';\nimport { StockLevelsView } from './StockLevelsView';\n" +
+        "if (!viewerMay('ListStockLevels', codes)) deny(); if (!stockRowsVisible(codes)) withhold(); rows.map((row) => stockRowMarker(row, inputs));",
+      [VIEW]:
+        "'use client';\nimport { stockRowMarker } from '@/lib/stock/marker';\nimport { loadMarkerInputs } from '@/lib/stock/levels';\nimport { STOCK_LOCATION_MARKER } from '@/copy/stock';\nretry(() => stockRowMarker(row, inputs));",
+      [LEVELS]: "import { loadMarkerLocations } from './load';\nread('ListStockLevels', { query });",
+      [LOAD]: "read('ListStorageLocations', { params });",
+      [STOCK_HELPER_VISIBILITY]:
+        "import { viewerMay } from '../bff/surface';\nexport function stockRowsVisible(codes) { return viewerMay('ListStockLevels', codes) && viewerMay('ListStorageLocations', codes) && viewerMay('GetWarehouse', codes) && viewerMay('ListWarehouses', codes); }",
+      [STOCK_HELPER_MARKER]: "import type { StockLevel } from '../api/stock';\nexport function stockRowMarker(place, inputs) { return x; }",
+      [COPY]: "export const STOCK_LOCATION_MARKER = {\n  quarantine: 'Quarantine',\n  archived: 'Archived',\n  unknown: 'Status unknown',\n} as const;",
+      [MOVEMENTS]: "import { loadMovements } from '@/lib/stock/load';\nimport { STOCK_MOVEMENTS_LIST } from '@/copy/stock';",
+      [ITEM]: "import { stockRowsVisible } from '@/lib/stock/visibility';\nconst canSeeStock = stockRowsVisible(codes);",
+    };
+    const H_CLIENT_OPS = ['ListUsers', 'ListStockLevels'];
+    const H_TESTS: Record<string, string | null> = {
+      [STOCK_MARKER_TEST]: "stockRowsVisible(c); stockRowMarker(p, i); wireEnum('StorageLocation', 'kind');",
+      [STOCK_GATE_TEST]:
+        "await import('@/app/(app)/stock/page'); expect(stockRowsVisible(OPERATOR)).toBe(true); expect(stockRowsVisible(BUYER)).toBe(false); it('G-47 gate (i)'); it('G-47 gate (ii)'); it('G-47 gate (iii)');",
+    };
+    /** Replace exactly one occurrence; a plant that does not land throws, so a control can never pass by not changing H. */
+    const swap = (text: string | null | undefined, from: string, to: string): string => {
+      if (typeof text !== 'string' || text.split(from).length !== 2) throw new Error(`planted control: '${from}' does not occur exactly once`);
+      return text.replace(from, () => to);
+    };
+    type Change = { sources?: Record<string, string | null>; pages?: string[]; clientOps?: string[]; tests?: Record<string, string | null>; only?: boolean };
+    const tree = (change: Change = {}) => {
+      const sources: Record<string, string> = change.only ? {} : { ...H_SOURCES };
+      for (const [file, text] of Object.entries(change.sources ?? {})) {
+        if (text === null) delete sources[file];
+        else sources[file] = text;
+      }
+      return { pages: change.pages ?? H_PAGES, sources, clientOps: change.clientOps ?? H_CLIENT_OPS, tests: { ...H_TESTS, ...change.tests } };
+    };
+    const S = H_SOURCES;
+    const T = H_TESTS;
+    const NO_TESTS = { [STOCK_GATE_TEST]: null, [STOCK_MARKER_TEST]: null };
+    const PAGE_IMPORTS = swap(S[PAGE], "if (!viewerMay('ListStockLevels', codes)) deny(); if (!stockRowsVisible(codes)) withhold(); rows.map((row) => stockRowMarker(row, inputs));", '');
+    const LV = "import { loadStockForItem } from '@/lib/stock/levels';\nexport default async function X() { return loadStockForItem(read, id); }";
+    const P3 = {
+      [PAGE]: swap(S[PAGE], ' rows.map((row) => stockRowMarker(row, inputs));', ''),
+      [VIEW]: swap(S[VIEW], 'retry(() => stockRowMarker(row, inputs));', 'retry(() => null);'),
+    };
+    const controls: [string, Change, string[]][] = [
+      ['P-0 H itself', {}, []],
+      ['P-1 the page drops its stockRowsVisible call', { sources: { [PAGE]: swap(S[PAGE], ' if (!stockRowsVisible(codes)) withhold();', '') } }, ['a2']],
+      [
+        'P-2 the page names the marker as a type only, and the view is gone',
+        { sources: { [PAGE]: "import type { StockRowMarker } from '@/lib/stock/marker';\nif (!viewerMay('ListStockLevels', codes)) deny();", [VIEW]: null } },
+        ['a2', 'a3', 'f'],
+      ],
+      ['P-3 the marker is called only in marker.ts', { sources: P3 }, ['a3']],
+      [
+        'P-3b as P-3, and the view calls a local stockRowMarker without the marker import',
+        { sources: { [PAGE]: P3[PAGE], [VIEW]: swap(swap(S[VIEW], "import { stockRowMarker } from '@/lib/stock/marker';\n", ''), 'retry(', 'function stockRowMarker(r) { return none; }\nretry(') } },
+        ['a3'],
+      ],
+      [
+        'P-4 the marker calls move to components/ui/Rows.tsx',
+        {
+          sources: {
+            [PAGE]: swap(P3[PAGE], "import { StockLevelsView } from './StockLevelsView';", "import { StockLevelsView } from './StockLevelsView';\nimport { Rows } from '@/components/ui/Rows';"),
+            [VIEW]: P3[VIEW],
+            'components/ui/Rows.tsx': "import { stockRowMarker } from '@/lib/stock/marker';\nexport const Rows = () => rows.map((row) => stockRowMarker(row, inputs));",
+          },
+        },
+        ['a3'],
+      ],
+      ['P-5 the page starts with use client', { sources: { [PAGE]: `'use client';\n${S[PAGE]}` } }, ['a1']],
+      ['P-5b the page starts with U+FEFF then use client', { sources: { [PAGE]: `\uFEFF'use client';\n${S[PAGE]}` } }, ['a1']],
+      [
+        'P-6 the page calls canSee from ./gate, which calls stockRowsVisible',
+        {
+          sources: {
+            [PAGE]: swap(swap(S[PAGE], "import { stockRowsVisible } from '@/lib/stock/visibility';", "import { canSee } from './gate';"), 'if (!stockRowsVisible(codes))', 'if (!canSee(codes))'),
+            'app/(app)/stock/gate.ts': "import { stockRowsVisible } from '@/lib/stock/visibility';\nexport const canSee = (codes) => stockRowsVisible(codes);",
+          },
+        },
+        ['a2'],
+      ],
+      [
+        'P-6b the page declares and calls its own stockRowsVisible, without the visibility import',
+        { sources: { [PAGE]: swap(S[PAGE], "import { stockRowsVisible } from '@/lib/stock/visibility';", 'function stockRowsVisible(c) { return true; }') } },
+        ['a2'],
+      ],
+      ['P-7 lib/stock/load.ts also names the stock read', { sources: { [LOAD]: `${S[LOAD]}\nread('ListStockLevels');` } }, ['a4.a2', 'a4.a3', 'b']],
+      ['P-8 lib/api/stock.ts names the stock read in a docblock', { sources: { 'lib/api/stock.ts': '/** ListStockLevels item */' } }, ['b']],
+      ['P-9 copy/stock.ts gains a comment naming the stock read', { sources: { [COPY]: `${S[COPY]}\n// ListStockLevels rows carry these labels` } }, ['a4.a2', 'a4.a3', 'b']],
+      ['P-10 components/stock/StockPanel.tsx reads stock', { sources: { 'components/stock/StockPanel.tsx': "read('ListStockLevels')" } }, ['b']],
+      ['P-11 components/StockPanel.tsx reads stock', { sources: { 'components/StockPanel.tsx': "read('ListStockLevels')" } }, ['b']],
+      ['P-12 the movement page imports the stock view (two levels from a row file)', { sources: { [MOVEMENTS]: `${S[MOVEMENTS]}\nimport { StockLevelsView } from '../stock/StockLevelsView';` } }, ['a4.a2']],
+      ['P-15 the item page imports levels and drops its stockRowsVisible call', { sources: { [ITEM]: swap(S[ITEM], 'const canSeeStock = stockRowsVisible(codes);', "import { loadStockForItem } from '@/lib/stock/levels';\nconst canSeeStock = true;") } }, ['a4.a2', 'a4.a3']],
+      ['P-16 the item page imports levels and keeps its stockRowsVisible call', { sources: { [ITEM]: `${S[ITEM]}\nimport { loadStockForItem } from '@/lib/stock/levels';` } }, ['a4.a3']],
+      ["P-17 visibility.ts without viewerMay('ListStockLevels'", { sources: { [STOCK_HELPER_VISIBILITY]: swap(S[STOCK_HELPER_VISIBILITY], "viewerMay('ListStockLevels', codes) && ", '') } }, ['c1']],
+      ["P-18 visibility.ts without viewerMay('ListStorageLocations'", { sources: { [STOCK_HELPER_VISIBILITY]: swap(S[STOCK_HELPER_VISIBILITY], " && viewerMay('ListStorageLocations', codes)", '') } }, ['c1']],
+      ["P-19a visibility.ts without viewerMay('GetWarehouse'", { sources: { [STOCK_HELPER_VISIBILITY]: swap(S[STOCK_HELPER_VISIBILITY], " && viewerMay('GetWarehouse', codes)", '') } }, ['c1']],
+      ["P-19b visibility.ts without viewerMay('ListWarehouses'", { sources: { [STOCK_HELPER_VISIBILITY]: swap(S[STOCK_HELPER_VISIBILITY], " && viewerMay('ListWarehouses', codes)", '') } }, ['c1']],
+      [
+        'P-20 visibility.ts loops over a list of operation names',
+        {
+          sources: {
+            [STOCK_HELPER_VISIBILITY]:
+              "import { viewerMay } from '../bff/surface';\nconst G = ['ListStockLevels', 'ListStorageLocations', 'GetWarehouse', 'ListWarehouses'];\nexport function stockRowsVisible(c) { return G.every((o) => viewerMay(o, c)); }",
+          },
+        },
+        ['c1'],
+      ],
+      ['P-21 visibility.ts absent', { sources: { [STOCK_HELPER_VISIBILITY]: null } }, ['c1']],
+      ['P-22 marker.ts absent', { sources: { [STOCK_HELPER_MARKER]: null } }, ['c2']],
+      ['P-23a marker.ts imports the contract reader', { sources: { [STOCK_HELPER_MARKER]: `import { viewerMay } from '../bff/surface';\n${S[STOCK_HELPER_MARKER]}` } }, ['c2', 'c3']],
+      ['P-23b marker.ts names stockRowsVisible', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\n// unlike stockRowsVisible, this reads no codes` } }, ['c2']],
+      ['P-23c marker.ts names the stock read', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\n// marks the rows of ListStockLevels` } }, ['c2']],
+      ['P-24 marker.ts imports copy', { sources: { [STOCK_HELPER_MARKER]: `import { kindLabel } from '@/copy/warehouses';\n${S[STOCK_HELPER_MARKER]}` } }, ['c2']],
+      ['P-25 levels.ts imports the contract reader', { sources: { [LEVELS]: `import { viewerMay } from '../bff/surface';\n${S[LEVELS]}` } }, ['c3']],
+      ['P-26a the marker unit test is absent', { tests: { [STOCK_MARKER_TEST]: null } }, ['e']],
+      ['P-26b the marker unit test lacks stockRowMarker(', { tests: { [STOCK_MARKER_TEST]: swap(T[STOCK_MARKER_TEST], ' stockRowMarker(p, i);', '') } }, ['e']],
+      ['P-26c the marker unit test mocks the marker', { tests: { [STOCK_MARKER_TEST]: `${T[STOCK_MARKER_TEST]}\nvi.mock('@/lib/stock/marker', () => ({ stockRowMarker: () => null }));` } }, ['e']],
+      ['P-26d the marker unit test lacks the served-kinds pin', { tests: { [STOCK_MARKER_TEST]: swap(T[STOCK_MARKER_TEST], " wireEnum('StorageLocation', 'kind');", '') } }, ['e']],
+      ['P-26e the marker unit test mocks the marker in the import() form', { tests: { [STOCK_MARKER_TEST]: `${T[STOCK_MARKER_TEST]}\nvi.mock(import('@/lib/stock/marker'), () => ({ stockRowMarker: () => null }));` } }, ['e']],
+      ['P-27a the gate test is absent', { tests: { [STOCK_GATE_TEST]: null } }, ['d']],
+      ['P-27b the gate test lacks the page import', { tests: { [STOCK_GATE_TEST]: swap(T[STOCK_GATE_TEST], "await import('@/app/(app)/stock/page'); ", '') } }, ['d']],
+      ["P-27c the gate test lacks 'G-47 gate (iii)'", { tests: { [STOCK_GATE_TEST]: swap(T[STOCK_GATE_TEST], " it('G-47 gate (iii)');", '') } }, ['d']],
+      ['P-27d the gate test mocks the gate helper', { tests: { [STOCK_GATE_TEST]: `${T[STOCK_GATE_TEST]}\nvi.mock('@/lib/stock/visibility', () => ({ stockRowsVisible: () => false }));` } }, ['d']],
+      ['P-27e the gate test mocks the contract reader (the house idiom)', { tests: { [STOCK_GATE_TEST]: `${T[STOCK_GATE_TEST]}\nvi.mock('@/lib/bff/surface', async (actual) => ({ ...(await actual()), viewerMay: () => false }));` } }, ['d']],
+      ['P-27f the gate test lacks the OPERATOR precondition', { tests: { [STOCK_GATE_TEST]: swap(T[STOCK_GATE_TEST], ' expect(stockRowsVisible(OPERATOR)).toBe(true);', '') } }, ['d']],
+      ['P-27g the gate test spies on the gate helper', { tests: { [STOCK_GATE_TEST]: `${T[STOCK_GATE_TEST]}\nvi.spyOn(visibility, 'stockRowsVisible');` } }, ['d']],
+      ['P-27h the gate test spies on console', { tests: { [STOCK_GATE_TEST]: `${T[STOCK_GATE_TEST]}\nvi.spyOn(console, 'error');` } }, []],
+      ['P-28a copy/stock.ts lacks the unknown key', { sources: { [COPY]: swap(S[COPY], "  unknown: 'Status unknown',\n", '') } }, ['f']],
+      ['P-28b the view no longer names STOCK_LOCATION_MARKER', { sources: { [VIEW]: swap(S[VIEW], "import { STOCK_LOCATION_MARKER } from '@/copy/stock';\n", '') } }, ['f']],
+      ['P-28c the copy object ends with as const satisfies', { sources: { [COPY]: swap(S[COPY], '} as const;', '} as const satisfies Record<string, string>;') } }, []],
+      ['P-28d the copy object has no closing line', { sources: { [COPY]: swap(S[COPY], '\n} as const;', '\n') } }, ['f']],
+      ['P-29 the stock read wired for the browser and nothing else', { only: true, pages: ['(app)/admin/page.tsx'], clientOps: ['ListStockLevels'], tests: NO_TESTS }, ['a0', 'c1', 'c2', 'd', 'e', 'f']],
+      [
+        'P-30 STATED LIMIT: the page gates only the loading of locations and reads rows for everyone',
+        { sources: { [PAGE]: `${PAGE_IMPORTS}const rows = await loadStockForItem(read, id);\nconst locations = stockRowsVisible(codes) ? await loadLocations(read) : [];\nrows.map((row) => stockRowMarker(row, inputs));` } },
+        [],
+      ],
+      [
+        'P-31 STATED LIMIT: both helper calls only inside comments',
+        { sources: { [PAGE]: `${PAGE_IMPORTS}// stockRowsVisible(codes)\n// stockRowMarker(row, inputs)`, [VIEW]: swap(S[VIEW], 'retry(() => stockRowMarker(row, inputs));', '// stockRowMarker(row, inputs)') } },
+        [],
+      ],
+      [
+        'P-31b STATED LIMIT: an aliased import beside a same-named local function',
+        { sources: { [PAGE]: swap(S[PAGE], "import { stockRowsVisible } from '@/lib/stock/visibility';", "import { stockRowsVisible as v } from '@/lib/stock/visibility';\nfunction stockRowsVisible() { return true; }") } },
+        [],
+      ],
+      ['P-32 STATED LIMIT: the stock read by concatenation', { sources: { 'components/X.tsx': "read('List' + 'StockLevels')" } }, []],
+      [
+        'P-33 no stock screen at all (the trigger is false), helpers and tests absent',
+        {
+          only: true,
+          pages: ['(app)/stock-movements/page.tsx', '(app)/items/[id]/page.tsx'],
+          sources: { [MOVEMENTS]: S[MOVEMENTS]!, [LOAD]: S[LOAD]!, [COPY]: S[COPY]!, [ITEM]: S[ITEM]! },
+          clientOps: ['ListUsers'],
+          tests: NO_TESTS,
+        },
+        [],
+      ],
+      ['P-34 the item page names the stock read', { sources: { [ITEM]: `${S[ITEM]}\nif (!viewerMay('ListStockLevels', codes)) hide();` } }, ['a4.a3', 'b']],
+      [
+        'P-35 the gate helper carries a row read, and the item page calls it',
+        {
+          sources: {
+            [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\nimport { serverRead } from '@/lib/bff/server/reads';\nexport async function stockForItem(s, id) { return serverRead(s)('ListStockLevels'); }`,
+            [ITEM]: `${swap(S[ITEM], 'import { stockRowsVisible } from', 'import { stockRowsVisible, stockForItem } from')}\nconst rows = await stockForItem(session, id);`,
+          },
+        },
+        ['c1'],
+      ],
+      ['P-35a the gate helper gains an import only', { sources: { [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\nimport { serverRead } from '@/lib/bff/server/reads';` } }, ['c1']],
+      ['P-35b the gate helper gains an export only', { sources: { [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\nexport const x = 1;` } }, ['c1']],
+      ['P-35c the gate helper names the stock read outside a gate only', { sources: { [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\n// the gate of ListStockLevels` } }, ['c1']],
+      ['P-35d the gate helper names the stock path only', { sources: { [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\nconst p = '/bff/api/stock';` } }, ['c1']],
+      ['P-36 the gate helper re-exports the row loader', { sources: { [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\nexport { loadStockForItem } from './levels';` } }, ['a4.a3', 'c1']],
+      ['P-37 the marker fetches stock', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\nfetch('/bff/api/stock?inventory_item_id=' + id);` } }, ['c2']],
+      ['P-38 a route handler under the stock folder serves rows', { sources: { 'app/(app)/stock/rows/route.ts': "read('ListStockLevels');" } }, ['b']],
+      [
+        'P-38b a server action under the stock folder serves rows, imported by the stock page',
+        { sources: { 'app/(app)/stock/actions.ts': "'use server';\nread('ListStockLevels');", [PAGE]: `${S[PAGE]}\nimport { act } from './actions';` } },
+        ['b'],
+      ],
+      // M-3 (ST-2a commit RED): one control per clause of the closed class, and the BUYER precondition alone.
+      ['P-23d marker.ts gains only a mention of viewerMay', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\n// no viewerMay here` } }, ['c2']],
+      ['P-37a marker.ts gains only fetch(', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\nfetch(url);` } }, ['c2']],
+      ['P-37b marker.ts gains only require(', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\nrequire(x);` } }, ['c2']],
+      ['P-37c marker.ts gains only read(', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\nread('ListStorageLocations');` } }, ['c2']],
+      ['P-37d marker.ts gains only the stock path', { sources: { [STOCK_HELPER_MARKER]: `${S[STOCK_HELPER_MARKER]}\nconst p = '/bff/api/stock';` } }, ['c2']],
+      ['P-35e the gate helper exports another function only', { sources: { [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\nexport function stockForItem() { return null; }` } }, ['c1']],
+      ['P-27i the gate test lacks the BUYER precondition', { tests: { [STOCK_GATE_TEST]: swap(T[STOCK_GATE_TEST], ' expect(stockRowsVisible(BUYER)).toBe(false);', '') } }, ['d']],
+      // L-2 (optional, taken): more single-clause controls.
+      ['P-26f the marker unit test lacks stockRowsVisible(', { tests: { [STOCK_MARKER_TEST]: swap(T[STOCK_MARKER_TEST], 'stockRowsVisible(c); ', '') } }, ['e']],
+      ["P-27j the gate test lacks 'G-47 gate (i)' and 'G-47 gate (ii)'", { tests: { [STOCK_GATE_TEST]: swap(T[STOCK_GATE_TEST], " it('G-47 gate (i)'); it('G-47 gate (ii)');", '') } }, ['d']],
+      ['P-27k the gate test mocks the generated surface', { tests: { [STOCK_GATE_TEST]: `${T[STOCK_GATE_TEST]}\nvi.mock('@/generated/api-surface.server', () => ({}));` } }, ['d']],
+      ['P-27l the gate test mocks the marker with vi.doMock', { tests: { [STOCK_GATE_TEST]: `${T[STOCK_GATE_TEST]}\nvi.doMock('@/lib/stock/marker', () => ({ stockRowMarker: () => null }));` } }, ['d']],
+      ['P-28e copy/stock.ts lacks the quarantine key', { sources: { [COPY]: swap(S[COPY], "  quarantine: 'Quarantine',\n", '') } }, ['f']],
+      // ST-2a2 (stock-st2-a4-recommendation.md R1.5): (a4) reaches every entry file; routes, metadata and instrumentation fall under (b).
+      ['P-39 an item layout reaches the row loader', { sources: { 'app/(app)/items/[id]/layout.tsx': LV } }, ['a4.a2', 'a4.a3']],
+      ['P-39b an item not-found file reaches the row loader', { sources: { 'app/(app)/items/[id]/not-found.tsx': LV } }, ['a4.a2', 'a4.a3']],
+      ['P-39c an item error file (a client file) reaches the row loader', { sources: { 'app/(app)/items/[id]/error.tsx': `'use client';\n${LV}` } }, ['a4.a1', 'a4.a2', 'a4.a3']],
+      ['P-39d a route handler reaches the row loader', { sources: { 'app/bff/stock-rows/route.ts': LV } }, ['b']],
+      [
+        'P-39d2 a route handler that gates and marks still reaches the row loader',
+        {
+          sources: {
+            'app/bff/stock-rows/route.ts':
+              "import { stockRowsVisible } from '@/lib/stock/visibility';\nimport { stockRowMarker } from '@/lib/stock/marker';\nimport { loadStockForItem } from '@/lib/stock/levels';\nif (stockRowsVisible(codes)) return rows.map((r) => ({ r, m: stockRowMarker(r, inputs) }));",
+          },
+        },
+        ['b'],
+      ],
+      ['P-39e an item stock panel the item page imports', { sources: { 'app/(app)/items/[id]/StockPanel.tsx': LV, [ITEM]: `${S[ITEM]}\nimport { StockPanel } from './StockPanel';` } }, ['a4.a3']],
+      ['P-39f a layout in the stock folder reaches the row loader', { sources: { 'app/(app)/stock/layout.tsx': LV } }, ['a4.a2', 'a4.a3']],
+      ['P-39g a code file under app/ that nothing imports reaches the row loader', { sources: { 'app/(app)/items/unused.ts': LV } }, ['a4.a2', 'a4.a3']],
+      ['P-39h as P-39e, imported by an @/ path', { sources: { 'app/(app)/items/[id]/StockPanel.tsx': LV, [ITEM]: `${S[ITEM]}\nimport { StockPanel } from '@/app/(app)/items/[id]/StockPanel';` } }, ['a4.a3']],
+      ['P-39i P-1 with its lines pinned (no a4 line for the stock page)', { sources: { [PAGE]: swap(S[PAGE], ' if (!stockRowsVisible(codes)) withhold();', '') } }, ['a2']],
+      [
+        'P-39j as P-39e, and the panel imports a type from the item page (a cycle)',
+        { sources: { 'app/(app)/items/[id]/StockPanel.tsx': `import type { ItemPageProps } from './page';\n${LV}`, [ITEM]: `${S[ITEM]}\nimport { StockPanel } from './StockPanel';` } },
+        ['a4.a3'],
+      ],
+      [
+        'P-39k the item page reads stock rows, and the stock page imports a type from it',
+        {
+          sources: {
+            [ITEM]: "import { loadStockForItem } from '@/lib/stock/levels';\nconst rows = await loadStockForItem(read, id);",
+            [PAGE]: `${S[PAGE]}\nimport type { Props } from '@/app/(app)/items/[id]/page';`,
+          },
+        },
+        ['a4.a2', 'a4.a3'],
+      ],
+      ['P-39l an instrumentation file reaches the row loader', { sources: { 'instrumentation-client.ts': "import { loadStockForItem } from '@/lib/stock/levels';" } }, ['b']],
+      // ST-2a3 (stock-st2a2-commit-red.md L-2, L-3, L-5): the private-folder exclusion, the server instrumentation arm and the order inside (b).
+      ['P-39l2 a server instrumentation file reaches the row loader', { sources: { 'instrumentation.ts': "import { loadStockForItem } from '@/lib/stock/levels';" } }, ['b']],
+      ['P-39m an unimported file in a private folder reaches the row loader', { sources: { 'app/(app)/items/_wip/x.ts': LV } }, []],
+      [
+        'P-39n a route handler and an instrumentation file both reach the row loader',
+        { sources: { 'app/bff/stock-rows/route.ts': LV, 'instrumentation-client.ts': "import { loadStockForItem } from '@/lib/stock/levels';" } },
+        ['b'],
+      ],
+      // ST-2a3 amend (stock-st2a3-commit-red.md L-A…L-D): half (ii)'s "no other key", the .js arms, the private-segment shape,
+      // and order and "first row file" inside both (b) branches. Keep the source keys in this insertion order (P-39l3 needs it).
+      ['P-39o a code file under app/ that imports itself, and nothing else imports, reaches the row loader', { sources: { 'app/(app)/items/Self.ts': `import { me } from './Self';\n${LV}` } }, ['a4.a2', 'a4.a3']],
+      ['P-39p a .js layout and a .js instrumentation file reach the row loader', { sources: { 'app/(app)/items/[id]/layout.js': LV, 'instrumentation.js': "import { loadStockForItem } from '@/lib/stock/levels';" } }, ['a4.a2', 'a4.a3', 'b']],
+      ['P-39m2 a page in a private folder and a file whose name starts with _ reach the row loader', { sources: { 'app/(app)/items/_wip/page.tsx': LV, 'app/(app)/items/_x.ts': LV } }, []],
+      [
+        'P-39l3 both instrumentation files reach row files, and the server one reaches a second row file first',
+        {
+          sources: {
+            'instrumentation.ts': "import { loadStockForItem } from '@/lib/stock/levels';\nimport { r } from '@/app/(app)/stock/source';",
+            'app/(app)/stock/source.ts': "export const r = read('ListStockLevels');",
+            'instrumentation-client.ts': "import { loadStockForItem } from '@/lib/stock/levels';",
+          },
+        },
+        ['b'],
+      ],
+      [
+        'P-39d3 two route handlers reach row files, and the first reaches a second row file first',
+        {
+          sources: {
+            'app/bff/a/route.ts': "import { loadStockForItem } from '@/lib/stock/levels';\nimport { r } from '@/app/(app)/stock/source';",
+            'app/(app)/stock/source.ts': "export const r = read('ListStockLevels');",
+            'app/bff/b/route.ts': LV,
+          },
+        },
+        ['b'],
+      ],
+      // BK-45 build review L-4 / R-3 (owed to both twins): (a3) admits "F = the page" on purpose, so an entry outside the stock
+      // folder that calls the gate and the marker itself owes nothing more. Plant: drop `reached === file ||` from (a3) → red.
+      [
+        'P-39q an entry outside the stock folder that calls the gate and the marker itself reaches the row loader',
+        {
+          sources: {
+            'app/(app)/items/[id]/layout.tsx': `import { stockRowsVisible } from '@/lib/stock/visibility';\nimport { stockRowMarker } from '@/lib/stock/marker';\n${LV}\nif (stockRowsVisible(codes)) rows.map((r) => stockRowMarker(r, inputs));`,
+          },
+        },
+        [],
+      ],
+      // M-1: defect text and order are pinned (exact lines below).
+      [
+        'P-40 four changes at once: two pages reach row files, two components and a shared file name the read',
+        {
+          sources: {
+            [LOAD]: `${S[LOAD]}\nread('ListStockLevels');`,
+            'components/StockPanel.tsx': "read('ListStockLevels')",
+            'components/stock/StockPanel.tsx': "read('ListStockLevels')",
+            [ITEM]: swap(S[ITEM], 'const canSeeStock = stockRowsVisible(codes);', "import { loadStockForItem } from '@/lib/stock/levels';\nconst canSeeStock = true;"),
+          },
+        },
+        ['a4.a2', 'a4.a3', 'b'],
+      ],
+      // D-4 (BK-45 Amendment 1): the exports text strips ASCII whitespace only, so a leading U+00A0 is kept, as in PHP.
+      ['P-41 the gate helper exports a line that starts with U+00A0', { sources: { [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\nexport \u00A0const y = 2;` } }, ['c1']],
+      ['P-41b the gate helper exports a line wrapped in ASCII \v \f \t', { sources: { [STOCK_HELPER_VISIBILITY]: `${S[STOCK_HELPER_VISIBILITY]}\nexport \v\f const z = 3; \f\t` } }, ['c1']],
     ];
-    const verdicts = implications.map(([name, pages, sources, clientOps]) => [name, stockRowDefects(pages, sources, clientOps).length === 0]);
-    expect(verdicts).toEqual(implications.map(([name, , , , passes]) => [name, passes]));
+    const verdicts = controls.map(([name, change]) => {
+      const t = tree(change);
+      return [name, stockRuleLetters(stockRowDefects(t.pages, t.sources, t.clientOps, t.tests))];
+    });
+    expect(verdicts).toEqual(controls.map(([name, , letters]) => [name, [...letters].sort(byteOrder)]));
+    expect(new Set(controls.map(([name]) => name.split(' ')[0])).size, 'two planted controls share an id').toBe(controls.length);
+
+    // M-1, ST-2a2 and ST-2a3: exact defect lines, in order, for P-20, P-29, P-38, P-39d, P-39d2, P-39d3, P-39e, P-39h…P-39l,
+    // P-39l2, P-39l3, P-39n, P-39o, P-40, P-41 and P-41b -- the text and order the backend twin copies.
+    const B_TEXT =
+      'names the stock read outside the stock-on-hand files; keep it out of the shared stock files (lib/api/stock.ts, ' +
+      'lib/stock/load.ts, copy/stock.ts), whose importers include the movement pages, and name it only in lib/stock/levels.ts ' +
+      'or under app/(app)/stock/';
+    const A2_TEXT = 'must call stockRowsVisible( itself, imported from lib/stock/visibility';
+    const A3_TEXT = 'reaches no call of stockRowMarker( (imported from lib/stock/marker) under app/(app)/stock/';
+    const GATE_ONLY = 'the gate helper holds the gate only';
+    const P39D_LINE = '[b] src/app/bff/stock-rows/route.ts is a route handler or metadata route that reaches the row file src/lib/stock/levels.ts; no route serves stock rows';
+    const P39L_LINE = '[b] src/instrumentation-client.ts is an instrumentation file that reaches the row file src/lib/stock/levels.ts; no route serves stock rows';
+    const P39E_LINE = `[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A3_TEXT}`;
+    const exactLines: Record<string, string[]> = {
+      'P-20': [
+        `[c1] src/lib/stock/visibility.ts is missing viewerMay('ListStockLevels',; ${GATE_ONLY}`,
+        `[c1] src/lib/stock/visibility.ts is missing viewerMay('ListStorageLocations',; ${GATE_ONLY}`,
+        `[c1] src/lib/stock/visibility.ts is missing viewerMay('GetWarehouse',; ${GATE_ONLY}`,
+        `[c1] src/lib/stock/visibility.ts is missing viewerMay('ListWarehouses',; ${GATE_ONLY}`,
+        `[c1] src/lib/stock/visibility.ts names ListStockLevels outside a viewerMay( gate; ${GATE_ONLY}`,
+      ],
+      'P-29': [
+        '[a0] the stock trigger is true but no page at /stock exists, so nothing can be checked (fail closed)',
+        `[c1] src/lib/stock/visibility.ts is absent; ${GATE_ONLY}`,
+        '[c2] src/lib/stock/marker.ts is absent; the row marker is pure',
+        '[d] frontend/test/wired/stock-gate.test.ts is absent',
+        '[e] frontend/test/stock/marker.test.ts is absent',
+        '[f] src/copy/stock.ts lacks export const STOCK_LOCATION_MARKER',
+      ],
+      'P-40': [
+        `[a4.a2] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A2_TEXT}`,
+        `[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A3_TEXT}`,
+        `[a4.a2] src/app/(app)/stock-movements/page.tsx reaches the row file src/lib/stock/load.ts and ${A2_TEXT}`,
+        `[a4.a3] src/app/(app)/stock-movements/page.tsx reaches the row file src/lib/stock/load.ts and ${A3_TEXT}`,
+        `[b] src/components/StockPanel.tsx ${B_TEXT}`,
+        `[b] src/components/stock/StockPanel.tsx ${B_TEXT}`,
+        `[b] src/lib/stock/load.ts ${B_TEXT}`,
+      ],
+      'P-41': [`[c1] src/lib/stock/visibility.ts exports '\u00A0const y = 2;'; ${GATE_ONLY}`],
+      'P-41b': [`[c1] src/lib/stock/visibility.ts exports 'const z = 3;'; ${GATE_ONLY}`],
+      'P-39d': [P39D_LINE],
+      'P-39d2': [P39D_LINE],
+      'P-39e': [P39E_LINE],
+      'P-39h': [P39E_LINE],
+      'P-39i': ['[a2] src/app/(app)/stock/page.tsx must call stockRowsVisible( itself, imported from lib/stock/visibility'],
+      'P-39j': [P39E_LINE],
+      'P-39k': [
+        `[a4.a2] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A2_TEXT}`,
+        `[a4.a3] src/app/(app)/items/[id]/page.tsx reaches the row file src/lib/stock/levels.ts and ${A3_TEXT}`,
+      ],
+      'P-39l': [P39L_LINE],
+      // ST-2a3 (stock-st2a2-commit-red.md L-1, L-3, L-5): an entry that is itself a row file prints both (b) lines; the
+      // server instrumentation arm; branch 1 (routes) before branch 2 (instrumentation).
+      'P-38': [
+        '[b] src/app/(app)/stock/rows/route.ts is a route handler or server action naming the stock read; no route serves stock rows',
+        '[b] src/app/(app)/stock/rows/route.ts is a route handler or metadata route that reaches the row file src/app/(app)/stock/rows/route.ts; no route serves stock rows',
+      ],
+      'P-39l2': ['[b] src/instrumentation.ts is an instrumentation file that reaches the row file src/lib/stock/levels.ts; no route serves stock rows'],
+      'P-39n': [P39D_LINE, P39L_LINE],
+      // ST-2a3 amend (stock-st2a3-commit-red.md L-A, L-D).
+      'P-39o': [
+        `[a4.a2] src/app/(app)/items/Self.ts reaches the row file src/lib/stock/levels.ts and ${A2_TEXT}`,
+        `[a4.a3] src/app/(app)/items/Self.ts reaches the row file src/lib/stock/levels.ts and ${A3_TEXT}`,
+      ],
+      'P-39l3': [
+        P39L_LINE,
+        '[b] src/instrumentation.ts is an instrumentation file that reaches the row file src/app/(app)/stock/source.ts; no route serves stock rows',
+      ],
+      'P-39d3': [
+        '[b] src/app/bff/a/route.ts is a route handler or metadata route that reaches the row file src/app/(app)/stock/source.ts; no route serves stock rows',
+        '[b] src/app/bff/b/route.ts is a route handler or metadata route that reaches the row file src/lib/stock/levels.ts; no route serves stock rows',
+      ],
+    };
+    for (const [id, lines] of Object.entries(exactLines)) {
+      const control = controls.find(([name]) => name.split(' ')[0] === id);
+      expect(control, `${id} is not among the planted controls`).toBeDefined();
+      const t = tree(control![1]);
+      expect(stockRowDefects(t.pages, t.sources, t.clientOps, t.tests), `${id}: the exact defect lines, in order`).toEqual(lines);
+    }
+
+    // P-13 and P-14 (assertions on P-0): the movement pages carry no obligation, and the item page, which imports the gate
+    // helper for its link, owes nothing (helper files are not row files).
+    const h = tree();
+    const honest = stockRowDefects(h.pages, h.sources, h.clientOps, h.tests);
+    expect(honest.filter((line) => line.includes('stock-movements/page.tsx')), 'P-13').toEqual([]);
+    expect(honest.filter((line) => line.includes('items/[id]/page.tsx')), 'P-14').toEqual([]);
+    // Positive controls: H makes the trigger true, so P-0's empty set is C1′ holding, not the rules switched off; and the
+    // test files are passed apart from the sources (rules (d)/(e) read them by fixed path, never from src).
+    expect(stockRowTriggers(h.pages, h.sources, h.clientOps).length, 'P-0: the honest tree does not make the trigger true').toBeGreaterThan(0);
+    expect(Object.keys(h.sources).filter((file) => file.startsWith('test/')), 'H carries a test file among its sources').toEqual([]);
   });
 
   it('planted control: the trigger lines for a four-reason tree are the exact lines, in order, that a red run prints', () => {
@@ -2380,22 +3588,73 @@ describe('architecture — G-47: no stock rows without the marker inputs while G
     expect(schemaShape(resolveRef(spec, asObject(rowProperties.warehouse))), G47_ROW_SHAPE_MESSAGE).toEqual(['id', 'name']);
   });
 
-  it('the real tree: anything that makes the stock trigger true names the marker inputs', () => {
-    const defects = stockRowDefects(realPages(), realSources(), realClientOps() as unknown[]);
+  it('real-tree controls for the entry set: both halves see real files, and every unimported entry is a Next convention', () => {
+    const { named, unimported } = stockEntryHalves(realSources());
+    // 1. Half (i) holds these six (a floor, not a list).
+    for (const file of ['app/layout.tsx', 'app/not-found.tsx', 'app/error.tsx', 'app/(app)/items/[id]/page.tsx', 'app/(app)/items/[id]/not-found.tsx', 'app/bff/session/route.ts']) {
+      expect(named, `Positive control: src/${file} is not among the entry files named by a Next convention, so half (i) of (a4)'s entry set reads less than it should.`).toContain(file);
+    }
+    // 2. Half (ii) is not vacuous: an imported file is out of it, a file nothing imports is in it.
+    expect(Object.keys(realSources()), 'Positive control: src/app/(app)/items/[id]/ItemPage.tsx is gone; pick another imported app file for this control.').toContain('app/(app)/items/[id]/ItemPage.tsx');
+    // BK-45 commit RED RM-4: a negative control on half (i).
+    expect(named, 'src/app/(app)/items/[id]/ItemPage.tsx is not named by a Next convention, yet half (i) of the entry set holds it: the name test admits non-convention files.').not.toContain('app/(app)/items/[id]/ItemPage.tsx');
+    expect(unimported, 'src/app/(app)/items/[id]/ItemPage.tsx is imported by its page, yet half (ii) of the entry set counts it as imported by nothing: the reverse pass is broken.').not.toContain('app/(app)/items/[id]/ItemPage.tsx');
+    expect(unimported, 'Positive control: src/app/layout.tsx is imported by nothing, yet half (ii) of the entry set does not hold it: the reverse pass sees imports that are not there.').toContain('app/layout.tsx');
+    // 3. Entries only half (ii) finds: a dead code file under src/app, or a Next convention newer than NEXT_ENTRY_NAMES.
+    expect(
+      unimported.filter((file) => !named.includes(file)),
+      'A code file under src/app is imported by nothing and is not named by a Next convention. Delete it if it is dead; if it is a Next convention, add its name to NEXT_ENTRY_NAMES (and the backend twin\'s), or add it here with a reason.',
+    ).toEqual([]);
+  });
+
+  it('the file-name lists and the name strip are pinned (stock-st2a2-commit-red.md M-1, L-4)', () => {
+    // M-1: an edit to either list inside this twin goes red here; the backend twin pins the same literals.
+    expect(
+      NEXT_ENTRY_NAMES,
+      "NEXT_ENTRY_NAMES changed. Change the backend twin's list (OwedAmendmentTripwireTest, BK-45) to the same names, in the same order, in the same step, then move this pin.",
+    ).toEqual(['page', 'layout', 'template', 'loading', 'error', 'global-error', 'not-found', 'global-not-found', 'forbidden', 'unauthorized', 'default', 'route', 'opengraph-image', 'twitter-image', 'icon', 'apple-icon', 'sitemap', 'robots', 'manifest']);
+    expect(
+      NEXT_ROUTE_NAMES,
+      "NEXT_ROUTE_NAMES changed. Change the backend twin's list (OwedAmendmentTripwireTest, BK-45) to the same names, in the same order, in the same step, then move this pin.",
+    ).toEqual(['route', 'opengraph-image', 'twitter-image', 'icon', 'apple-icon', 'sitemap', 'robots', 'manifest']);
+    expect(
+      NEXT_ROUTE_NAMES.filter((n) => !NEXT_ENTRY_NAMES.includes(n)),
+      "A name in NEXT_ROUTE_NAMES is missing from NEXT_ENTRY_NAMES, so a route or metadata file of that name is an entry only while nothing imports it, and (b) misses it once something does. Add it to NEXT_ENTRY_NAMES here and in the backend twin's list (BK-45) in the same step.",
+    ).toEqual([]);
+    // L-4: the strip removes one final .ts, .tsx, .js or .jsx, and only that.
+    expect(['app/a/layout.ts', 'app/a/layout.tsx', 'app/a/layout.js', 'app/a/layout.jsx'].map(stockFileName)).toEqual(['layout', 'layout', 'layout', 'layout']);
+    expect(stockFileName('app/a/page.test.tsx')).toBe('page.test');
+    // BK-45 commit RED RM-1: a bare name (no folder) strips the same way.
+    expect(stockFileName('page.test.tsx')).toBe('page.test');
+    // Plant O-6 (owed-to-backend.md BK-45 Amendment 3 item 7): all four code extensions under app/ are code files.
+    expect(['app/a/x.ts', 'app/a/x.tsx', 'app/a/x.js', 'app/a/x.jsx'].map(isAppCodeFile)).toEqual([true, true, true, true]);
+  });
+
+  it('the real tree: anything that makes the stock trigger true meets C1′ (the stock page, its helpers, its tests, its copy key)', () => {
+    const clientOps = realClientOps() as unknown[];
+    const due = stockRowTriggers(realPages(), realSources(), clientOps).length > 0;
+    const tests = { [STOCK_GATE_TEST]: due ? realStockTest(STOCK_GATE_TEST) : null, [STOCK_MARKER_TEST]: due ? realStockTest(STOCK_MARKER_TEST) : null };
+    const defects = stockRowDefects(realPages(), realSources(), clientOps, tests);
     expect(defects, `  ${defects.join('\n  ')}\n\n${G47_MESSAGE}`).toEqual([]);
   });
 
-  it("the trigger is still false on the real tree (remove only in the stock screen's commit, after the hand check)", () => {
-    const lines = stockRowTriggers(realPages(), realSources(), realClientOps() as unknown[]);
-    expect(
-      lines,
-      `  ${lines.join('\n  ')}\n\n` +
-        "G-47's frontend trigger is now TRUE on the real tree and the implication above holds -- a stock screen is\n" +
-        'being built. Check the seven items below by hand against the screen, say so in the commit, and only then\n' +
-        'remove this control in that commit.\n' +
-        "The backend's OwedAmendmentTripwireTest carries the same control; remove it in the merge that brings this commit to main, citing this commit's hand check.\n\n" +
-        G47_MESSAGE,
-    ).toEqual([]);
+  // Stock ST-2 (plan §5.6, stock-st2-red.md L-1): the "trigger is still false" control is removed in the screen's commit,
+  // after the ten hand checks (recorded in its commit message). In its place, the exact trigger lines, re-derived from the
+  // real tree: any new file naming the stock read is a deliberate edit of this pin. The backend's control is replaced by
+  // the same pin, copied from here, in the merge that brings this commit to main.
+  it('the real tree: the trigger lines are exactly the six of the stock-on-hand screen, and its helpers and tests are real', () => {
+    expect(stockRowTriggers(realPages(), realSources(), realClientOps() as unknown[]), G47_MESSAGE).toEqual([
+      'the frontend serves a page at /stock (src/app/(app)/stock/page.tsx)',
+      'src/app/(app)/stock/StockStates.tsx names ListStockLevels outside src/generated/',
+      'src/app/(app)/stock/page.tsx names ListStockLevels outside src/generated/',
+      'src/lib/stock/levels.ts names ListStockLevels outside src/generated/',
+      'src/lib/stock/visibility.ts names ListStockLevels outside src/generated/',
+      'scripts/api-surface.client-ops.json wires ListStockLevels for the browser',
+    ]);
+    // Positive controls: the real helpers and the two tests are found, and are not empty.
+    const sources = realSources();
+    for (const helper of STOCK_HELPERS) expect(own(sources, helper).length, `src/${helper} is missing or empty`).toBeGreaterThan(0);
+    for (const test of [STOCK_GATE_TEST, STOCK_MARKER_TEST]) expect((realStockTest(test) ?? '').length, `frontend/${test} is missing or empty`).toBeGreaterThan(0);
   });
 });
 
@@ -2463,27 +3722,28 @@ const G51_BACKEND_ANCHOR = 'self::assertSame([], $lines, "  ".implode("\\n  ", $
 /**
  * A PHP method's inline failure message, read from source (final RED M-2): the method's body ends at the first
  * `\n    }\n` after its signature; from the end of the LAST occurrence of `anchor` in it, literals are read one at a time
- * (`."…"`, sticky), and what follows the last one must be `);`. Never cut at the first `);`: a literal holds
- * `ItemWriter::archive();`. Each literal is unescaped (`\n` → newline; `\"`, `\\`, `\$` → the character) and joined.
- * Fails closed, by name, when the method, the anchor or the closing `);` is not where it should be.
+ * (`"…"` or `."…"`, sticky), and what follows the last one must be `close` (`);` for G-51's inline assertion, `;` for
+ * G-47's `$message = …;`). Never cut at the first `);`: a literal holds `ItemWriter::archive();`. Each literal is
+ * unescaped (`\n` → newline; `\"`, `\\`, `\$` → the character) and joined. Fails closed, by name, when the method, the
+ * anchor or the closing text is not where it should be. Shared by the G-51 and G-47 parity tests (`label` names which).
  */
-function phpInlineMessage(source: string, method: string, anchor: string): string {
+function phpInlineMessage(source: string, method: string, anchor: string, close = ');', label = 'G-51'): string {
   const at = source.indexOf(method);
-  if (at < 0) throw new Error(`G-51 parity: ${method} is not in the backend file, so there is no message to compare.`);
+  if (at < 0) throw new Error(`${label} parity: ${method} is not in the backend file, so there is no message to compare.`);
   const end = source.indexOf('\n    }\n', at);
   const body = source.slice(at, end < 0 ? undefined : end);
   const a = body.lastIndexOf(anchor);
-  if (a < 0) throw new Error('G-51 parity: the real-tree assertion\'s opening text is not in the method, so its message cannot be found.');
-  const literal = /\s*\.\s*"((?:[^"\\]|\\.)*)"/y;
+  if (a < 0) throw new Error(`${label} parity: the real-tree assertion's opening text is not in the method, so its message cannot be found.`);
+  const literal = /\s*(?:\.\s*)?"((?:[^"\\]|\\.)*)"/y;
   literal.lastIndex = a + anchor.length;
   const parts: string[] = [];
   let last = literal.lastIndex;
   for (let m = literal.exec(body); m !== null; m = literal.exec(body)) {
-    for (const e of m[1]!.matchAll(/\\(.)|\$/gs)) if (e[0] === '$' || !'n"\\$'.includes(e[1]!)) throw new Error('G-51 parity: a backend literal holds a PHP escape or interpolation this reader does not decode, so the comparison would not be with the printed message.');
+    for (const e of m[1]!.matchAll(/\\(.)|\$/gs)) if (e[0] === '$' || !'n"\\$'.includes(e[1]!)) throw new Error(`${label} parity: a backend literal holds a PHP escape or interpolation this reader does not decode, so the comparison would not be with the printed message.`);
     parts.push(m[1]!);
     last = literal.lastIndex;
   }
-  if (!/^\s*\);/.test(body.slice(last))) throw new Error('G-51 parity: the message is not followed by `);`, so its last literal is not where this reads it.');
+  if (!body.slice(last).trimStart().startsWith(close)) throw new Error(`${label} parity: the message is not followed by \`${close}\`, so its last literal is not where this reads it.`);
   return parts.map((p) => p.replace(/\\([n"\\$])/g, (_, c: string) => (c === 'n' ? '\n' : c))).join('');
 }
 
@@ -2591,5 +3851,756 @@ describe('architecture — G-51: no stock count or transfer while G-51 is open (
     const file = path.join(ROOT, G51_BACKEND_FILE);
     expect(existsSync(file), `G-51 parity: ${G51_BACKEND_FILE} is not where this reads the backend message, so the two could drift apart unseen.`).toBe(true);
     expect(phpInlineMessage(readFileSync(file, 'utf8'), G51_BACKEND_METHOD, G51_BACKEND_ANCHOR), 'G51_MESSAGE is no longer the backend text: sync it (the backend owns the canonical message).').toBe(G51_MESSAGE);
+  });
+});
+
+// G-47 message parity (stock-st2-plan.md §6, Revision 1a L-4): the frontend twin's G47_MESSAGE equals the backend twin's
+// `$message` in OwedAmendmentTripwireTest::noFrontendShowsStockRowsWhileG47IsOpen, byte for byte, read by the same
+// extractor as G-51's. Both twins are at C1′ (BK-45, merged back), so the trigger may be true on this tree.
+const G47_BACKEND_METHOD = 'public function noFrontendShowsStockRowsWhileG47IsOpen(): void';
+/** The exact source text that opens the backend message; its literals follow it, and `;` closes it. */
+const G47_BACKEND_ANCHOR = '$message = ';
+
+describe('architecture — G-47: the frontend twin’s failure message is the backend twin’s, byte for byte', () => {
+  it('the extractor finds the opening text in the method and reads a non-empty message (not vacuous)', () => {
+    const source = readFileSync(path.join(ROOT, G51_BACKEND_FILE), 'utf8');
+    const at = source.indexOf(G47_BACKEND_METHOD);
+    expect(at, `G-47 parity: ${G47_BACKEND_METHOD} is not in the backend file.`).toBeGreaterThanOrEqual(0);
+    expect(source.slice(at, source.indexOf('\n    }\n', at)).includes(G47_BACKEND_ANCHOR), 'G-47 parity: the opening text is not in the method.').toBe(true);
+    const backend = phpInlineMessage(source, G47_BACKEND_METHOD, G47_BACKEND_ANCHOR, ';', 'G-47');
+    expect(backend.length).toBeGreaterThan(1000);
+    expect(G47_MESSAGE.length).toBeGreaterThan(1000);
+    expect(backend.startsWith('G-47 is open')).toBe(true);
+  });
+
+  it("parity: G47_MESSAGE equals the backend check's message, character for character", () => {
+    const backend = phpInlineMessage(readFileSync(path.join(ROOT, G51_BACKEND_FILE), 'utf8'), G47_BACKEND_METHOD, G47_BACKEND_ANCHOR, ';', 'G-47');
+    expect(G47_MESSAGE, 'G47_MESSAGE is no longer the backend text: the twins changed apart. Change both in the same step (BK-45; this twin).').toBe(backend);
+  });
+
+  it('planted parity control: a one-character edit of either side is not equal; the `;` close fails closed when missing', () => {
+    const backend = phpInlineMessage(readFileSync(path.join(ROOT, G51_BACKEND_FILE), 'utf8'), G47_BACKEND_METHOD, G47_BACKEND_ANCHOR, ';', 'G-47');
+    expect(G47_MESSAGE.replace('G-47 is open', 'G-47 is opem')).not.toBe(backend);
+    const unterminated = `class T {\n    ${G47_BACKEND_METHOD}\n    {\n        ${G47_BACKEND_ANCHOR}"a\\n"\n            ."b"\n            .$x;\n    }\n}\n`;
+    expect(() => phpInlineMessage(unterminated, G47_BACKEND_METHOD, G47_BACKEND_ANCHOR, ';', 'G-47')).toThrow(/G-47 parity: the message is not followed by `;`/);
+    const ok = `class T {\n    ${G47_BACKEND_METHOD}\n    {\n        ${G47_BACKEND_ANCHOR}"a\\n"\n            ."b";\n    }\n}\n`;
+    expect(phpInlineMessage(ok, G47_BACKEND_METHOD, G47_BACKEND_ANCHOR, ';', 'G-47')).toBe('a\nb');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// GR-2 H-1 (gr-2-h1-spar.md converged text; first RED gr-2-h1-red.md M-1; round-2 RED gr-2-round2-red.md M-1, M-2, L-2, L-3;
+// b4-architecture.md R10-7): a create that moves stock or money holds its Idempotency-Key across an unknown outcome. Any
+// non-generated src/ file that calls one of the operations below by name (`<x>.call('<Operation>', …)`) must pass
+// `idempotencyKey: <h>.key()` where `<h>` is bound in the same file to `heldKey(…)` imported from `src/lib/bff/heldKey`, and
+// not declared in the very function that sends (a holder minted per press) — a callback nested inside that function counts
+// as a different function, so a per-press holder used from a `map`/`forEach` callback is not seen. A bare `newKey()`, `crypto.randomUUID()` or a
+// missing key is red. This is the trigger of frontend-residuals.md FE-R12 (the other creates' fresh key per press). Limits,
+// stated: a call through `caller.operation(op, …)` is not seen (no `src` file uses it today); a non-literal id in
+// `caller.call` is red outside `DYNAMIC_CALL_ALLOWED`; a holder created in a React component body (per render) with the
+// call in a nested handler is not seen — the behaviour tests (test/wired/receipt-held-key.test.ts) and the `useState`
+// review check hold that for CreateGoodsReceipt.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Closed list (a new entry is a deliberate edit): the §4.2 creates that move stock or money AND carry an Idempotency-Key
+ * (their Idem cell is `unique:…`; the generated surface says `idempotencyKeyRequired: true`). Status-guarded money writes
+ * (PayInvoice, ReverseInvoicePayment, VoidInvoice) send no key and are out by construction.
+ */
+const STOCK_OR_MONEY_OPERATIONS: readonly string[] = ['CreateGoodsReceipt', 'CreateStockAdjustment', 'CreateStockTransfer', 'CreateFulfilment', 'IssueInvoice', 'IssueCreditNote', 'IssueAdjustmentCreditNote', 'CreateSalesReturn'];
+const HELD_KEY_MODULE = 'src/lib/bff/heldKey';
+/** Files allowed to call `caller.call` with a non-literal operation id. reads.ts: the read transport; it sends no key. */
+const DYNAMIC_CALL_ALLOWED: readonly string[] = ['src/lib/bff/reads.ts'];
+
+function heldKeyViolations(files: readonly SourceFile[]): { violations: Violation[]; inspected: string[] } {
+  const out: Violation[] = [];
+  const inspected: string[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, 'src') || under(sf.file, 'src/generated')) continue;
+    const tree = parse(sf);
+    // Local names bound to the imported heldKey, then the names bound to a heldKey(...) call (with the function each is declared in).
+    const heldKeyNames = new Set<string>();
+    for (const st of tree.statements) {
+      if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
+      const t = targetOf(sf.file, st.moduleSpecifier.text).replace(/\.tsx?$/, '');
+      if (t !== HELD_KEY_MODULE) continue;
+      const named = st.importClause?.namedBindings;
+      if (named && ts.isNamedImports(named)) for (const el of named.elements) if ((el.propertyName ?? el.name).text === 'heldKey') heldKeyNames.add(el.name.text);
+    }
+    const holders = new Map<string, (ts.Node | undefined)[]>();
+    const calls: { call: ts.CallExpression; fn: ts.Node | undefined }[] = [];
+    const fns: ts.Node[] = [];
+    const visit = (node: ts.Node) => {
+      const fn = fns[fns.length - 1];
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && ts.isCallExpression(node.initializer) && ts.isIdentifier(node.initializer.expression) && heldKeyNames.has(node.initializer.expression.text)) {
+        holders.set(node.name.text, [...(holders.get(node.name.text) ?? []), fn]);
+      }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'call') {
+        const first = node.arguments[0];
+        if (first !== undefined && ts.isStringLiteralLike(first) && STOCK_OR_MONEY_OPERATIONS.includes(first.text)) calls.push({ call: node, fn });
+      }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'call') {
+        const first = node.arguments[0];
+        if (first !== undefined && !ts.isStringLiteralLike(first) && !DYNAMIC_CALL_ALLOWED.includes(sf.file) && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'caller')
+          out.push({ file: sf.file, detail: 'caller.call with a non-literal operation id: the stock-or-money check cannot see it (GR-2 H-1, FE-R12) — name the operation literally, or add the file to DYNAMIC_CALL_ALLOWED with a reason' });
+      }
+      const isFn = ts.isFunctionLike(node);
+      if (isFn) fns.push(node);
+      ts.forEachChild(node, visit);
+      if (isFn) fns.pop();
+    };
+    visit(tree);
+    for (const { call, fn } of calls) {
+      const op = (call.arguments[0] as ts.StringLiteralLike).text;
+      inspected.push(`${sf.file}:${op}`);
+      const options = call.arguments[3];
+      let value: ts.Expression | undefined;
+      if (options !== undefined && ts.isObjectLiteralExpression(options)) {
+        for (const p of options.properties) if (ts.isPropertyAssignment(p) && p.name.getText(tree) === 'idempotencyKey') value = p.initializer;
+      }
+      const holderFns =
+        value !== undefined && ts.isCallExpression(value) && value.arguments.length === 0 && ts.isPropertyAccessExpression(value.expression) && value.expression.name.text === 'key' && ts.isIdentifier(value.expression.expression)
+          ? holders.get(value.expression.expression.text)
+          : undefined;
+      // Held: a holder of that name exists, and none of them is declared in the function that sends (round-2 RED L-2).
+      const held = holderFns !== undefined && !holderFns.some((h) => h !== undefined && h === fn);
+      if (!held) out.push({ file: sf.file, detail: `${op} moves stock or money: its Idempotency-Key must come from a heldKey(…) holder's key(), not minted per press (GR-2 H-1, FE-R12)` });
+    }
+  }
+  return { violations: out, inspected };
+}
+
+describe('architecture — GR-2 H-1: a stock- or money-moving create holds its Idempotency-Key (heldKey; FE-R12 trigger)', () => {
+  it('the real tree: every call of a listed operation takes its key from a heldKey holder (the checker inspected CreateGoodsReceipt)', () => {
+    const surface = readFileSync('src/generated/api-surface.server.ts', 'utf8');
+    for (const op of STOCK_OR_MONEY_OPERATIONS) {
+      const entry = new RegExp(`\\n  ${op}: \\{[\\s\\S]*?\\n  \\}`).exec(surface)?.[0] ?? '';
+      expect(entry, `${op} is not in the generated surface`).not.toBe('');
+      expect(entry, `${op} must require an Idempotency-Key to be on this list`).toContain('idempotencyKeyRequired: true');
+    }
+    // Membership pinned (gr-2-round3-red.md L-1): a removal or an addition is a deliberate edit in two places, never a silent one.
+    expect([...STOCK_OR_MONEY_OPERATIONS].sort()).toEqual(['CreateFulfilment', 'CreateGoodsReceipt', 'CreateSalesReturn', 'CreateStockAdjustment', 'CreateStockTransfer', 'IssueAdjustmentCreditNote', 'IssueCreditNote', 'IssueInvoice']);
+    const { violations, inspected } = heldKeyViolations(walk('src'));
+    expect(inspected).toEqual(['src/lib/purchasing/wired.ts:CreateGoodsReceipt']);
+    expect(violations).toEqual([]);
+  });
+
+  it('planted controls: a fresh key per press, a missing key, a holder not from heldKey, an import from elsewhere, a non-literal id, a per-press holder all go red; the held shape does not', () => {
+    const imp = "import { heldKey } from '@/lib/bff/heldKey';\n";
+    const planted: SourceFile[] = [
+      { file: 'src/lib/stock/A.ts', source: `${imp}export const a = (caller, newKey) => caller.call('CreateStockAdjustment', {}, {}, { idempotencyKey: newKey() });` },
+      { file: 'src/lib/stock/B.ts', source: `${imp}export const b = (caller) => caller.call('CreateStockTransfer', {}, {}, { signal: undefined });` },
+      { file: 'src/lib/stock/C.ts', source: `${imp}const pending = { key: () => crypto.randomUUID() };\nexport const c = (caller) => caller.call('CreateFulfilment', {}, {}, { idempotencyKey: pending.key() });` },
+      { file: 'src/lib/stock/D.ts', source: "import { heldKey } from '@/lib/bulk/results';\nconst k = heldKey(() => 'x');\nexport const d = (caller) => caller.call('IssueAdjustmentCreditNote', {}, {}, { idempotencyKey: k.key() });" },
+      { file: 'src/lib/stock/Dyn.ts', source: "export const w = (caller, op, newKey) => caller.call(op, {}, {}, { idempotencyKey: newKey() });" },
+      { file: 'src/lib/stock/E.ts', source: `${imp}export const e = (caller) => caller.call('IssueInvoice', {}, {});` },
+      { file: 'src/lib/stock/Ok.ts', source: `${imp}const held = heldKey(() => crypto.randomUUID());\nexport const ok = (caller) => caller.call('IssueCreditNote', {}, {}, { signal: undefined, idempotencyKey: held.key() });` },
+      { file: 'src/lib/stock/Alias.ts', source: "import { heldKey as hold } from '../bff/heldKey';\nconst h = hold(() => 'x');\nexport const ok2 = (caller) => caller.call('CreateSalesReturn', {}, {}, { idempotencyKey: h.key() });" },
+      { file: 'src/lib/stock/PerPress.ts', source: `${imp}export const p = (caller) => async () => { const h = heldKey(() => 'x'); return caller.call('CreateFulfilment', {}, {}, { idempotencyKey: h.key() }); };` },
+      // Not listed: the rule does not apply to a draft create; generated modules are never scanned; Function.prototype.call is not a caller.
+      { file: 'src/lib/stock/Other.ts', source: "export const o = (caller, newKey) => caller.call('CreatePurchaseOrder', {}, {}, { idempotencyKey: newKey() });" },
+      { file: 'src/lib/stock/Fn.ts', source: 'export const f = (g, self, a) => g.call(self, a);' },
+      { file: 'src/generated/x.ts', source: "export const g = (caller) => caller.call('CreateGoodsReceipt', {}, {}, {});" },
+    ];
+    expect(heldKeyViolations(planted).violations.map((v) => v.file)).toEqual(['src/lib/stock/A.ts', 'src/lib/stock/B.ts', 'src/lib/stock/C.ts', 'src/lib/stock/D.ts', 'src/lib/stock/Dyn.ts', 'src/lib/stock/E.ts', 'src/lib/stock/PerPress.ts']);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Stock ST-1 (stock-plan.md §6.1 as amended by stock-st1-red.md L-6; b4-architecture.md Revision 11 R11-1, R11-7): the
+// movement pages stay inside the stock family. The domain is the route folder, `src/lib/stock/**` and `src/lib/api/stock.ts`
+// (RED L-6: a stock lib file reading through another family's lib would otherwise go unseen). ST-1 adds no ROUTE_FAMILIES
+// entry (a one-folder family needs none). Stock ST-2 (Revision 12 R12-1; plan §7.1-3, L-13 item 6): the family
+// check covers BOTH route folders (`STOCK_ROUTE_DIRS`), and there is still no ROUTE_FAMILIES entry: `/stock` and
+// `/stock-movements` import nothing from each other (routeFolderViolations holds it). `STOCK_MAY_IMPORT` is unchanged.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const STOCK_ROUTE_DIR = 'src/app/(app)/stock-movements';
+/** Stock ST-2: the stock-on-hand route folder (`/stock`). */
+const STOCK_ON_HAND_DIR = 'src/app/(app)/stock';
+const STOCK_ROUTE_DIRS: readonly string[] = [STOCK_ROUTE_DIR, STOCK_ON_HAND_DIR];
+const STOCK_LIB_DIR = 'src/lib/stock';
+const STOCK_API_FILE = 'src/lib/api/stock.ts';
+/** What a stock file may import under `src/components/` and `src/lib/` (R11-1; stock-plan.md §3.3). A new one is a deliberate edit. */
+const STOCK_MAY_IMPORT = {
+  components: ['ui', 'states'],
+  lib: ['stock', 'bff', 'format', 'results', 'routes'],
+  libApi: ['stock'],
+} as const;
+const isStockFile = (f: string) => STOCK_ROUTE_DIRS.some((d) => under(f, d)) || under(f, STOCK_LIB_DIR) || f === STOCK_API_FILE;
+
+/** R11-1's check: a stock file whose import reaches another family's `components/`, `lib/` or `lib/api/`; `lib/api/stock.ts` importing anything. */
+function stockFamilyViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!isStockFile(sf.file)) continue;
+    for (const spec of specifiersOf(sf)) {
+      if (sf.file === STOCK_API_FILE) {
+        out.push({ file: sf.file, detail: `lib/api/stock.ts imports nothing (C-1 mirrored): '${spec}'` });
+        continue;
+      }
+      const t = targetOf(sf.file, spec).replace(/\.(ts|tsx|css)$/, '');
+      const parts = t.split('/');
+      let ok = true;
+      if (parts[0] === 'src' && parts[1] === 'components') ok = (STOCK_MAY_IMPORT.components as readonly string[]).includes(parts[2] ?? '');
+      else if (parts[0] === 'src' && parts[1] === 'lib' && parts[2] === 'api') ok = (STOCK_MAY_IMPORT.libApi as readonly string[]).includes(parts[3] ?? '');
+      else if (parts[0] === 'src' && parts[1] === 'lib') ok = (STOCK_MAY_IMPORT.lib as readonly string[]).includes(parts[2] ?? '');
+      if (!ok) out.push({ file: sf.file, detail: `a stock file imports another family's components or lib (R11-1): '${spec}'` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — stock ST-1: R11-1, the movement pages stay inside the stock family', () => {
+  it('the real stock files (both route folders, lib/stock, lib/api/stock.ts) import only the stock family and shared components/lib', () => {
+    const files = walk('src').filter((f) => isStockFile(f.file));
+    expect(files.map((f) => f.file)).toEqual([
+      'src/app/(app)/stock/LocationLinks.tsx',
+      'src/app/(app)/stock/StockLevelsView.tsx',
+      'src/app/(app)/stock/StockPicker.tsx',
+      'src/app/(app)/stock/StockStates.tsx',
+      'src/app/(app)/stock/page.tsx',
+      'src/app/(app)/stock-movements/StockMovementStates.tsx',
+      'src/app/(app)/stock-movements/StockMovementsList.tsx',
+      'src/app/(app)/stock-movements/[id]/StockMovementPage.tsx',
+      'src/app/(app)/stock-movements/[id]/not-found.tsx',
+      'src/app/(app)/stock-movements/[id]/page.tsx',
+      'src/app/(app)/stock-movements/page.tsx',
+      'src/lib/api/stock.ts',
+      'src/lib/stock/levels.ts',
+      'src/lib/stock/load.ts',
+      'src/lib/stock/marker.ts',
+      'src/lib/stock/source.ts',
+      'src/lib/stock/visibility.ts',
+    ]);
+    // Positive control: the check sees the real family and shared imports, the lib files included (not an empty domain).
+    const targets = files.flatMap((f) => specifiersOf(f).map((s) => `${f.file} -> ${targetOf(f.file, s)}`));
+    expect(targets).toEqual(
+      expect.arrayContaining([
+        'src/app/(app)/stock-movements/page.tsx -> src/lib/stock/load',
+        'src/app/(app)/stock-movements/StockMovementsList.tsx -> src/lib/stock/source',
+        'src/app/(app)/stock-movements/StockMovementsList.tsx -> src/lib/format/quantity',
+        'src/lib/stock/load.ts -> src/lib/api/stock',
+        'src/lib/stock/load.ts -> src/lib/bff/reads',
+        'src/lib/stock/source.ts -> src/lib/bff/paths',
+        // Stock ST-2: the stock-on-hand folder's own edges are seen too.
+        'src/app/(app)/stock/page.tsx -> src/lib/stock/levels',
+        'src/app/(app)/stock/StockLevelsView.tsx -> src/lib/stock/marker',
+        'src/lib/stock/levels.ts -> src/lib/stock/load',
+      ]),
+    );
+    expect(stockFamilyViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: another family’s lib, components or api goes red from the route folder and from lib/stock; lib/api/stock.ts importing anything is red; its own and the shared ones are not', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/stock-movements/page.tsx', source: "import { loadReceipts } from '@/lib/purchasing/load';" },
+      { file: 'src/app/(app)/stock-movements/A.tsx', source: "import { loadItem } from '@/lib/items/load';" },
+      { file: 'src/app/(app)/stock-movements/[id]/B.tsx', source: "import { ReceiveForm } from '@/components/purchasing/ReceiveForm';" },
+      { file: 'src/app/(app)/stock-movements/C.tsx', source: "import type { Item } from '@/lib/api/items';" },
+      { file: 'src/lib/stock/load.ts', source: "import { loadItem } from '@/lib/items/load';" },
+      { file: 'src/lib/stock/D.ts', source: "import { loadWarehouses } from '../warehouses/load';" },
+      { file: 'src/lib/api/stock.ts', source: "import type { Item } from './items';" },
+      { file: 'src/app/(app)/stock-movements/Ok.tsx', source: "import { loadMovements } from '@/lib/stock/load';\nimport { ArchivableList } from '../ArchivableList';\nimport { renderSignedQuantity } from '@/lib/format/quantity';\nimport { DateTime } from '@/components/ui/DateTime';\nimport type { StockMovement } from '@/lib/api/stock';" },
+      { file: 'src/lib/stock/Ok2.ts', source: "import type { StockMovement } from '../api/stock';\nimport { pageQuery } from '../bff/reads';" },
+      // Stock ST-2 (plan §7.1-3): the stock-on-hand folder is in the domain.
+      { file: 'src/app/(app)/stock/StockPicker.tsx', source: "import { loadLocations } from '@/lib/warehouses/load';" },
+      { file: 'src/app/(app)/stock/LocationLinks.tsx', source: "import { KindField } from '@/components/warehouses/KindField';" },
+      // Outside the family the rule does not apply.
+      { file: 'src/app/(app)/items/Z.tsx', source: "import { loadReceipts } from '@/lib/purchasing/load';" },
+    ];
+    expect(stockFamilyViolations(planted).map((v) => v.file)).toEqual([
+      'src/app/(app)/stock-movements/page.tsx',
+      'src/app/(app)/stock-movements/A.tsx',
+      'src/app/(app)/stock-movements/[id]/B.tsx',
+      'src/app/(app)/stock-movements/C.tsx',
+      'src/lib/stock/load.ts',
+      'src/lib/stock/D.ts',
+      'src/lib/api/stock.ts',
+      'src/app/(app)/stock/StockPicker.tsx',
+      'src/app/(app)/stock/LocationLinks.tsx',
+    ]);
+  });
+
+  it('copy clause: the movement folder is in the stock group; another family’s copy (the tempting itemCell) is red, its own and the shared copy are not', () => {
+    expect(COPY_GROUPS.stock).toEqual(['stock']);
+    expect(GROUP_OF_FOLDER['stock-movements']).toBe('stock');
+    // RED L-6 / Revision 12 R12-1: ST-2 registers the stock-on-hand folder; there is no components/stock.
+    expect(GROUP_OF_FOLDER.stock).toBe('stock');
+    expect(Object.hasOwn(GROUP_OF_FOLDER, 'components/stock')).toBe(false);
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/stock-movements/P1.tsx', source: "import { ORDER_LINES } from '@/copy/purchasing';" },
+      { file: 'src/app/(app)/stock-movements/[id]/P2.tsx', source: "import { ITEM_PAGE } from '@/copy/items';" },
+      { file: 'src/app/(app)/stock-movements/Ok.tsx', source: "import { STOCK_MOVEMENTS_LIST } from '@/copy/stock';\nimport { unitSpoken } from '@/copy/units';\nimport { WENT_WRONG } from '@/copy/headings';" },
+      // Stock ST-2 (plan §7.1-7; Revision 12 R12-5): only the named LocationLinks.tsx may take the kind label.
+      { file: 'src/app/(app)/stock/StockLevelsView.tsx', source: "import { kindLabel } from '@/copy/warehouses';" },
+      { file: 'src/app/(app)/stock/LocationLinks.tsx', source: "import { kindLabel } from '@/copy/warehouses';\nimport { STOCK_SCOPE } from '@/copy/stock';" },
+    ];
+    expect(copyViolations(planted).map((v) => v.file)).toEqual(['src/app/(app)/stock-movements/P1.tsx', 'src/app/(app)/stock-movements/[id]/P2.tsx', 'src/app/(app)/stock/StockLevelsView.tsx']);
+  });
+
+  it('route families: ST-1 adds no ROUTE_FAMILIES entry, so a movement page importing a receipt page’s file is red', () => {
+    expect(ROUTE_FAMILIES).toEqual([['purchase-orders', 'goods-receipts']]);
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/stock-movements/E.tsx', source: "import { receiptColumns } from '../goods-receipts/GoodsReceiptsList';" },
+      { file: 'src/app/(app)/stock-movements/[id]/F.tsx', source: "import styles from '../../purchase-orders/PurchaseOrders.module.css';" },
+      { file: 'src/app/(app)/stock-movements/[id]/Ok.tsx', source: "import styles from '../StockMovements.module.css';\nimport { StockMovementsDenied } from '../StockMovementStates';\nimport { ArchivableList } from '../../ArchivableList';" },
+    ];
+    expect(routeFolderViolations(planted).map((v) => v.file)).toEqual(['src/app/(app)/stock-movements/E.tsx', 'src/app/(app)/stock-movements/[id]/F.tsx']);
+  });
+});
+
+// R11-7 (stock-plan.md §6.1-5): no money on any stock surface — the A-5 transitive check over the movement route folder and
+// lib/stock, with a real-file transitivity control and planted direct and one-hop controls.
+const STOCK_SURFACES = (files: readonly SourceFile[]) => files.filter((f) => STOCK_ROUTE_DIRS.some((d) => under(f.file, d)) || under(f.file, STOCK_LIB_DIR));
+const moneyOnStock = (files: readonly SourceFile[]) => STOCK_SURFACES(files).filter((f) => reachableFrom(files, f).has(MONEY)).map((f) => f.file);
+
+describe('architecture — stock ST-1: no money reachable from any movement surface (R11-7)', () => {
+  // Stock ST-2 (Revision 12 R12-7): the stock-on-hand folder joins (6 movement + 5 stock-on-hand + 5 lib files).
+  it('no stock surface reaches lib/format/money through any chain of imports (16 surfaces)', () => {
+    const files = walk('src');
+    expect(STOCK_SURFACES(files).length).toBe(16);
+    expect(moneyOnStock(files)).toEqual([]);
+    // Positive control: the closure is real and follows chains (page → list → core and the stock loaders).
+    const page = files.find((f) => f.file === 'src/app/(app)/stock-movements/page.tsx')!;
+    expect([...reachableFrom(files, page)]).toEqual(expect.arrayContaining(['src/app/(app)/stock-movements/StockMovementsList.tsx', 'src/lib/stock/source.ts', 'src/lib/stock/load.ts', 'src/app/(app)/ArchivableList.tsx', 'src/lib/format/quantity.ts']));
+  });
+
+  it('planted controls: a direct import and a lib hop go red; the family’s own logic does not', () => {
+    const real = walk('src');
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/stock-movements/[id]/Direct.tsx', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/lib/stock/costText.ts', source: "import { renderMoney } from '@/lib/format/money';" },
+      { file: 'src/app/(app)/stock-movements/Hop.tsx', source: "import { costText } from '@/lib/stock/costText';" },
+      { file: 'src/app/(app)/stock-movements/Fine.tsx', source: "import { loadMovements } from '@/lib/stock/load';\nimport { ArchivableList } from '../ArchivableList';" },
+      // Stock ST-2 (plan §7.1-5): a renderMoney import in the real stock-on-hand view is red.
+      { file: 'src/app/(app)/stock/StockLevelsView.tsx', source: `${real.find((f) => f.file === 'src/app/(app)/stock/StockLevelsView.tsx')!.source}\nimport { renderMoney } from '@/lib/format/money';` },
+    ];
+    // The view's importers (the page, and the states file through StockLoadFailed) reach it transitively: red too.
+    expect(moneyOnStock([...real, ...planted]).sort()).toEqual(['src/app/(app)/stock-movements/Hop.tsx', 'src/app/(app)/stock-movements/[id]/Direct.tsx', 'src/app/(app)/stock/StockLevelsView.tsx', 'src/app/(app)/stock/StockStates.tsx', 'src/app/(app)/stock/page.tsx', 'src/lib/stock/costText.ts']);
+  });
+});
+
+// stock-plan.md §6.1-6: the three tripwire twins reach the real ST-1 files. Each plant is the REAL file's text plus a
+// comment naming a token (a comment fires them: their stated limit, loud and safe), so a green real tree is proof the
+// folder is inside each walk, not that it was missed. The real-tree controls of each twin stay untouched.
+describe('architecture — stock ST-1: the G-47, G-51 and FE-R2 twins reach the movement folder', () => {
+  const LIST = 'app/(app)/stock-movements/StockMovementsList.tsx';
+  const DETAIL_PAGE = 'app/(app)/stock-movements/[id]/page.tsx';
+  const DETAIL = 'app/(app)/stock-movements/[id]/StockMovementPage.tsx';
+  const plant = (file: string, comment: string) => {
+    const sources = realSources();
+    expect(Object.hasOwn(sources, file), `${file} is not in the walk`).toBe(true);
+    return { ...sources, [file]: `${sources[file]}\n// ${comment}\n` };
+  };
+
+  it('the real tree keeps every twin false with the movement pages in it', () => {
+    const pages = realPages();
+    expect(pages).toEqual(expect.arrayContaining(['(app)/stock-movements/page.tsx', '(app)/stock-movements/[id]/page.tsx']));
+    const clientOps = realClientOps() as unknown[];
+    expect(clientOps).toEqual(expect.arrayContaining(['ListStockMovements', 'GetStockMovement']));
+    // Stock ST-2: G-47's trigger is now true on the real tree (the stock-on-hand screen), but no line names a movement file.
+    expect(stockRowTriggers(pages, realSources(), clientOps).filter((line) => line.includes('stock-movements'))).toEqual([]);
+    expect(stockCountOrMoveTriggers(pages, realSources(), clientOps)).toEqual([]);
+    expect(pickRouteIsDue(pages, realSources())).toBe(false);
+  });
+
+  it('a comment naming the stock read in the real list file trips G-47', () => {
+    // Stock ST-2: the real trigger already holds its six lines; the plant adds the list's.
+    expect(stockRowTriggers(realPages(), plant(LIST, ['List', 'Stock', 'Levels'].join('')), realClientOps() as unknown[]).filter((line) => line.includes(LIST))).toEqual([expect.stringContaining(LIST)]);
+  });
+
+  it('a comment naming the count’s operation in the real movement page trips G-51', () => {
+    expect(stockCountOrMoveTriggers(realPages(), plant(DETAIL_PAGE, ['Create', 'Stock', 'Adjustment'].join('')), realClientOps() as unknown[])).toEqual([expect.stringContaining(DETAIL_PAGE)]);
+  });
+
+  it('a comment naming the pick read in the real movement page component trips FE-R2', () => {
+    expect(pickRouteIsDue(realPages(), plant(DETAIL, ['Get', 'Pick', 'List'].join('')))).toBe(true);
+  });
+});
+
+describe('architecture — stock ST-1: the quantity and bulk scans read the stock dirs', () => {
+  it('lib/stock and the movement route dir are in the quantity scan; a planted Number(quantity) in lib/stock is red', () => {
+    expect(QUANTITY_SCAN_DIRS).toEqual(expect.arrayContaining(['src/lib/stock', 'src/app/(app)/stock-movements', 'src/app/(app)/stock']));
+    const scanned = QUANTITY_SCAN_DIRS.flatMap((d) => walk(d)).map((f) => f.file);
+    expect(scanned).toEqual(expect.arrayContaining(['src/lib/stock/load.ts', 'src/lib/stock/source.ts', 'src/app/(app)/stock-movements/StockMovementsList.tsx', 'src/app/(app)/stock-movements/[id]/StockMovementPage.tsx']));
+    const planted: SourceFile[] = [{ file: 'src/lib/stock/load.ts', source: 'export const n = (m: { quantity: string }) => Number(m.quantity);' }];
+    expect(quantityNumberViolations(planted).map((v) => v.detail)).toEqual(['Number(']);
+  });
+
+  it("lib/stock is bulk-scanned, holds no bulk key or cap, and a planted 'storage_location' or cap there is red", () => {
+    const keys = bulkResources();
+    const cap = bulkMaxIds();
+    expect(keys).toEqual(expect.arrayContaining(['inventory_item', 'storage_location']));
+    const real = walk('src/lib/stock');
+    expect(real.map((f) => f.file)).toEqual(['src/lib/stock/levels.ts', 'src/lib/stock/load.ts', 'src/lib/stock/marker.ts', 'src/lib/stock/source.ts', 'src/lib/stock/visibility.ts']);
+    expect(bulkLiteralViolations(real, keys, cap)).toEqual([]);
+    const planted: SourceFile[] = [{ file: 'src/lib/stock/source.ts', source: `export const r = 'storage_location';\nexport const c = ${cap};` }];
+    expect(bulkLiteralViolations(planted, keys, cap).map((v) => v.detail)).toEqual(["literal 'storage_location'", `number ${cap}`]);
+  });
+});
+
+// Commit RED L-4 (b4-architecture.md Revision 11 R11-4, stock-st1-red.md L-2): the source gates are server-computed
+// booleans, so no client file of the stock route folder calls `viewerMay` or imports the contract reader
+// `@/lib/bff/surface`. The server pages (no 'use client') read the gates and pass them down. TS/TSX specifiers only.
+// Limit, stated: a module without the directive that a client file imports is outside the domain — today
+// `StockMovementStates.tsx`, which reads `gateCode` for ST-4b's permission label, as every family's states file does.
+const isClientFile = (sf: SourceFile) => /^\s*(?:\/\/[^\n]*\n\s*|\/\*[\s\S]*?\*\/\s*)*['"]use client['"]/.test(sf.source);
+function stockClientGateViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  for (const sf of files) {
+    if (!under(sf.file, STOCK_ROUTE_DIR) || !isClientFile(sf)) continue;
+    for (const spec of specifiersOf(sf)) if (targetOf(sf.file, spec) === 'src/lib/bff/surface') out.push({ file: sf.file, detail: `a client stock file imports the contract reader (R11-4): '${spec}'` });
+    if (/\bviewerMay\b/.test(sf.source)) out.push({ file: sf.file, detail: 'a client stock file names viewerMay (R11-4)' });
+  }
+  return out;
+}
+
+describe('architecture — stock ST-1: R11-4, no client stock file computes a gate', () => {
+  it('the real folder: its two client files import no contract reader; its server pages do (not an empty domain)', () => {
+    const files = walk(STOCK_ROUTE_DIR);
+    expect(files.filter(isClientFile).map((f) => f.file)).toEqual(['src/app/(app)/stock-movements/StockMovementsList.tsx', 'src/app/(app)/stock-movements/[id]/StockMovementPage.tsx']);
+    const servers = files.filter((f) => !isClientFile(f) && /\bviewerMay\b/.test(f.source)).map((f) => f.file);
+    expect(servers).toEqual(['src/app/(app)/stock-movements/[id]/page.tsx', 'src/app/(app)/stock-movements/page.tsx']);
+    expect(stockClientGateViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: the list importing viewerMay, or a client file naming it, is red; a server page is not', () => {
+    const list = walk(STOCK_ROUTE_DIR).find((f) => f.file === 'src/app/(app)/stock-movements/StockMovementsList.tsx')!;
+    const planted: SourceFile[] = [
+      { file: list.file, source: list.source.replace("import Link from 'next/link';", "import Link from 'next/link';\nimport { viewerMay } from '@/lib/bff/surface';") },
+      { file: 'src/app/(app)/stock-movements/[id]/C.tsx', source: "'use client';\nexport const g = (codes: string[]) => viewerMay('GetGoodsReceipt', codes);" },
+      { file: 'src/app/(app)/stock-movements/S.tsx', source: "import { viewerMay } from '@/lib/bff/surface';\nexport const g = viewerMay;" },
+    ];
+    expect([...new Set(stockClientGateViolations(planted).map((v) => v.file))]).toEqual(['src/app/(app)/stock-movements/StockMovementsList.tsx', 'src/app/(app)/stock-movements/[id]/C.tsx']);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Stock ST-2 (stock-st2-plan.md §7.1-4; Revision 12 R12-4 (stock-st2-red.md H-1
+// with R1-3)): no client file under app/(app)/stock/ computes a gate, by ANY chain of imports. For every client file C
+// there: C's closure (reachableFrom) holds neither the gate helper nor any non-client file of the folder (the server
+// page, the picker, the states file), and no file in {C} ∪ closure outside lib/bff/ and generated/ names one of the five
+// gate words. lib/bff/ is excluded: the contract reader defines those names, and the browser transport needs
+// `operation()` (lib/bff/paths.ts and lib/bff/apiCall.ts import ./surface). ST-1's folder keeps R11-4's direct rule above.
+// ---------------------------------------------------------------------------------------------------------------------
+const STOCK_GATE_WORDS = /\b(?:viewerMay|gateAllows|gateCode|stockRowsVisible|missingMarkerCodes)\b/;
+const STOCK_GATE_HELPER_FILE = 'src/lib/stock/visibility.ts';
+function stockOnHandClientGateViolations(files: readonly SourceFile[]): Violation[] {
+  const out: Violation[] = [];
+  const byFile = new Map(files.map((f) => [f.file, f] as const));
+  for (const sf of files) {
+    if (!under(sf.file, STOCK_ON_HAND_DIR) || !isClientFile(sf)) continue;
+    const reach = reachableFrom(files, sf);
+    if (reach.has(STOCK_GATE_HELPER_FILE)) out.push({ file: sf.file, detail: 'a client /stock file reaches the gate helper lib/stock/visibility (R12-4)' });
+    for (const f of [...reach].sort()) {
+      const target = byFile.get(f);
+      if (target !== undefined && under(f, STOCK_ON_HAND_DIR) && !isClientFile(target)) out.push({ file: sf.file, detail: `a client /stock file reaches a server file of its folder (R12-4): ${f}` });
+    }
+    for (const f of [sf.file, ...[...reach].sort()]) {
+      if (under(f, 'src/lib/bff') || under(f, 'src/generated')) continue;
+      if (STOCK_GATE_WORDS.test(byFile.get(f)?.source ?? '')) out.push({ file: sf.file, detail: `a client /stock file reaches a file naming a gate word (R12-4): ${f}` });
+    }
+  }
+  return out;
+}
+
+describe('architecture — stock ST-2: R12-4, no client /stock file computes a gate, by any chain', () => {
+  it('the real folder: its two client files reach no gate, and the walk follows chains (the view reaches the contract reader through lib/bff)', () => {
+    const files = walk('src');
+    expect(walk(STOCK_ON_HAND_DIR).filter(isClientFile).map((f) => f.file)).toEqual(['src/app/(app)/stock/LocationLinks.tsx', 'src/app/(app)/stock/StockLevelsView.tsx']);
+    const view = files.find((f) => f.file === 'src/app/(app)/stock/StockLevelsView.tsx')!;
+    expect([...reachableFrom(files, view)]).toEqual(expect.arrayContaining(['src/lib/bff/surface.ts', 'src/lib/stock/levels.ts', 'src/lib/stock/marker.ts', 'src/lib/stock/load.ts']));
+    // The server files of the folder do name gate words (not an empty domain).
+    expect(walk(STOCK_ON_HAND_DIR).filter((f) => !isClientFile(f) && STOCK_GATE_WORDS.test(f.source)).map((f) => f.file)).toEqual(['src/app/(app)/stock/StockStates.tsx', 'src/app/(app)/stock/page.tsx']);
+    expect(stockOnHandClientGateViolations(files)).toEqual([]);
+  });
+
+  it('planted controls: the view importing the states file, a lib/stock hop to the gate helper, and a ui file naming gateCode( are red', () => {
+    const real = walk('src');
+    const viewOf = () => real.find((f) => f.file === 'src/app/(app)/stock/StockLevelsView.tsx')!;
+    const withView = (extra: string, more: SourceFile[] = []) => [...real, ...more, { file: viewOf().file, source: `${viewOf().source}\n${extra}` }];
+    expect(stockOnHandClientGateViolations(withView("import { StockDenied } from './StockStates';")).map((v) => v.detail)).toEqual(
+      expect.arrayContaining(['a client /stock file reaches a server file of its folder (R12-4): src/app/(app)/stock/StockStates.tsx']),
+    );
+    expect(
+      stockOnHandClientGateViolations(withView("import { hop } from '@/lib/stock/hop';", [{ file: 'src/lib/stock/hop.ts', source: "export { stockRowsVisible as hop } from './visibility';" }])).map((v) => v.detail),
+    ).toEqual(expect.arrayContaining(['a client /stock file reaches the gate helper lib/stock/visibility (R12-4)']));
+    expect(
+      stockOnHandClientGateViolations(withView("import { X } from '@/components/ui/X';", [{ file: 'src/components/ui/X.tsx', source: "import { gateCode } from '@/lib/bff/surface';\nexport const X = () => gateCode('GetItem');" }])).map((v) => v.detail),
+    ).toEqual(['a client /stock file reaches a file naming a gate word (R12-4): src/components/ui/X.tsx']);
+  });
+});
+
+// Stock ST-2 (b4-architecture.md Revision 12 R12-6): no cross-viewer cache on any stock surface. For every file F under
+// src/lib/stock or src/app/(app)/stock, no file in {F} ∪ reachableFrom(F) outside src/generated/ matches any alternative
+// below. Network access is held separately by G-1 (only the two fetch homes reference fetch; both send no-store); the
+// closure reaches both homes, so a cache option added to either is caught here. React's per-request cache() is allowed.
+// The scan reads comments too, so stock docblocks cite these rules by number.
+const STOCK_CACHE_TERMS: readonly (readonly [string, RegExp])[] = [
+  ['unstable_cache', /\bunstable_cache\b/],
+  ["'use cache'", /['"]use cache(?::[^'"]*)?['"]/],
+  ['cacheLife / cacheTag', /\b(?:cacheLife|cacheTag)\b/],
+  ['an import of next/cache', /['"]next\/cache['"]/],
+  ['revalidate', /\brevalidate\b/],
+  ['fetchCache (any form; the word appears on no stock surface)', /\bfetchCache\b/],
+  ["a dynamic other than 'force-dynamic'", /\bdynamic\s*=\s*['"](?!force-dynamic['"])/],
+  ["'force-cache'", /['"]force-cache['"]/],
+  ['a next: fetch option', /\bnext\s*:\s*\{/],
+];
+const isStockSurface = (f: string) => under(f, STOCK_LIB_DIR) || under(f, STOCK_ON_HAND_DIR);
+/** Each breach once, as "<surface> reaches <file>: <term>", in byte order. */
+function stockClosureTermViolations(files: readonly SourceFile[], terms: readonly (readonly [string, RegExp])[]): string[] {
+  const byFile = new Map(files.map((f) => [f.file, f] as const));
+  const out = new Set<string>();
+  for (const sf of files.filter((f) => isStockSurface(f.file))) {
+    for (const f of [sf.file, ...reachableFrom(files, sf)]) {
+      if (under(f, 'src/generated')) continue;
+      const text = byFile.get(f)?.source ?? '';
+      for (const [name, pattern] of terms) if (pattern.test(text)) out.add(`${sf.file} reaches ${f}: ${name}`);
+    }
+  }
+  return [...out].sort();
+}
+
+describe('architecture — stock ST-2: R12-6, no cross-viewer cache on any stock surface, by any chain', () => {
+  it('the real stock surfaces reach no cache term; the closure reaches both fetch homes; the page is force-dynamic', () => {
+    const files = walk('src');
+    expect(files.filter((f) => isStockSurface(f.file)).length).toBe(EXPECTED_COUNTS['src/lib/stock']! + 5);
+    const page = files.find((f) => f.file === 'src/app/(app)/stock/page.tsx')!;
+    expect([...reachableFrom(files, page)]).toEqual(expect.arrayContaining(['src/lib/bff/server/apiClient.ts', 'src/lib/stock/levels.ts']));
+    const view = files.find((f) => f.file === 'src/app/(app)/stock/StockLevelsView.tsx')!;
+    expect([...reachableFrom(files, view)]).toEqual(expect.arrayContaining(['src/lib/bff/transport.ts']));
+    expect(page.source).toMatch(/^export const dynamic = 'force-dynamic';$/m);
+    expect(stockClosureTermViolations(files, STOCK_CACHE_TERMS)).toEqual([]);
+  });
+
+  it('planted controls: each alternative is red directly, and unstable_cache is red one hop away', () => {
+    const real = walk('src');
+    const levels = real.find((f) => f.file === 'src/lib/stock/levels.ts')!;
+    const plants = [
+      "import { unstable_cache } from 'next/cache';\nexport const l = unstable_cache(x);",
+      "'use cache';",
+      "'use cache: private';",
+      'cacheLife("hours");',
+      'cacheTag("stock");',
+      "import { x } from 'next/cache';",
+      'export const revalidate = 60;',
+      "export const fetchCache = 'default-cache';",
+      "export let fetchCache = 'default-cache';",
+      'const fetchCache = 1;\nexport { fetchCache };',
+      "export const dynamic = 'force-static';",
+      "fetch(u, { cache: 'force-cache' });",
+      'fetch(u, { next: { tags: [] } });',
+    ];
+    for (const plant of plants) {
+      const planted = [...real, { file: levels.file, source: `${levels.source}\n${plant}` }];
+      expect(stockClosureTermViolations(planted, STOCK_CACHE_TERMS).length, plant).toBeGreaterThan(0);
+    }
+    const hop = [...real, { file: 'src/lib/format/memo.ts', source: "export const memo = unstable_cache;" }, { file: levels.file, source: `${levels.source}\nimport { memo } from '../format/memo';` }];
+    expect(stockClosureTermViolations(hop, STOCK_CACHE_TERMS)).toEqual(expect.arrayContaining(['src/lib/stock/levels.ts reaches src/lib/format/memo.ts: unstable_cache']));
+    // 'force-dynamic' itself is the house form and is allowed.
+    expect(stockClosureTermViolations([...real, { file: levels.file, source: `${levels.source}\nexport const dynamic = 'force-dynamic';` }], STOCK_CACHE_TERMS)).toEqual([]);
+  });
+});
+
+// Stock ST-2 (b4-architecture.md Revision 12 R12-8): no export of stock rows while G-47 is open. For every stock surface,
+// no file in its closure outside src/generated/ names an export operation id (derived from the server surface), uses
+// createObjectURL or a Blob; and, by AST, carries a JSX `download` attribute, assigns `.download`, or calls
+// setAttribute('download', …). The bare word "download" is not banned (lib/bff/transport.ts's docblock uses it).
+const EXPORT_OPERATIONS = [...new Set([...readFileSync(path.join(ROOT, 'src/generated/api-surface.server.ts'), 'utf8').matchAll(/\b(\w*Export\w*):\s*\{/g)].map((m) => m[1]!))].sort();
+const STOCK_EXPORT_TEXT_TERMS: readonly (readonly [string, RegExp])[] = [
+  ...EXPORT_OPERATIONS.map((op) => [op, new RegExp(`\\b${op}\\b`)] as const),
+  ['createObjectURL', /\bcreateObjectURL\b/],
+  ['Blob', /\bBlob\b/],
+];
+/** The AST download terms, on one file. */
+function downloadTerms(sf: SourceFile): string[] {
+  const found: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'download') found.push('a download attribute');
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(node.left) && node.left.name.text === 'download') found.push('an assignment to .download');
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'setAttribute' && node.arguments[0] !== undefined && ts.isStringLiteralLike(node.arguments[0]) && node.arguments[0].text === 'download') found.push("setAttribute('download')");
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(sf));
+  return found;
+}
+function stockExportViolations(files: readonly SourceFile[]): string[] {
+  const byFile = new Map(files.map((f) => [f.file, f] as const));
+  const out = new Set(stockClosureTermViolations(files, STOCK_EXPORT_TEXT_TERMS));
+  for (const sf of files.filter((f) => isStockSurface(f.file))) {
+    for (const f of [sf.file, ...reachableFrom(files, sf)]) {
+      const target = byFile.get(f);
+      if (target === undefined || under(f, 'src/generated')) continue;
+      for (const term of downloadTerms(target)) out.add(`${sf.file} reaches ${f}: ${term}`);
+    }
+  }
+  return [...out].sort();
+}
+
+describe('architecture — stock ST-2: R12-8, no export of stock rows while G-47 is open, by any chain', () => {
+  it('the export ids are derived from the server surface; the real stock surfaces reach none of the terms', () => {
+    expect(EXPORT_OPERATIONS).toContain('CreateExport');
+    expect(stockExportViolations(walk('src'))).toEqual([]);
+  });
+
+  it('planted controls: each term is red directly, and one hop away', () => {
+    const real = walk('src');
+    const view = real.find((f) => f.file === 'src/app/(app)/stock/StockLevelsView.tsx')!;
+    const plants = [
+      "export const e = () => <a href=\"/x\" download>Rows</a>;",
+      "export const f = () => new window.Blob([]);",
+      "export const g = (el: HTMLElement) => el.setAttribute('download', 'x');",
+      "export const h = (a: HTMLAnchorElement) => { a.download = 'rows.csv'; };",
+      'export const i = URL.createObjectURL;',
+      "export const j = 'CreateExport';",
+    ];
+    for (const plant of plants) {
+      expect(stockExportViolations([...real, { file: view.file, source: `${view.source}\n${plant}` }]).length, plant).toBeGreaterThan(0);
+    }
+    const hop = [...real, { file: 'src/lib/format/save.ts', source: 'export const save = (b: Blob) => b;' }, { file: view.file, source: `${view.source}\nimport { save } from '@/lib/format/save';` }];
+    expect(stockExportViolations(hop)).toEqual(expect.arrayContaining(['src/app/(app)/stock/StockLevelsView.tsx reaches src/lib/format/save.ts: Blob']));
+    // The bare word, in a comment, is not a term.
+    expect(stockExportViolations([...real, { file: view.file, source: `${view.source}\n// the download of the page` }])).toEqual([]);
+  });
+});
+
+// Stock ST-2 (b4-architecture.md Revision 12 R12-2): who may import lib/stock. A file outside the stock family imports no
+// lib/stock file, except a server page file (a page.ts(x) under src/app that is not a client file) importing the gate
+// helper; inside the family, only server page files import the gate helper; and no file re-exports from it. Every form
+// specifiersOf sees counts; targets are compared with their extension stripped. The cross-family edges are pinned exactly.
+const STOCK_VISIBILITY_TARGET = 'src/lib/stock/visibility';
+const stripStockExt = (t: string) => t.replace(/\.(ts|tsx|css)$/, '');
+const isServerPageFile = (sf: SourceFile) => under(sf.file, 'src/app') && /\/page\.tsx?$/.test(sf.file) && !isClientFile(sf);
+function stockLibImporterViolations(files: readonly SourceFile[]): { violations: Violation[]; edges: string[] } {
+  const violations: Violation[] = [];
+  const edges = new Set<string>();
+  for (const sf of files) {
+    for (const spec of specifiersOf(sf)) {
+      const t = stripStockExt(targetOf(sf.file, spec));
+      if (!under(t, STOCK_LIB_DIR)) continue;
+      if (!isStockFile(sf.file)) edges.add(`${sf.file} -> ${t}`);
+      if (t === STOCK_VISIBILITY_TARGET) {
+        if (!isServerPageFile(sf)) violations.push({ file: sf.file, detail: `imports the gate helper and is not a server page file (R12-2): '${spec}'` });
+      } else if (!isStockFile(sf.file)) violations.push({ file: sf.file, detail: `imports a lib/stock file from outside the stock family (R12-2): '${spec}'` });
+    }
+    const visit = (node: ts.Node) => {
+      if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) && stripStockExt(targetOf(sf.file, node.moduleSpecifier.text)) === STOCK_VISIBILITY_TARGET) {
+        violations.push({ file: sf.file, detail: `re-exports from the gate helper (R12-2): '${node.moduleSpecifier.text}'` });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(parse(sf));
+  }
+  return { violations, edges: [...edges].sort() };
+}
+
+/** Every file that imports the gate helper, by any form specifiersOf sees, extensions stripped, byte order. */
+const visibilityImporters = (files: readonly SourceFile[]) => files.filter((f) => specifiersOf(f).some((s) => stripStockExt(targetOf(f.file, s)) === STOCK_VISIBILITY_TARGET)).map((f) => f.file).sort();
+const VISIBILITY_IMPORTERS_MESSAGE = 'Only the stock page and the item page (its link gate) import the gate helper (Revision 12 R12-2).';
+
+describe('architecture — stock ST-2: R12-2, the one edge into lib/stock from another family', () => {
+  it('the real tree: no violation, and the cross-family edges are exactly the item page’s link gate', () => {
+    const r = stockLibImporterViolations(walk('src'));
+    expect(r.violations).toEqual([]);
+    expect(r.edges, 'A second edge into lib/stock from another family is a deliberate edit, with an architecture line (Revision 12 R12-2).').toEqual(['src/app/(app)/items/[id]/page.tsx -> src/lib/stock/visibility']);
+    // Pre-commit RED M-1: the importer set is exact inside the family too (R12-2 lists the two importers exhaustively).
+    expect(visibilityImporters(walk('src')), VISIBILITY_IMPORTERS_MESSAGE).toEqual(['src/app/(app)/items/[id]/page.tsx', 'src/app/(app)/stock/page.tsx']);
+  });
+
+  it('planted controls: each clause is red; a second server-page import passes the function and turns the pin red; the movement page’s load import is green', () => {
+    const real = walk('src');
+    const src = (file: string) => real.find((f) => f.file === file)!.source;
+    const ITEM_PAGE_FILE = 'src/app/(app)/items/[id]/ItemPage.tsx';
+    const ITEM_ROUTE = 'src/app/(app)/items/[id]/page.tsx';
+    const red: SourceFile[] = [
+      { file: ITEM_PAGE_FILE, source: `${src(ITEM_PAGE_FILE)}\nimport { stockRowsVisible } from '@/lib/stock/visibility';` },
+      { file: 'src/app/(app)/stock/StockStates.tsx', source: `${src('src/app/(app)/stock/StockStates.tsx')}\nimport { stockRowsVisible } from '../../../lib/stock/visibility';` },
+      { file: ITEM_ROUTE, source: `${src(ITEM_ROUTE)}\nimport { stockRowMarker } from '@/lib/stock/marker';` },
+      { file: 'src/components/items/X.tsx', source: "import { loadMarkerLocations } from '@/lib/stock/load';" },
+      { file: 'src/app/(app)/items/[id]/Ext.tsx', source: "'use client';\nimport { stockRowsVisible } from '@/lib/stock/visibility.ts';" },
+      { file: 'src/app/(app)/purchase-orders/page.tsx', source: `${src('src/app/(app)/purchase-orders/page.tsx')}\nexport { stockRowsVisible } from '@/lib/stock/visibility';` },
+    ];
+    for (const plant of red) {
+      const files = [...real.filter((f) => f.file !== plant.file), plant];
+      expect(stockLibImporterViolations(files).violations.map((v) => v.file), plant.file).toEqual([plant.file]);
+    }
+    const second = { file: 'src/app/(app)/purchase-orders/[id]/page.tsx', source: `${src('src/app/(app)/purchase-orders/[id]/page.tsx')}\nimport { stockRowsVisible } from '@/lib/stock/visibility';` };
+    const withSecond = stockLibImporterViolations([...real.filter((f) => f.file !== second.file), second]);
+    expect(withSecond.violations).toEqual([]);
+    expect(withSecond.edges).not.toEqual(['src/app/(app)/items/[id]/page.tsx -> src/lib/stock/visibility']);
+    // Pre-commit RED M-1: a server page inside the family importing the gate helper passes the function, and turns the importer pin red.
+    const inFamily = { file: 'src/app/(app)/stock-movements/page.tsx', source: `${src('src/app/(app)/stock-movements/page.tsx')}\nimport { stockRowsVisible } from '@/lib/stock/visibility';` };
+    const withInFamily = [...real.filter((f) => f.file !== inFamily.file), inFamily];
+    expect(stockLibImporterViolations(withInFamily).violations).toEqual([]);
+    expect(visibilityImporters(withInFamily)).toEqual(['src/app/(app)/items/[id]/page.tsx', 'src/app/(app)/stock-movements/page.tsx', 'src/app/(app)/stock/page.tsx']);
+    const movement = { file: 'src/app/(app)/stock-movements/page.tsx', source: `${src('src/app/(app)/stock-movements/page.tsx')}\nimport { loadMarkerLocations } from '@/lib/stock/load';` };
+    expect(stockLibImporterViolations([...real.filter((f) => f.file !== movement.file), movement]).violations).toEqual([]);
+  });
+});
+
+// Stock ST-2 (b4-architecture.md Revision 12 R12-5 (b), (c)): every COPY_EXCEPTIONS file into copy/warehouses takes the
+// binding kindLabel only, by a NamedImports import; any other form naming copy/warehouses is a violation. The inspected set
+// is asserted exactly. The kind labels move to a family-free copy/kinds.ts at a third such exception (the ≤ 2 pin).
+const COPY_WAREHOUSES = 'src/copy/warehouses';
+function kindLabelBindingViolations(files: readonly SourceFile[], exceptions: readonly string[] = COPY_EXCEPTIONS): { inspected: string[]; violations: Violation[] } {
+  const holders = exceptions.filter((e) => e.endsWith(` -> ${COPY_WAREHOUSES}`)).map((e) => e.split(' -> ')[0]!);
+  const inspected: string[] = [];
+  const violations: Violation[] = [];
+  for (const sf of files.filter((f) => holders.includes(f.file))) {
+    inspected.push(sf.file);
+    const all = specifiersOf(sf).filter((spec) => stripStockExt(targetOf(sf.file, spec)) === COPY_WAREHOUSES).length;
+    let ok = 0;
+    for (const st of parse(sf).statements) {
+      if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || stripStockExt(targetOf(sf.file, st.moduleSpecifier.text)) !== COPY_WAREHOUSES) continue;
+      const clause = st.importClause;
+      const named = clause?.namedBindings;
+      if (clause && !clause.name && named && ts.isNamedImports(named) && named.elements.length > 0 && named.elements.every((el) => (el.propertyName ?? el.name).text === 'kindLabel')) ok += 1;
+    }
+    if (all !== ok) violations.push({ file: sf.file, detail: `takes something other than the named binding kindLabel from copy/warehouses (R12-5 (b)): ${all - ok} of ${all}` });
+  }
+  return { inspected: inspected.sort(), violations };
+}
+
+describe('architecture — stock ST-2: R12-5 (b), (c), the kind label crosses into another family as kindLabel only', () => {
+  it('the real tree: the two exception files are inspected and take kindLabel only; at most two exceptions into copy/warehouses', () => {
+    const r = kindLabelBindingViolations(walk('src'));
+    expect(r.inspected).toEqual(['src/app/(app)/stock/LocationLinks.tsx', 'src/components/purchasing/ReceiveForm.tsx']);
+    expect(r.violations).toEqual([]);
+    expect(
+      COPY_EXCEPTIONS.filter((e) => e.endsWith(' -> src/copy/warehouses')).length,
+      'A third COPY_EXCEPTIONS entry into copy/warehouses: move the kind labels to a family-free copy/kinds.ts in this commit (Revision 12 R12-5 (c)).',
+    ).toBeLessThanOrEqual(2);
+  });
+
+  it('planted controls: each other form is red; the named kindLabel binding is not', () => {
+    const file = 'src/app/(app)/stock/LocationLinks.tsx';
+    const forms = [
+      "import { kindLabel, KIND_LABELS } from '@/copy/warehouses';",
+      "import { KIND_LABELS as kindLabel } from '@/copy/warehouses';",
+      "import * as w from '@/copy/warehouses';",
+      "import w from '@/copy/warehouses';",
+      "import { WAREHOUSE_FORBIDDEN } from '@/copy/warehouses';",
+      "export { kindLabel } from '@/copy/warehouses';",
+      "const w = await import('@/copy/warehouses');",
+    ];
+    for (const source of forms) expect(kindLabelBindingViolations([{ file, source }]).violations.map((v) => v.file), source).toEqual([file]);
+    expect(kindLabelBindingViolations([{ file, source: "import { kindLabel } from '@/copy/warehouses';" }]).violations).toEqual([]);
+    expect(kindLabelBindingViolations([{ file, source: "import { kindLabel as label } from '../../../copy/warehouses';" }]).violations).toEqual([]);
+  });
+});
+
+// Stock ST-2 (plan §7.1-9; stock ST-1's §6.1-6 shape): the G-51 twin reaches the stock-on-hand folder. A comment naming the
+// count's operation in the REAL view trips it; the real tree keeps it false.
+describe('architecture — stock ST-2: the G-51 and FE-R2 twins reach the stock-on-hand folder', () => {
+  it('a comment naming the count’s operation in the real /stock view trips G-51; the real tree keeps it false', () => {
+    const VIEW_FILE = 'app/(app)/stock/StockLevelsView.tsx';
+    const sources = realSources();
+    expect(Object.hasOwn(sources, VIEW_FILE), `${VIEW_FILE} is not in the walk`).toBe(true);
+    expect(stockCountOrMoveTriggers(realPages(), sources, realClientOps() as unknown[])).toEqual([]);
+    const planted = { ...sources, [VIEW_FILE]: `${sources[VIEW_FILE]}\n// ${['Create', 'Stock', 'Adjustment'].join('')}\n` };
+    expect(stockCountOrMoveTriggers(realPages(), planted, realClientOps() as unknown[])).toEqual([expect.stringContaining(VIEW_FILE)]);
+    expect(pickRouteIsDue(realPages(), sources)).toBe(false);
   });
 });

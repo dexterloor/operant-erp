@@ -23,6 +23,16 @@ export interface SelectFieldProps {
    * a required picker). Absent, the select has no empty option.
    */
   prompt?: string;
+  /**
+   * The id of the form element the select belongs to when it is not inside it (the HTML `form` attribute; purchase orders
+   * PO-5: an inline table row whose form sits in its last cell). Absent = the enclosing form, as before.
+   */
+  form?: string;
+  /**
+   * The select's accessible name when the visible label alone would repeat across rows (PO-5's per-row names, which begin
+   * with the visible label so the label stays in the name, WCAG 2.5.3). Absent = the label names it, as before.
+   */
+  accessibleName?: string;
 }
 
 /**
@@ -30,9 +40,10 @@ export interface SelectFieldProps {
  * label names the select; `aria-invalid` only while there is an error; `aria-describedby` = the hint id then the error id.
  * Options are the given values in the given order, each shown by `labelOf`. A value the list lacks (a record's own value,
  * if the enum ever narrowed) is kept as the first option, so the select never shows a value the record does not have.
- * Never the native `disabled` attribute (ST-4e). Nothing is decided from a value here.
+ * Never the native `disabled` attribute (ST-4e). Nothing is decided from a value here. Revision 10 R10-5: the values may
+ * also be records' served ids, each labelled by the caller from served fields (never by its id), with no preselection.
  */
-export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(function SelectField({ id, name, label, options, labelOf, value, onChange, hints, error, prompt }, ref) {
+export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(function SelectField({ id, name, label, options, labelOf, value, onChange, hints, error, prompt, form, accessibleName }, ref) {
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
   const describedBy = [hints.length > 0 ? hintId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined;
@@ -40,7 +51,7 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(funct
   return (
     <div className={styles.field}>
       <label htmlFor={id}>{label}</label>
-      <select ref={ref} id={id} name={name} value={value} aria-invalid={error ? true : undefined} aria-describedby={describedBy} onChange={(e) => onChange(e.target.value)}>
+      <select ref={ref} id={id} name={name} form={form} aria-label={accessibleName} value={value} aria-invalid={error ? true : undefined} aria-describedby={describedBy} onChange={(e) => onChange(e.target.value)}>
         {prompt !== undefined ? <option value="">{prompt}</option> : null}
         {shown.map((v) => (
           <option key={v} value={v}>

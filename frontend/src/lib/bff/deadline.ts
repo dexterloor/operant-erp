@@ -37,6 +37,74 @@ export const ACTION_DEADLINES_MS = {
   itemDelete: 30_000,
   /** Create an item: the request alone (the page navigates to the new item, which reads it). */
   itemCreate: 30_000,
+  /** Save a supplier: the request + the GetSupplier re-read (also after a refusal, to see whether the page was stale). */
+  supplierSave: 30_000,
+  /** Restore a supplier: the request + the GetSupplier re-read. */
+  supplierRestore: 30_000,
+  /** Delete a supplier (S-7): the request + the GetSupplier re-read (the page turns archived). */
+  supplierDelete: 30_000,
+  /** Create a supplier: the request alone (the page navigates to the new supplier, which reads it). */
+  supplierCreate: 30_000,
+  /**
+   * Save a supplier catalogue entry: the request + the GetSupplier re-read after a refusal (to see whether the supplier
+   * was archived meanwhile). The section re-reads its catalogue after the dialog closes, under its own deadline.
+   */
+  entrySave: 30_000,
+  /**
+   * Add a supplier catalogue entry (S-5): the request + the GetSupplier re-read after a refusal, as for `entrySave`. The
+   * item choice list's reads and the section's re-read run under `reread`.
+   */
+  entryCreate: 30_000,
+  /**
+   * Remove a supplier catalogue entry (S-6): the request + the GetSupplier re-read after a refusal, as for `entrySave`.
+   * The section re-reads its catalogue after the dialog closes, under `reread`.
+   */
+  entryDelete: 30_000,
+  /**
+   * Restore a deleted purchase-order draft (PO-2): the request + the GetPurchaseOrder re-read, and, for a
+   * ListPurchaseOrderLines holder, the order's live lines (they came back with it).
+   */
+  orderRestore: 30_000,
+  /** Create a purchase-order draft (PO-3): the request alone (the page navigates to the new order, which reads it). */
+  orderCreate: 30_000,
+  /**
+   * Save a draft purchase order's header (PO-4a): the request + the GetPurchaseOrder re-read (also after a refusal, to see
+   * whether the page was stale).
+   */
+  orderSave: 30_000,
+  /** Add a line to a draft purchase order (PO-5): the request + the GetPurchaseOrder and lines re-read. */
+  lineCreate: 30_000,
+  /** Delete a draft purchase order's line (PO-5): the request + the GetPurchaseOrder and lines re-read. */
+  lineDelete: 30_000,
+  /**
+   * Delete a draft purchase order (PO-6): the request + the GetPurchaseOrder re-read (and, when it reads live — restored in
+   * between — its lines); also the re-read after P9's rule, to say what the order is now. The page's re-read after the
+   * dialog closes runs under `reread`.
+   */
+  orderDelete: 30_000,
+  /**
+   * Cancel an ordered or partly received purchase order (PO-7): the request + the GetPurchaseOrder and lines re-read; also
+   * the re-read after C2's status refusal, to say what the order is now. The page's re-read after the dialog closes runs
+   * under `reread`.
+   */
+  orderCancel: 30_000,
+  /**
+   * Approve a draft purchase order (PO-8): the request + the GetPurchaseOrder and lines re-read; also the re-read after A2's
+   * status refusal, to say what the order is now. The page's re-read after the dialog closes runs under `reread`.
+   */
+  orderApprove: 30_000,
+  /**
+   * Restore a deleted line of a draft purchase order (PO-9): the request + the GetPurchaseOrder, lines and deleted lines
+   * re-read; also that re-read after a refusal, to see whether the line came back elsewhere or the page was stale.
+   */
+  lineRestore: 30_000,
+  /**
+   * Save a line of a draft purchase order (PO-4b): the PATCH + the header-only GetPurchaseOrder re-read (M-9); after a
+   * refusal or a 404, the order and its lines read again to see whether the line or the page was stale.
+   */
+  /** GR-2: Record receipt — the request + the GetPurchaseOrder re-read (the arrival sentence's status) or, after a refusal, the order + lines + locations re-read. */
+  receiptCreate: 30_000,
+  lineSave: 30_000,
   /** A bulk run (its re-read is outside the busy dialog, A-5). */
   bulkRun: 30_000,
   /** A re-read started by a button (Load roles again, the pager). */

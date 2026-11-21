@@ -23,6 +23,16 @@ export interface BulkResource {
 
 /** The wired operations only. */
 export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
+  ApprovePurchaseOrder: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders/{id}/approval',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.approve'],
+    },
+  },
   AssignRole: {
     method: 'POST',
     template: '/api/v1/users/{id}/roles',
@@ -31,6 +41,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['role.assign'],
+    },
+  },
+  CancelPurchaseOrder: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders/{id}/cancellation',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.cancel'],
     },
   },
   CancelRoleGrantProposal: {
@@ -53,6 +73,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  CreateGoodsReceipt: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders/{id}/goods-receipts',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['goods_receipt.create'],
+    },
+  },
   CreateItem: {
     method: 'POST',
     template: '/api/v1/items',
@@ -61,6 +91,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['inventory_item.create'],
+    },
+  },
+  CreatePurchaseOrder: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders',
+    pathParams: [],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.create'],
+    },
+  },
+  CreatePurchaseOrderLine: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders/{id}/lines',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
     },
   },
   CreateRoleGrantProposal: {
@@ -83,6 +133,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['storage_location.create'],
     },
   },
+  CreateSupplier: {
+    method: 'POST',
+    template: '/api/v1/suppliers',
+    pathParams: [],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.create'],
+    },
+  },
+  CreateSupplierProduct: {
+    method: 'POST',
+    template: '/api/v1/suppliers/{id}/products',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier_product.edit'],
+    },
+  },
   CreateWarehouse: {
     method: 'POST',
     template: '/api/v1/warehouses',
@@ -103,6 +173,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['inventory_item.delete'],
     },
   },
+  DeletePurchaseOrder: {
+    method: 'DELETE',
+    template: '/api/v1/purchase-orders/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.delete'],
+    },
+  },
+  DeletePurchaseOrderLine: {
+    method: 'DELETE',
+    template: '/api/v1/purchase-orders/{id}/lines/{lineId}',
+    pathParams: ['id', 'lineId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
+    },
+  },
   DeleteStorageLocation: {
     method: 'DELETE',
     template: '/api/v1/warehouses/{id}/locations/{locationId}',
@@ -111,6 +201,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['storage_location.delete'],
+    },
+  },
+  DeleteSupplier: {
+    method: 'DELETE',
+    template: '/api/v1/suppliers/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.delete'],
+    },
+  },
+  DeleteSupplierProduct: {
+    method: 'DELETE',
+    template: '/api/v1/suppliers/{id}/products/{productId}',
+    pathParams: ['id', 'productId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier_product.edit'],
     },
   },
   DeleteUser: {
@@ -133,6 +243,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['warehouse.delete'],
     },
   },
+  GetGoodsReceipt: {
+    method: 'GET',
+    template: '/api/v1/goods-receipts/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['goods_receipt.view'],
+    },
+  },
   GetItem: {
     method: 'GET',
     template: '/api/v1/items/{id}',
@@ -143,6 +263,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['inventory_item.view'],
     },
   },
+  GetPurchaseOrder: {
+    method: 'GET',
+    template: '/api/v1/purchase-orders/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.view'],
+    },
+  },
   GetRole: {
     method: 'GET',
     template: '/api/v1/roles/{id}',
@@ -151,6 +281,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['role.view'],
+    },
+  },
+  GetStockMovement: {
+    method: 'GET',
+    template: '/api/v1/stock-movements/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['stock_movement.view'],
+    },
+  },
+  GetSupplier: {
+    method: 'GET',
+    template: '/api/v1/suppliers/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.view'],
     },
   },
   GetUser: {
@@ -171,6 +321,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['warehouse.view'],
+    },
+  },
+  ListGoodsReceipts: {
+    method: 'GET',
+    template: '/api/v1/goods-receipts',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['goods_receipt.view'],
     },
   },
   ListItems: {
@@ -203,6 +363,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.view'],
     },
   },
+  ListPurchaseOrderLines: {
+    method: 'GET',
+    template: '/api/v1/purchase-orders/{id}/lines',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.view'],
+    },
+  },
+  ListPurchaseOrders: {
+    method: 'GET',
+    template: '/api/v1/purchase-orders',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.view'],
+    },
+  },
   ListRoleGrantProposals: {
     method: 'GET',
     template: '/api/v1/role-grant-proposals',
@@ -223,6 +403,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.view'],
     },
   },
+  ListStockLevels: {
+    method: 'GET',
+    template: '/api/v1/stock',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['stock_level.view'],
+    },
+  },
+  ListStockMovements: {
+    method: 'GET',
+    template: '/api/v1/stock-movements',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['stock_movement.view'],
+    },
+  },
   ListStorageLocations: {
     method: 'GET',
     template: '/api/v1/warehouses/{id}/locations',
@@ -231,6 +431,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['storage_location.view'],
+    },
+  },
+  ListSupplierProducts: {
+    method: 'GET',
+    template: '/api/v1/suppliers/{id}/products',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier_product.view'],
+    },
+  },
+  ListSuppliers: {
+    method: 'GET',
+    template: '/api/v1/suppliers',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.view'],
     },
   },
   ListUsers: {
@@ -273,6 +493,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['inventory_item.delete'],
     },
   },
+  RestorePurchaseOrder: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders/{id}/restoration',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.delete'],
+    },
+  },
+  RestorePurchaseOrderLine: {
+    method: 'POST',
+    template: '/api/v1/purchase-orders/{id}/lines/{lineId}/restoration',
+    pathParams: ['id', 'lineId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
+    },
+  },
   RestoreRole: {
     method: 'POST',
     template: '/api/v1/roles/{id}/restoration',
@@ -291,6 +531,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['storage_location.delete'],
+    },
+  },
+  RestoreSupplier: {
+    method: 'POST',
+    template: '/api/v1/suppliers/{id}/restoration',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.delete'],
     },
   },
   RestoreUser: {
@@ -333,6 +583,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['inventory_item.edit'],
     },
   },
+  UpdatePurchaseOrder: {
+    method: 'PATCH',
+    template: '/api/v1/purchase-orders/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
+    },
+  },
+  UpdatePurchaseOrderLine: {
+    method: 'PATCH',
+    template: '/api/v1/purchase-orders/{id}/lines/{lineId}',
+    pathParams: ['id', 'lineId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['purchase_order.edit'],
+    },
+  },
   UpdateRole: {
     method: 'PATCH',
     template: '/api/v1/roles/{id}',
@@ -351,6 +621,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['storage_location.edit'],
+    },
+  },
+  UpdateSupplier: {
+    method: 'PATCH',
+    template: '/api/v1/suppliers/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier.edit'],
+    },
+  },
+  UpdateSupplierProduct: {
+    method: 'PATCH',
+    template: '/api/v1/suppliers/{id}/products/{productId}',
+    pathParams: ['id', 'productId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['supplier_product.edit'],
     },
   },
   UpdateWarehouse: {
@@ -416,20 +706,53 @@ export const BULK_MAX_IDS: number = 50;
 
 /** Sorted served property names of each schema a hand-written lib/api type mirrors (checked by test C-1). */
 export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  ActorReference: ['display_name', 'id'],
   Collection: ['items', 'next_cursor', 'previous_cursor', 'tenant_has_rows'],
+  GoodsReceipt: ['id', 'lines', 'purchase_order', 'receipt_number', 'received_at', 'received_by'],
+  'GoodsReceipt.CreateGoodsReceiptInput': ['lines', 'received_at'],
+  'GoodsReceipt.CreateGoodsReceiptInput.lines[]': ['purchase_order_line_id', 'quantity', 'storage_location_id'],
+  'GoodsReceipt.lines[]': ['id', 'inventory_item', 'purchase_order_line', 'quantity', 'storage_location', 'unit_of_measure_code'],
+  'GoodsReceipt.lines[].inventory_item': ['id', 'name', 'sku'],
+  'GoodsReceipt.lines[].purchase_order_line': ['id', 'line_number'],
+  'GoodsReceipt.lines[].storage_location': ['code', 'id'],
+  'GoodsReceipt.purchase_order': ['id', 'order_number'],
   Item: ['archived_at', 'holds_stock', 'id', 'name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier', 'unit_of_measure_code'],
   'Item.CreateItemInput': ['name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier_id', 'unit_of_measure_code'],
   'Item.UpdateItemInput.jsonMergePatch': ['name', 'reorder_point', 'reorder_quantity', 'safety_stock', 'sku', 'supplier_id', 'unit_of_measure_code'],
+  NamedReference: ['id', 'name'],
   OfferedRole: ['conflicts_with', 'id', 'margin_exposure_with', 'name', 'refusal', 'requires_owner_confirmation'],
   Permission: ['code', 'description', 'module', 'sod_rows'],
+  PurchaseOrder: ['archived_at', 'created_by', 'currency_code', 'expected_at', 'id', 'order_number', 'ordered_at', 'status', 'supplier', 'total_amount', 'warehouse'],
+  'PurchaseOrder.ApprovePurchaseOrderInput': ['expected_at'],
+  'PurchaseOrder.CancelPurchaseOrderInput': ['reason'],
+  'PurchaseOrder.CreatePurchaseOrderInput': ['currency_code', 'expected_at', 'lines', 'supplier_id', 'warehouse_id'],
+  'PurchaseOrder.UpdatePurchaseOrderInput.jsonMergePatch': ['expected_at', 'supplier_id', 'warehouse_id'],
+  PurchaseOrderLine: ['archived_at', 'id', 'inventory_item', 'line_number', 'quantity', 'quantity_outstanding', 'quantity_received', 'unit_cost', 'unit_of_measure_code'],
+  'PurchaseOrderLine.CreatePurchaseOrderLineInput': ['inventory_item_id', 'quantity', 'unit_cost'],
+  'PurchaseOrderLine.UpdatePurchaseOrderLineInput.jsonMergePatch': ['quantity', 'unit_cost'],
+  'PurchaseOrderLine.inventory_item': ['id', 'name', 'sku'],
   Role: ['archived_at', 'description', 'holder_count', 'id', 'is_system', 'margin_exposure', 'name', 'permission_codes'],
   RoleConflict: ['role', 'sod_row'],
   RoleGrantProposal: ['decided_at', 'decided_by', 'expires_at', 'id', 'is_expired', 'lapse_reason', 'permission_codes', 'proposed_at', 'proposed_by', 'reason', 'role', 'status', 'user'],
   RoleReference: ['id', 'name'],
   SodRowRef: ['half', 'id'],
+  StockLevel: ['id', 'inventory_item', 'qty_on_hand', 'storage_location', 'version', 'warehouse'],
+  'StockLevel.inventory_item': ['id', 'name', 'sku'],
+  'StockLevel.storage_location': ['code', 'id'],
+  'StockLevel.warehouse': ['id', 'name'],
+  StockMovement: ['id', 'inventory_item', 'occurred_at', 'quantity', 'reason', 'source_id', 'source_type', 'storage_location'],
+  'StockMovement.inventory_item': ['id', 'name', 'sku'],
+  'StockMovement.storage_location': ['code', 'id'],
   StorageLocation: ['archived_at', 'code', 'id', 'kind'],
   'StorageLocation.CreateStorageLocationInput': ['code', 'kind'],
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': ['code', 'kind'],
+  Supplier: ['archived_at', 'code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days'],
+  'Supplier.CreateSupplierInput': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
+  'Supplier.UpdateSupplierInput.jsonMergePatch': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
+  SupplierItemReference: ['id', 'name', 'sku'],
+  SupplierProduct: ['currency_code', 'id', 'inventory_item', 'lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost', 'unit_of_measure_code'],
+  'SupplierProduct.CreateSupplierProductInput': ['inventory_item_id', 'lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost'],
+  'SupplierProduct.UpdateSupplierProductInput.jsonMergePatch': ['lead_time_days', 'minimum_order_quantity', 'supplier_sku', 'unit_cost'],
   SupplierReference: ['id', 'name'],
   User: ['archived_at', 'display_name', 'email', 'id', 'is_active', 'margin_exposure', 'roles'],
   'User.roles[]': ['id', 'name'],
@@ -441,6 +764,9 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
 
 /** Each served `enum` of a mirrored schema's property, in served order (Revision 7 A-21). */
 export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  'GoodsReceipt.lines[]': {
+    unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
+  },
   Item: {
     unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },
@@ -448,6 +774,9 @@ export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonl
     unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },
   'Item.UpdateItemInput.jsonMergePatch': {
+    unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
+  },
+  PurchaseOrderLine: {
     unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },
   SodRowRef: {
@@ -461,5 +790,8 @@ export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonl
   },
   'StorageLocation.UpdateStorageLocationInput.jsonMergePatch': {
     kind: ['bin', 'shelf', 'zone', 'staging', 'quarantine'],
+  },
+  SupplierProduct: {
+    unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },
 };

@@ -53,8 +53,12 @@ describe('A-21 — KIND_LABELS against the served kinds (wireEnum, from step 4.5
 // THE KIND-LITERAL SCAN (A-21): no kind value appears as a string literal under src/app, src/components or
 // src/lib/warehouses, so no screen can branch on one (pickability and the owner-only release are the server's, G-44).
 // src/copy is outside the scanned dirs (it holds KIND_LABELS); src/components/preview/fixtures is excluded, as G-3 does.
-const SCANNED = ['src/app', 'src/components', 'src/lib/warehouses'];
+// Stock ST-2 (b4-architecture.md Revision 12 R12-5 (e)): src/lib/stock is scanned too. Its one exemption is the G-47 row
+// marker, whose PICKABLE_KINDS and 'quarantine' literals are owner-ruled under G-47's option (2) and held to the served enum
+// by the kind pin (test/stock/marker.test.ts). The exemption is stale (red) once marker.ts is gone or holds no kind literal.
+const SCANNED = ['src/app', 'src/components', 'src/lib/warehouses', 'src/lib/stock'];
 const EXCLUDED = 'src/components/preview/fixtures/';
+const EXEMPT: readonly string[] = ['src/lib/stock/marker.ts'];
 
 interface SourceFile {
   file: string;
@@ -81,7 +85,7 @@ const literal = new RegExp(`(['"\`])(${SERVED_KINDS.join('|')})\\1`);
 const viaLabels = new RegExp(`\\bKIND_LABELS\\s*(?:\\.\\s*|\\[\\s*['"\`])(${SERVED_KINDS.join('|')})\\b`);
 /** Files in the scanned dirs (fixtures excluded) holding a kind value as a quoted literal. */
 const kindLiteralViolations = (files: readonly SourceFile[]) =>
-  files.filter((f) => SCANNED.some((d) => f.file.startsWith(`${d}/`)) && !f.file.startsWith(EXCLUDED) && (literal.test(f.source) || viaLabels.test(f.source))).map((f) => f.file);
+  files.filter((f) => SCANNED.some((d) => f.file.startsWith(`${d}/`)) && !f.file.startsWith(EXCLUDED) && !EXEMPT.includes(f.file) && (literal.test(f.source) || viaLabels.test(f.source))).map((f) => f.file);
 
 describe('A-21 — the kind-literal scan (holds from step 4.4)', () => {
   it('the real tree holds no kind literal in the scanned dirs, and the scan reads files', () => {
@@ -93,7 +97,17 @@ describe('A-21 — the kind-literal scan (holds from step 4.4)', () => {
     expect(files.some((f) => f.file === 'src/components/warehouses/KindField.tsx')).toBe(true);
     // Revision 8 R8-5 (items I-2): the select itself now lives in components/ui; the scan must read it too.
     expect(files.some((f) => f.file === 'src/components/ui/SelectField.tsx')).toBe(true);
+    // R12-5 (e): the scan reads lib/stock (positive control), and the marker's exemption is not stale.
+    expect(files.some((f) => f.file === 'src/lib/stock/levels.ts')).toBe(true);
+    const marker = files.find((f) => f.file === 'src/lib/stock/marker.ts');
+    expect(marker, 'src/lib/stock/marker.ts is gone: drop its exemption (R12-5 (e))').toBeDefined();
+    expect(literal.test(marker!.source), 'src/lib/stock/marker.ts holds no kind literal: its exemption is stale (R12-5 (e))').toBe(true);
     expect(kindLiteralViolations(files)).toEqual([]);
+  });
+
+  it("R12-5 (e) planted controls: a kind literal in lib/stock/levels.ts is red; the exempt marker.ts is not", () => {
+    expect(kindLiteralViolations([{ file: 'src/lib/stock/levels.ts', source: "const k = 'bin';" }])).toEqual(['src/lib/stock/levels.ts']);
+    expect(kindLiteralViolations([{ file: 'src/lib/stock/marker.ts', source: "export const PICKABLE_KINDS = ['bin'];" }])).toEqual([]);
   });
 
   it('planted controls: just outside the fixtures folder is red; inside it is not; src/lib/warehouses is red; src/copy is not scanned', () => {

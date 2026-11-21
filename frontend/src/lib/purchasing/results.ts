@@ -1,0 +1,300 @@
+// Typed results of the purchase-order page's injected actions (Revision 7 A-19 item 5, Revision 8 R8-2), on the shared
+// kinds in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
+
+import type { CreatePurchaseOrderInput, GoodsReceipt, CreatePurchaseOrderLineInput, PurchaseOrder, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '../api/purchasing';
+import type { Contention, FieldErrors, Forbidden, NotFound, Refused, RestoreResult, ServerError, SessionEnded, Unreachable } from '../results';
+
+/**
+ * `POST /purchase-orders/{id}/restoration` (PO-2; no body, no key). `restored` carries the 200 body. `refused` is a 409
+ * (P12 not archived, P13 warehouse archived, P14 supplier archived, P16 line numbers, P17 total, P1 contention), shown
+ * under the deleted banner as sent. `already-live`: a refusal after which the re-read found the order live (an
+ * interrupted press that committed, another tab).
+ */
+export type RestoreOrderResult = RestoreResult<{ order: PurchaseOrder }>;
+
+/** The deleted draft's Restore purchase order. Caller contract: `restored` resolves after the re-read order (and its lines) is committed. */
+export type RestoreOrderAction = () => Promise<RestoreOrderResult>;
+
+/**
+ * PO-3: the create page's fields, in screen order (the first field with a sentence takes focus). A name the mirrored input
+ * lacks is a type error. `currency_code` is not a field: it is the chosen supplier's, sent by the page (PO D-5 (a)), so a
+ * sentence about it shows in the banner.
+ */
+export const CREATE_ORDER_FIELDS = ['supplier_id', 'warehouse_id'] as const satisfies readonly (keyof CreatePurchaseOrderInput & string)[];
+export type CreateOrderField = (typeof CREATE_ORDER_FIELDS)[number];
+/** What the create form hands over: the two chosen ids and the chosen supplier's served currency. Never lines, never a date. */
+export interface CreateOrderValues {
+  supplier_id: string;
+  warehouse_id: string;
+  currency_code: string;
+}
+
+/**
+ * `POST /purchase-orders` (PO-3; a fresh Idempotency-Key per submit; the create does not replay on it). `created` carries
+ * the 201 body; `invalid` a 422 mapped onto the form (P4 `unknown_reference` beside the supplier or the warehouse);
+ * `refused` a 409 (P2 the number race, P3 the series used up, P1), shown as sent.
+ */
+export type CreateOrderResult =
+  | { kind: 'created'; order: PurchaseOrder }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<CreateOrderField>; formErrors: string[] }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type CreateOrderAction = (values: CreateOrderValues) => Promise<CreateOrderResult>;
+
+/**
+ * PO-4a: the draft header editor's fields, in screen order. Only Deliver to: Supplier is never changed in the app (PO D-6)
+ * and the expected date is absent while D-4 is unruled. A name the mirrored input lacks is a type error.
+ */
+export const ORDER_FIELDS = ['warehouse_id'] as const satisfies readonly (keyof UpdatePurchaseOrderInput & string)[];
+export type OrderField = (typeof ORDER_FIELDS)[number];
+/** What the editor hands to Save: only the changed members (`changedFields`), never one it did not change. */
+export type OrderChange = Partial<Pick<UpdatePurchaseOrderInput, OrderField>>;
+
+/**
+ * `PATCH /purchase-orders/{id}` (PO-4a; no Idempotency-Key: a merge patch, a repeat finds nothing to change). `saved`
+ * carries the 200 body. `invalid` a 422 mapped onto the form (P4 `unknown_reference` beside Deliver to). A 409 is
+ * followed by a re-read: `refused-archived` (the re-read is deleted: P8 elsewhere; the page shows the server's sentence),
+ * `no-longer-draft` (the re-read is live and not a draft: UX D-2's sentence built from it; both committed, so the
+ * editor is gone), `changed-since-loaded` (P9's rule, and the re-read failed: UX D-2's other sentence), else `refused`
+ * as sent (P1 says "try again"; the person's choice is kept). `saved`, `refused-archived` and `no-longer-draft` carry
+ * `sentAsOf`, the stamp taken when the PATCH was sent: the page drops the sentence or the refusal when a 204 of the person's
+ * own Delete arrived after it (PO-6; the items UX ruling M-3 / T-17).
+ */
+export type SaveOrderResult =
+  | { kind: 'saved'; order: PurchaseOrder; sentAsOf: number }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<OrderField>; formErrors: string[] }
+  | { kind: 'refused-archived'; message: string; sentAsOf: number }
+  | { kind: 'no-longer-draft'; order: PurchaseOrder; sentAsOf: number }
+  | { kind: 'changed-since-loaded' }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type SaveOrderAction = (changes: OrderChange) => Promise<SaveOrderResult>;
+
+/**
+ * PO-5: the new line row's fields, in screen order (the first field with a sentence takes focus). A name the mirrored input
+ * lacks is a type error.
+ */
+export const ADD_LINE_FIELDS = ['inventory_item_id', 'quantity', 'unit_cost'] as const satisfies readonly (keyof CreatePurchaseOrderLineInput & string)[];
+export type AddLineField = (typeof ADD_LINE_FIELDS)[number];
+/** What the row hands over: the chosen entry's item id and the two fields as typed. */
+export type AddLineValues = CreatePurchaseOrderLineInput;
+
+/** The refusals a line write shares with Save (P8 / P9 found by the re-read, plan §2.2 "Stale page"; L10). */
+type StaleLineWrite = { kind: 'refused-archived'; message: string } | { kind: 'no-longer-draft'; order: PurchaseOrder } | { kind: 'changed-since-loaded' };
+
+/**
+ * `POST /purchase-orders/{id}/lines` (PO-5; a fresh Idempotency-Key per submit). `added` carries the 201 body and resolves
+ * after the stamped re-read (the order and its lines, one commit); `listStale` = that re-read did not answer both. `invalid`
+ * a 422 mapped onto the row; `itemUnavailable` = it held H-2's violation (shown with the client sentence, the catalogue read
+ * again). `not-listed` = L1 (the supplier no longer lists the item; the server's sentence, the catalogue read again). The
+ * stale kinds as Save's. `refused` any other 409 as sent (P1, L6), the row kept.
+ */
+export type AddLineResult =
+  | { kind: 'added'; line: PurchaseOrderLine; listStale: boolean }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<AddLineField>; formErrors: string[]; itemUnavailable: boolean }
+  | { kind: 'not-listed'; message: string }
+  | StaleLineWrite
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type AddLineAction = (values: AddLineValues) => Promise<AddLineResult>;
+
+/**
+ * `DELETE /purchase-orders/{id}/lines/{lineId}` (PO-5; no body, no key: a repeat is refused W23). `deleted` resolves after
+ * the stamped re-read is committed, or after the page was told it failed. The stale kinds as Save's (the page shows them
+ * under its stale banner, *Not deleted*). `contention` is P1 (its sentence says "try again"); `refused` any other 409 as
+ * sent (W23: deleted elsewhere), after the re-read was committed so the row the server no longer has goes. `not-found`
+ * likewise follows a committed re-read.
+ */
+export type DeleteLineResult = { kind: 'deleted' } | StaleLineWrite | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+export type DeleteLineAction = (line: PurchaseOrderLine) => Promise<DeleteLineResult>;
+
+/**
+ * PO-4b: a line row's two fields, in screen order (the first field with a sentence takes focus). A name the mirrored input
+ * lacks is a type error.
+ */
+export const EDIT_LINE_FIELDS = ['quantity', 'unit_cost'] as const satisfies readonly (keyof UpdatePurchaseOrderLineInput & string)[];
+export type EditLineField = (typeof EDIT_LINE_FIELDS)[number];
+/** What a line row hands to Save: only the changed members, as typed. */
+export type LineChange = Partial<Pick<UpdatePurchaseOrderLineInput, EditLineField>>;
+
+/**
+ * `PATCH /purchase-orders/{id}/lines/{lineId}` (PO-4b; no Idempotency-Key: a merge patch). `saved` carries the 200 body and
+ * resolves after the header-only re-read (M-9: the order, never the lines list while it is still an editable draft) is
+ * committed, or after the page was told it failed (`orderStale`); `asOf` is the stamp taken when the 200 arrived, so the row
+ * shows the body until a lines reading requested after it is on screen. `invalid` a 422 mapped onto the row. `gone`: the
+ * line is no longer live (deleted elsewhere: 409 `purchase_order_line.is_archived`, its sentence as sent; a 404: `message`
+ * empty), after a re-read of the order and its lines was committed, so the row has left. The stale kinds as Save's.
+ * `contention` P1; `refused` any other 409 as sent, the row kept. `sentAsOf`: the stamp taken when the PATCH was sent (the
+ * page's own-outcome floors).
+ */
+export type SaveLineResult =
+  | { kind: 'saved'; line: PurchaseOrderLine; asOf: number; orderStale: boolean }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<EditLineField>; formErrors: string[] }
+  | { kind: 'gone'; message: string }
+  | StaleLineWrite
+  | Contention
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type SaveLineAction = (line: PurchaseOrderLine, changes: LineChange) => Promise<{ result: SaveLineResult; sentAsOf: number }>;
+
+/**
+ * `POST /purchase-orders/{id}/lines/{lineId}/restoration` (PO-9; no body, no key: a repeat is refused W24). `restored`
+ * resolves after the stamped re-read (order, live lines and deleted lines, one commit) is committed, or after the page was
+ * told it failed — then `listStale` (po-9-red.md M-2: the screen may still show the old total and the line struck). `already-restored`: W24 once the re-read is an editable draft, or any refusal after which the re-read shows the
+ * line live (R1-17: restored elsewhere or by an interrupted press; po-9-red.md L-1). The stale kinds as Delete line's. `contention` is P1; `refused` any other 409 as sent (L8: a
+ * newer line holds the number), after the re-read was committed. `not-found` likewise follows a committed re-read.
+ * `sentAsOf` is the stamp taken when the request was sent: the page says, shows and focuses nothing for an answer to a
+ * request sent before the person's own Delete purchase order, Cancel order or Approve outcome.
+ */
+export type RestoreLineResult = { kind: 'restored'; listStale: boolean } | { kind: 'already-restored' } | StaleLineWrite | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+export type RestoreLineAction = (line: PurchaseOrderLine) => Promise<{ result: RestoreLineResult; sentAsOf: number }>;
+
+/**
+ * `DELETE /purchase-orders/{id}` (PO-6; no body, no key: a repeat is refused P10). `deleted` resolves after the stamped
+ * re-read is committed, or after the page was told it failed (the page then keeps the 204 as a fact: read-only). The stale
+ * kinds are P9's rule (plan Response L-1: P11 is P9) followed by the re-read: `no-longer-draft` (committed; UX D-2's sentence
+ * built from it) or `changed-since-loaded` (the re-read failed); the page shows either in the dialog, Close only.
+ * `contention` is P1 (Delete kept); `refused` any other 409 as sent (P10: deleted elsewhere), Close only.
+ */
+export type DeleteOrderResult = { kind: 'deleted' } | { kind: 'no-longer-draft'; order: PurchaseOrder } | { kind: 'changed-since-loaded' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+export type DeleteOrderAction = () => Promise<DeleteOrderResult>;
+
+/**
+ * `POST /purchase-orders/{id}/cancellation` (PO-7; body `{}` or `{ reason }`, no key: a repeat is refused C2). `cancelled`
+ * carries the 200 body and resolves after the stamped re-read (the order and its lines) is committed — or, when it failed,
+ * after the 200 body was committed and the page told. The stale kinds follow C2's rule and its re-read (committed whatever
+ * it read): `already-cancelled` / `already-received` (UX D-2's sentences, built from it) or `changed-since-loaded` (the
+ * re-read failed). `contention` is P1 (Cancel order kept); `refused` any other 409 as sent (C1 DSoD-1, C3 archived), final.
+ */
+export type CancelOrderResult =
+  | { kind: 'cancelled'; order: PurchaseOrder }
+  | { kind: 'already-cancelled'; order: PurchaseOrder }
+  | { kind: 'already-received'; order: PurchaseOrder }
+  | { kind: 'changed-since-loaded' }
+  | Contention
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/** Cancel order with the Reason box's text as typed (`''` = none: the body is then `{}`). */
+export type CancelOrderAction = (reason: string) => Promise<CancelOrderResult>;
+
+/**
+ * What `components/purchasing/CancelOrderDialog` branches on (kinds only, never a code): the page maps the stale kinds onto
+ * `refused` with UX D-2's sentence. `refused` and `not-found` leave Close only; `contention`, `forbidden` and an interrupted
+ * request keep Cancel order.
+ */
+export type CancelDialogResult = { kind: 'cancelled' } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/**
+ * `POST /purchase-orders/{id}/approval` (PO-8; body `{}` — no expected date while D-4 is unruled; no key: a repeat is refused
+ * A2). `approved` carries the 200 body and resolves after the stamped re-read (the order and its lines) is committed — or,
+ * when it failed, after the 200 body was committed and the page told. The stale kinds follow A2's rule and its re-read
+ * (committed whatever it read): `already-approved` (ordered, partly received or received: UX D-2's sentence),
+ * `no-longer-draft` (cancelled elsewhere: UX D-2's edit sentence, built from it) or `changed-since-loaded` (the re-read
+ * failed). A1's rule (DSoD-1) gets the same re-read and names (po-8-red.md L-1), but a draft reading or a failed re-read
+ * leaves A1 as sent. `contention` is P1 (Approve kept); `refused` any other 409 as sent (A1 on a draft, A3 no live line,
+ * A4 / A5, A6 archived), final.
+ */
+export type ApproveOrderResult =
+  | { kind: 'approved'; order: PurchaseOrder }
+  | { kind: 'already-approved'; order: PurchaseOrder }
+  | { kind: 'no-longer-draft'; order: PurchaseOrder }
+  | { kind: 'changed-since-loaded' }
+  | Contention
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/** Approve (no input: the body is always `{}`). */
+export type ApproveOrderAction = () => Promise<ApproveOrderResult>;
+
+/**
+ * What `components/purchasing/PlaceOrderDialog` branches on (kinds only, never a code): the page maps the stale kinds onto
+ * `refused` with UX D-2's sentence. `refused` and `not-found` leave Go back only; `contention`, `forbidden` and an interrupted
+ * request keep Approve.
+ */
+export type ApproveDialogResult = { kind: 'approved'; order: PurchaseOrder } | Contention | Refused | Forbidden | NotFound | SessionEnded | Unreachable | ServerError;
+
+/**
+ * GR-2 (final RED M-7 with L-9): the one zero rule. A Receiving-now box whose text, with leading and trailing spaces
+ * removed, is empty or only zeros (`0`, `00`, `0.000`) is NOT received and is not sent; anything else is sent as typed
+ * (`"0.5"` is). A string test only, never `Number` (the quantity scan): the client does no decimal arithmetic.
+ */
+export function isNotReceived(text: string): boolean {
+  const t = text.trim();
+  return t === '' || /^0+(\.0+)?$/.test(t);
+}
+
+/** GR-2: one row the receive form sends, in the request's order (the request index is the position here, M-6). */
+export interface ReceiveLineValues {
+  purchase_order_line_id: string;
+  quantity: string;
+  storage_location_id: string;
+}
+
+/** GR-2: the two per-row fields a 422 pointer `/lines/{i}/<field>` may name. */
+export type ReceiveRowField = 'quantity' | 'storage_location_id';
+
+/**
+ * `POST /purchase-orders/{id}/goods-receipts` (GR-2; one Idempotency-Key per page, held until consumed — H-1). `recorded` carries the 201 body
+ * and the order as re-read after it (`null` when that re-read failed: the arrival sentence then drops its status sentence).
+ * `invalid` a 422: each violation keyed by its REQUEST index as served, the digits of `/lines/{i}/…` (a string: no number
+ * parse in this family, the quantity scan; the form maps the index back to its row, M-6),
+ * anything else in `formErrors`. `over-received` (R1): the lines and the order as re-read, the server's sentence kept.
+ * `on-hand-too-large` (R3): the order line number named by the served sentence (its digits), or null. `order-changed` (R6 and any other refusal
+ * whose re-read shows an order nothing can be received on). `refused` any other 409, as sent. `earlier-recorded` (GR-2 H-1): a
+ * 409 `idempotency-key-conflict` on the held key — an earlier attempt from this page was recorded — with the order and lines
+ * as re-read: both when the order is still receivable, the order alone (`lines: null`) when nothing can be received on it,
+ * neither when the re-read failed.
+ */
+export type ReceiveResult =
+  | { kind: 'recorded'; receipt: GoodsReceipt; order: PurchaseOrder | null }
+  | { kind: 'invalid'; rows: ReadonlyMap<string, Partial<Record<ReceiveRowField, string>>>; formErrors: string[] }
+  | { kind: 'over-received'; message: string; order: PurchaseOrder; lines: PurchaseOrderLine[] }
+  | { kind: 'on-hand-too-large'; lineNumber: string | null }
+  | { kind: 'order-changed'; order: PurchaseOrder }
+  | { kind: 'earlier-recorded'; order: PurchaseOrder; lines: PurchaseOrderLine[] }
+  | { kind: 'earlier-recorded'; order: PurchaseOrder; lines: null }
+  | { kind: 'earlier-recorded'; order: null; lines: null }
+  | Contention
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+export type ReceiveAction = (lines: readonly ReceiveLineValues[]) => Promise<ReceiveResult>;
+
+/** GR-2: an order goods can be received against (plan §2.6): live and ordered or partly received. */
+export const isReceivable = (order: PurchaseOrder): boolean => order.archived_at === null && (order.status === 'ordered' || order.status === 'partially_received');

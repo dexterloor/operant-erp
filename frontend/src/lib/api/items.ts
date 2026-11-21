@@ -44,8 +44,8 @@ export interface CreateItemInput {
 
 /**
  * `UpdateItem`'s merge-patch body (served `Item.UpdateItemInput.jsonMergePatch`). Every member is optional; the item page
- * sends only the changed ones, never `null`, never `supplier_id` (S-B′) and never `unit_of_measure_code` before I-4
- * (R8-2: the Unit is read-only on the item page until BK-22 + IO-3).
+ * sends only the changed ones, never `null` and never `supplier_id` (S-B′). Since I-4 the unit is sent when the person
+ * changed it (the server refuses the change once anything records quantities of the item, IO-3).
  */
 export interface UpdateItemInput {
   sku?: string;

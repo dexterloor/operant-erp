@@ -18,6 +18,11 @@ export const DELETE_PERSON = {
   confirm: 'Delete person',
   cancel: 'Cancel',
   after: (name: string) => `${name} was deleted. They're now in the archived people.`,
+  /**
+   * fe-r8-s3-ux.md A.1 (NEW): after a 204 whose re-read committed a LIVE person (restored in between). REPLACES `after`
+   * for that case only; the archived re-read, the failed re-read and a 401 keep `after`.
+   */
+  afterRestored: (name: string) => `${name} was deleted, and has since been restored.`,
 } as const;
 
 /** §2.3 Restore. Exactly one body is rendered, chosen by the served `is_active` (R1, RED M-3). */

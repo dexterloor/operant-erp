@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const nav = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
@@ -6,10 +6,11 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: nav.push, refresh:
 import { takeArrivalMessage } from '@/app/(app)/arrivalMessage';
 import { NewItemPage } from '@/app/(app)/items/new/NewItemPage';
 import type { Item } from '@/lib/api/items';
+import { unitSuffixSpoken } from '@/copy/units';
 import { wireEnum } from '@/lib/bff/surface';
 import { classify } from '@/lib/bff/problem';
 import { itemCreate } from '@/lib/items/wired';
-import { json, problem, refused, renderWired, stubFetch, testCaller, type Recorded } from './harness';
+import { json, problem, refused, renderWired, stubFetch, testCaller, type Recorded, type Reply } from './harness';
 
 // Items I-2 (items-i2-design.md Revision 1 — FINAL A-6…A-10, T-4, T-5, as amended by its Final RED FR-M1; items-ux-copy.md
 // B-4, R1-1): `/items/new` creates an item. SKU, Name, a Unit select over the SERVED units (no preselection, its prompt
@@ -31,6 +32,8 @@ const SERVED: Item = { id: IID, sku: 'SKU-1', name: 'Bolt', unit_of_measure_code
 const UX_I1 = 'Another live item in this workspace already uses this SKU.';
 const P1 = 'Some of the same records were being changed at the same moment. Nothing was saved; try again.';
 const BLANK = 'This field may not be blank.';
+/** items-i4-ux.md Revision 1 — FINAL U4-7 (`NEW_ITEM.unitHint`), verbatim. */
+const UNIT_HINT = "Once stock, orders or supplier catalogues record quantities of this item, its unit can't be changed.";
 const INTERRUPTED = (sku: string) => `We can't tell whether ${sku} was created. Search the list for ${sku} before you try again.`;
 
 const field = (name: string) => screen.getByRole('textbox', { name });
@@ -55,7 +58,8 @@ describe('/items/new — the form (B-4)', () => {
     expect(field('SKU')).toHaveAccessibleDescription('The code your team uses for this item. Each item needs its own, and capitals and spaces count.');
     expect(field('SKU')).toHaveAttribute('autocomplete', 'off');
     expect(field('SKU')).toHaveAttribute('spellcheck', 'false');
-    expect(unit()).not.toHaveAccessibleDescription();
+    // I-4 (items-i4-ux.md U4-7 = items-i3-ux.md L-10, moved deliberately from "no description"): the hint, verbatim.
+    expect(unit()).toHaveAccessibleDescription(UNIT_HINT);
     expect(field('Reorder point')).toHaveAccessibleDescription(expect.stringContaining('due to be reordered'));
     expect(screen.getByText("Leave both reorder numbers at 0 if this item isn't reordered. Use a point for decimals, for example 2.5, and no commas.")).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/items');
@@ -71,12 +75,18 @@ describe('/items/new — the form (B-4)', () => {
   });
 
   it('no unit suffix on the create numbers, also after each unit is chosen', async () => {
+    // S-3 (s3-fer8-red.md L-3, as fixed by items-s3-commit-red.md L-1): a description starting with the code, or with
+    // the spoken suffix followed by a space or the end. Built once, so the guard and its control are one copy.
+    const startsWithUnit = (code: string) => new RegExp(`^(?:${code}\\b|${unitSuffixSpoken(code).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$))`);
+    // Positive control: the guard bites on both forms.
+    expect(`${unitSuffixSpoken('KG')} Enter`).toMatch(startsWithUnit('KG'));
+    expect('KG Enter').toMatch(startsWithUnit('KG'));
     const u = userEvent.setup();
     renderWired(<NewItemPage />);
     for (const code of UNITS) {
       await u.selectOptions(unit(), code);
       expect(document.querySelectorAll('[id$="-suffix"]')).toHaveLength(0);
-      for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) expect(field(n)).not.toHaveAccessibleDescription(expect.stringMatching(new RegExp(`^${code}\\b`)));
+      for (const n of ['Reorder point', 'Reorder quantity', 'Safety stock']) expect(field(n)).not.toHaveAccessibleDescription(expect.stringMatching(startsWithUnit(code)));
     }
   });
 
@@ -199,7 +209,8 @@ describe('/items/new — refused here, before any request (R1-1, R1-9)', () => {
       await u.click(field('SKU'));
       await u.click(submit());
       await waitFor(() => expect(unit()).toHaveAttribute('aria-invalid', 'true'));
-      expect(unit()).toHaveAccessibleDescription('Choose a unit for this item.');
+      // I-4: describedby is the hint, then the error.
+      expect(unit()).toHaveAccessibleDescription(`${UNIT_HINT} Choose a unit for this item.`);
       expect(unit()).toHaveFocus();
     }
     expect(calls).toHaveLength(0);
@@ -536,5 +547,102 @@ describe('/items/new — a 201 without holds_stock (I-3 T-4)', () => {
     expect(screen.getByText('Something went wrong on our side.')).toBeInTheDocument();
     expect(nav.push).not.toHaveBeenCalled();
     expect(takeArrivalMessage(`/items/${IID}`)).toBeNull();
+  });
+});
+
+// suppliers-s2-red.md L-1 (family-wide): `created` calls the page's `onCreated`, which navigates with `router.push`, and the
+// form is still on screen until the new page mounts. Here `nav.push` is a mock, so the page never leaves: the window is held
+// open. In it the form stays busy, so a press, an Enter or a submit event sends nothing: no second key is spent and no false
+// "Not created" appears (the code-taken 409 queued behind the 201 would say it). Every answer other than `created` gives the
+// form back, so a form that never clears busy fails here too.
+describe('/items/new — after a 201, until the new page takes over (L-1)', () => {
+  // A function: a Response body can be read once, so each test needs its own.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const TAKEN = () => refused('inventory_item.sku_is_unique_per_workspace', UX_I1);
+  it('Create item stays busy: a second press and an Enter send nothing, and nothing says "Not created", while Cancel still goes to the list', async () => {
+    // A real client navigation takes hundreds of ms to seconds: let a minute pass, so a form that hands Create back after any
+    // delay is caught (create-repress-red.md L-1).
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const calls = stubFetch([json(201, SERVED), TAKEN()]);
+    const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/items/${IID}`));
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(submit()).toHaveAttribute('aria-busy', 'true');
+    await u.click(submit());
+    await u.type(field('Name'), '{Enter}');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(posts(calls)).toHaveLength(1);
+    expect(screen.queryByText('Not created')).toBeNull();
+    expect(nav.push).toHaveBeenCalledTimes(1);
+    // D-1 rests on this: while the form is held busy the person is not trapped, Cancel still goes to the list. There is no app
+    // router here, so a working link is one whose press nothing cancels (the browser follows its href); the window listener runs
+    // last, records that, then stops the document load jsdom cannot do.
+    const cancel = screen.getByRole('link', { name: 'Cancel' });
+    expect(cancel).toHaveAttribute('href', '/items');
+    expect(cancel).not.toHaveAttribute('aria-disabled');
+    expect(cancel.closest('fieldset:disabled, [inert]')).toBeNull();
+    let followed: boolean | null = null;
+    const record = (e: Event) => {
+      followed = !e.defaultPrevented;
+      e.preventDefault();
+    };
+    window.addEventListener('click', record);
+    try {
+      await u.click(cancel);
+    } finally {
+      window.removeEventListener('click', record);
+    }
+    expect(followed).toBe(true);
+    expect(submit()).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('the form itself refuses a submit event after a 201, not only the button', async () => {
+    const calls = stubFetch([json(201, SERVED), TAKEN()]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/items/${IID}`));
+    fireEvent.submit(submit().closest('form')!);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(posts(calls)).toHaveLength(1);
+    expect(screen.queryByText('Not created')).toBeNull();
+  });
+
+  // Every answer the form can show other than `created`, each with the visible sign to wait for. A fresh Response per row (a
+  // body is read once). `session-ended` is not here: it renders nothing and the page goes to sign-in, so no Create is left.
+  const OTHER_ANSWERS: [string, () => Reply, string][] = [
+    ['409 refused', TAKEN, 'Not created'],
+    ['422 field-only', () => problem(422, 'validation-failed', { errors: [{ pointer: '/name', code: 'blank', message: BLANK }] }), BLANK],
+    ['422 banner-only', () => problem(422, 'validation-failed', { errors: [{ pointer: '', code: 'y', message: 'Out of form.' }] }), 'Not created'],
+    [
+      'lost connection',
+      () => () => {
+        throw new TypeError('offline');
+      },
+      "We couldn't reach the server.",
+    ],
+    ['500', () => problem(500, 'internal'), 'Something went wrong on our side.'],
+    ['403', () => problem(403, 'permission-denied'), 'Not created'],
+    ['404', () => problem(404, 'not-found'), 'Not created'],
+  ];
+  it.each(OTHER_ANSWERS)('any other answer gives the form back (%s): Create item is not busy and a second press sends', async (_name, reply, sign) => {
+    const calls = stubFetch([reply(), json(201, SERVED)]);
+    const u = userEvent.setup();
+    renderWired(<NewItemPage />);
+    await fill(u);
+    await u.click(submit());
+    expect(await screen.findByText(sign)).toBeInTheDocument();
+    expect(submit()).not.toHaveAttribute('aria-busy');
+    await u.click(submit());
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith(`/items/${IID}`));
+    expect(posts(calls)).toHaveLength(2);
   });
 });

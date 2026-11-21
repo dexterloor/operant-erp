@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { SelectField } from '@/components/ui/SelectField';
 import { TextField } from '@/components/ui/TextField';
 import { COULD_NOT_REACH, MIXED_FIELDS_TOO, NOT_CREATED, REFUSED_WITHOUT_MESSAGE, WENT_WRONG } from '@/copy/headings';
-import { ITEM_FORBIDDEN, ITEM_PAGE, NEW_ITEM, unitLabel } from '@/copy/items';
+import { ITEM_FORBIDDEN, ITEM_PAGE, NEW_ITEM } from '@/copy/items';
+import { unitLabel } from '@/copy/units';
 import { PERMISSION_LABELS } from '@/copy/permissionLabels';
 import { PAGE_STATES } from '@/copy/shell';
 import type { Item } from '@/lib/api/items';
@@ -43,8 +44,8 @@ const NUMBER_LABELS: Record<(typeof QUANTITY_FIELDS)[number], { label: string; h
 
 /**
  * `/items/new`'s form (items-ux-copy.md B-4 as amended by R1-1; items-i2-design.md Revision 1 — FINAL A-6), props-only.
- * SKU, Name, the Unit (a select over the served units: no preselection, its prompt an enabled first option) and the three
- * numbers, prefilled 0. All six are sent on every submit, exactly as typed (no trim, no case folding, no client format
+ * SKU, Name, the Unit (a select over the served units: no preselection, its prompt an enabled first option; I-4: U4-7's
+ * hint under it) and the three numbers, prefilled 0. All six are sent on every submit, exactly as typed (no trim, no case folding, no client format
  * rule), built by name from `CREATE_ITEM_FIELDS`, so `supplier_id` and `null` are never sent. Nothing chosen, or an
  * emptied number, is refused here on every press with no request; those sentences replace any earlier field sentences.
  * A 422's field sentences show beside their fields and its others in the banner; a 409 and every other failure in the
@@ -173,7 +174,9 @@ export function ItemCreateForm({ create, createCode, units, onCreated }: ItemCre
     } catch {
       r = { kind: 'unreachable' };
     }
-    setBusy(false);
+    // A 201 keeps the form busy: the page is already navigating to the new record, and a press before it lands would send
+    // a new key and be refused as a duplicate under "Not created" (suppliers-s2-red.md L-1). Every other answer gives it back.
+    if (r.kind !== 'created') setBusy(false);
     settle(r, body.sku);
   };
 
@@ -198,7 +201,7 @@ export function ItemCreateForm({ create, createCode, units, onCreated }: ItemCre
         prompt={NEW_ITEM.unitPrompt}
         value={values.unit_of_measure_code}
         onChange={(v) => set('unit_of_measure_code', v)}
-        hints={[]}
+        hints={[NEW_ITEM.unitHint]}
         error={fieldErrors.unit_of_measure_code}
       />
       {QUANTITY_FIELDS.map((f) => (

@@ -17,15 +17,24 @@ export type DeleteTakeover = 'forbidden' | 'not-found' | 'unreachable' | 'server
  * FE-D1b) — the component then neither focuses the page `<h1>` nor speaks before the page has. The failure travels in
  * the result, so nothing has to be recorded on the side and handed over later (fe-r1-red.md L-2).
  */
-export type DeletePersonResult = { kind: 'deleted'; pageTookOver?: DeleteTakeover } | PersonActionFailure;
+export type DeletePersonResult =
+  | {
+      kind: 'deleted';
+      /** The person the delete's re-read committed; absent when that re-read failed or ended the session (FE-R8). */
+      person?: User;
+      pageTookOver?: DeleteTakeover;
+    }
+  | PersonActionFailure;
 
 /** `POST /api/v1/users/{id}/restoration` → 200 + the person (`RestoreUser`, API-21 branch 5). */
 export type RestorePersonResult = { kind: 'restored'; person: User } | PersonActionFailure;
 
 /**
  * The injected actions. Caller contract (B-3b): resolve `deleted` / `restored` only after the `person` prop has been
- * re-read (or replaced), so the page's branch on `archived_at` has already swapped when the dialog closes — the opener
- * is then gone by design and focus goes to the fallback (4b-4). A thrown action is treated as `unreachable`.
+ * replaced by the action's answer or re-read, when there is one, so the page's branch on `archived_at` already shows
+ * what that answer says when the dialog closes. Focus then goes to the fallback (4b-4), even when the opener is still
+ * mounted: a delete whose re-read reads the person live (restored in between, FE-R8) keeps Delete person on the page. A
+ * thrown action is treated as `unreachable`.
  */
 export type DeletePersonAction = () => Promise<DeletePersonResult>;
 export type RestorePersonAction = () => Promise<RestorePersonResult>;

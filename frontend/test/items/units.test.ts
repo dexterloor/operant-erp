@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { UNIT_LABELS, unitLabel } from '@/copy/items';
+import { UNIT_LABELS, unitLabel, unitPerSpoken, unitSpoken, unitSuffixSpoken } from '@/copy/units';
 import { wireEnum } from '@/lib/bff/surface';
 
 // Items I-2 (items-i2-design.md Revision 1 — FINAL T-1; b4-architecture.md Revision 8 R8-5; BK-22): the units of measure
@@ -24,7 +24,7 @@ describe('T-1 — UNIT_LABELS against the served units', () => {
 
   it('(a) planted control: an extra key, a missing key or a reordering is red', () => {
     expect(keysMatch(UNIT_LABELS, SERVED_UNITS)).toBe(true);
-    expect(keysMatch({ ...UNIT_LABELS, PAIR: { label: 'Pair (PAIR)' } }, SERVED_UNITS)).toBe(false);
+    expect(keysMatch({ ...UNIT_LABELS, PAIR: { label: 'Pair (PAIR)', spoken: 'pairs' } }, SERVED_UNITS)).toBe(false);
     const missing = Object.fromEntries(Object.entries(UNIT_LABELS).filter(([k]) => k !== SERVED_UNITS[0]));
     expect(keysMatch(missing, SERVED_UNITS)).toBe(false);
     const reordered = Object.fromEntries([...Object.entries(UNIT_LABELS)].reverse());
@@ -34,6 +34,35 @@ describe('T-1 — UNIT_LABELS against the served units', () => {
   it('(b) the read schema and the update input serve the same units, in the same order, as the create input', () => {
     expect(wireEnum('Item', 'unit_of_measure_code')).toEqual(SERVED_UNITS);
     expect(wireEnum('Item.UpdateItemInput.jsonMergePatch', 'unit_of_measure_code')).toEqual(SERVED_UNITS);
+  });
+
+  it('(e) S-3 T-S3-2: the spoken words are pinned exactly, always plural (fe-r8-s3-ux.md Revision 1 FINAL)', () => {
+    expect(Object.fromEntries(Object.entries(UNIT_LABELS).map(([k, v]) => [k, v.spoken]))).toEqual({ EA: 'each', BOX: 'boxes', KG: 'kilograms', L: 'litres', M: 'metres' });
+  });
+
+  it('(f) S-3 T-S3-2: an unknown code is spoken as sent; the field form adds the full stop, the bare form does not', () => {
+    expect(unitSpoken('XX')).toBe('XX');
+    expect(unitSpoken('KG')).toBe('kilograms');
+    expect(unitSuffixSpoken('KG')).toBe('kilograms.');
+    expect(unitSuffixSpoken('XX')).toBe('XX.');
+  });
+
+  // Suppliers S-4 (bk31-placement-confirm.md Revision 1 — FINAL R1-D per-unit branch, FINAL (e) item 4; bk31-cost-basis-po.md
+  // Revision 1 FINAL): a catalogue unit cost is the price of ONE of the item's units, so the Edit dialog's cost field reads
+  // `per {code}` and is spoken with `perSpoken` (shown `per EA` vs spoken "each" is intended, R1-D L-7).
+  it('(g) S-4: every UNIT_LABELS entry has a non-empty perSpoken, pinned exactly', () => {
+    for (const [k, v] of Object.entries(UNIT_LABELS)) expect(v.perSpoken, k).toMatch(/\S/);
+    expect(Object.fromEntries(Object.entries(UNIT_LABELS).map(([k, v]) => [k, v.perSpoken]))).toEqual({ EA: 'each', BOX: 'per box', KG: 'per kilogram', L: 'per litre', M: 'per metre' });
+  });
+
+  it('(h) S-4: unitPerSpoken reads perSpoken; an unknown code is "per {code}"', () => {
+    expect(unitPerSpoken('KG')).toBe('per kilogram');
+    expect(unitPerSpoken('EA')).toBe('each');
+    expect(unitPerSpoken('XX')).toBe('per XX');
+  });
+
+  it('(i) S-4: a catalogue entry serves the same units, in the same order, as the item (the Unit cell and suffixes read UNIT_LABELS by its code)', () => {
+    expect(wireEnum('SupplierProduct', 'unit_of_measure_code')).toEqual(SERVED_UNITS);
   });
 
   it('(c) a served code with no entry renders as sent; a known one renders its label', () => {
@@ -118,6 +147,8 @@ describe('T-1 (d) — the unit-literal scan', () => {
     expect(unitLiteralViolations([plant('src/components/d.tsx', "const s = 'Measure it in Metres';")])).toEqual([]);
     expect(unitLiteralViolations([plant('src/components/preview/fixtures/items.ts', 'const u = "KG";')])).toEqual([]);
     expect(unitLiteralViolations([plant('src/copy/items.ts', 'const u = "KG";')])).toEqual([]);
+    // the unit vocabulary's home (copy/units.ts) is outside the scan, as copy/items.ts was
+    expect(unitLiteralViolations([plant('src/copy/units.ts', 'const u = "KG";')])).toEqual([]);
   });
 
   it('the matcher escapes each value: with a value holding a regex metacharacter ("M."), "M." is red and "MX" is not', () => {

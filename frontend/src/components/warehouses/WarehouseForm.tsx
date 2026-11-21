@@ -20,12 +20,21 @@ export interface WarehouseFormProps {
   save: SaveWarehouseAction;
   /** `gateCode('UpdateWarehouse')`, for the lost-permission sentence's label (B-8, L-9). */
   editCode: string | null;
-  /** Writes the page's status region (B-3 "After save"). */
-  announce: (text: string) => void;
+  /**
+   * Writes the page's status region (B-3 "After save"). `sentAsOf` is the stamp taken when that Save was sent: the page
+   * does not speak it when its own Delete answered 204 after that (the items page's UX M-3 rule).
+   */
+  announce: (text: string, sentAsOf: number) => void;
   /** The page's `<h1>`: focus goes there after a save. */
   fallbackFocusRef: RefObject<HTMLElement | null>;
   /** Called once per Save answered `saved`, after the message is written. */
   onSaved?: () => void;
+  /**
+   * Called once per Save press that will send a request: after every guard, just before the request (FE-R6 commit A).
+   * The page empties its status region here, in its own render before the answer, so a second identical "… was saved."
+   * is a change to the region and is given again (an equal string written over itself is no DOM change).
+   */
+  onSaveStarted?: () => void;
 }
 
 type Values = Required<Pick<UpdateWarehouseInput, WarehouseField>>;
@@ -46,7 +55,7 @@ const valuesOf = (w: Warehouse): Values => ({ code: w.code, name: w.name, countr
  * a refusal focus goes to the banner heading; after `invalid`, to the first field with an error (D-4, UX TO CONFIRM).
  * A 401 renders nothing (the caller navigates to sign-in).
  */
-export function WarehouseForm({ warehouse, save, editCode, announce, fallbackFocusRef, onSaved }: WarehouseFormProps) {
+export function WarehouseForm({ warehouse, save, editCode, announce, fallbackFocusRef, onSaved, onSaveStarted }: WarehouseFormProps) {
   const [loadedKey, setLoadedKey] = useState(warehouse);
   const [values, setValues] = useState<Values>(() => valuesOf(warehouse));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<WarehouseField>>({});
@@ -92,7 +101,7 @@ export function WarehouseForm({ warehouse, save, editCode, announce, fallbackFoc
       case 'saved':
         setFieldErrors({});
         setNotice(null);
-        announce(WAREHOUSE_PAGE.saved(r.warehouse.code));
+        announce(WAREHOUSE_PAGE.saved(r.warehouse.code), r.sentAsOf);
         gen.current += 1;
         setFocusTarget({ gen: gen.current, to: 'h1' });
         onSaved?.();
@@ -148,6 +157,7 @@ export function WarehouseForm({ warehouse, save, editCode, announce, fallbackFoc
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy || nothing) return;
+    onSaveStarted?.();
     setBusy(true);
     let r: SaveWarehouseResult;
     try {

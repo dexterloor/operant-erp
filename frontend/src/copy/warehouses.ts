@@ -85,6 +85,11 @@ export const DELETE_WAREHOUSE = {
   /** ST-9b: after a refusal other than P1 the Delete button is removed and only this remains. */
   close: 'Close',
   after: (code: string) => `${code} was deleted. It's now in the archived warehouses.`,
+  /**
+   * items-i4-ux.md "S-2 sentences" (U4-26, NEW): after a 204 whose re-read commits a LIVE warehouse (restored in
+   * between). REPLACES `after` for that case only; the normal and the failed re-read cases keep `after`.
+   */
+  afterRestored: (code: string) => `${code} was deleted, and has since been restored.`,
   interrupted: (code: string) => `We can't tell whether ${code} was deleted. Press Delete warehouse to try again.`,
 } as const;
 
@@ -97,6 +102,16 @@ export const DELETE_LOCATION = {
   cancel: 'Cancel',
   close: 'Close',
   after: (code: string) => `${code} was deleted. It's now in this warehouse's archived locations.`,
+  /**
+   * fe-r8-s3-ux.md "Revision 1 — FINAL" (FE-R8, location half; NEW): replaces `after` once the view re-read shows the row
+   * is live (restored in between), and only while the page's region still holds this delete's `after`.
+   */
+  afterRestored: (code: string) => `${code} was deleted, and has since been restored.`,
+  /**
+   * The same rule, after a failed view re-read (unreachable, server error, not found, or the re-read deadline). The second
+   * sentence is `WAITING.listStale` word for word; the whole text lives here because components never join copy.
+   */
+  afterListStale: (code: string) => `${code} was deleted. It's now in this warehouse's archived locations. We couldn't load the list again, so it may be out of date.`,
   interrupted: (code: string) => `We can't tell whether ${code} was deleted. Press Delete location to try again.`,
 } as const;
 
@@ -202,6 +217,11 @@ export const EDIT_LOCATION = {
   saveNothing: 'Nothing to save.',
   /** After (NEW). */
   saved: (code: string) => `${code} was saved.`,
+  /**
+   * NEW, locations-stale-banner-design.md Revision 1 (PO confirmed); shown in the section's stale banner and spoken in
+   * place of `saved` when the view re-read fails. The second sentence is `WAITING.listStale` word for word.
+   */
+  savedListStale: (code: string) => `${code} was saved. We couldn't load the list again, so it may be out of date.`,
   /** Interrupted (NEW): closing the dialog re-reads the section (L-8). */
   interrupted: (code: string) => `We can't tell whether your changes to ${code} were saved. Close this and check the location before you try again.`,
 } as const;
@@ -210,6 +230,11 @@ export const EDIT_LOCATION = {
 export const RESTORE_LOCATION = {
   action: 'Restore location',
   after: (code: string) => `${code} was restored.`,
+  /**
+   * NEW, locations-stale-banner-design.md Revision 1 (PO confirmed); shown in the section's stale banner and spoken in
+   * place of `after` when the view re-read fails. The second sentence is `WAITING.listStale` word for word.
+   */
+  afterListStale: (code: string) => `${code} was restored. We couldn't load the list again, so it may be out of date.`,
   interrupted: (code: string) => `We can't tell whether ${code} was restored. If it's still listed here, press Restore location to try again.`,
   /** On every other row's Restore location while one restore is in flight (NEW, placeholder: UX TO CONFIRM; RED L-6). */
   busyOther: 'Another location is being restored. Wait for it to finish.',
@@ -232,6 +257,11 @@ export const ADD_LOCATION = {
   cancel: 'Cancel',
   /** After (NEW). */
   after: (code: string) => `${code} was added.`,
+  /**
+   * NEW, locations-stale-banner-design.md Revision 1 (PO confirmed); shown in the section's stale banner and spoken in
+   * place of `after` when the view re-read fails. The second sentence is `WAITING.listStale` word for word.
+   */
+  afterListStale: (code: string) => `${code} was added. We couldn't load the list again, so it may be out of date.`,
   /** Interrupted (NEW, B-4's reason: the create does not replay). Closing the dialog re-reads the section. */
   interrupted: (code: string) => `We can't tell whether ${code} was added. Check this warehouse's locations before you try again.`,
 } as const;

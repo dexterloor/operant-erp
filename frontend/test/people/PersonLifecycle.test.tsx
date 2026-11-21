@@ -58,7 +58,10 @@ function Harness({ initial, canDelete = true, canAssign = true, onGiveRole = () 
           timeZone="UTC"
           deletePerson={async () => {
             const r = await resolve(deleteAnswer);
-            if (r.kind === 'deleted') setPerson((p) => ({ ...p, archived_at: '2026-10-27T03:00:00Z', roles: [] }));
+            // FE-R8 (s3-fer8-red.md M-3): the re-read person when the result carries one, as the page does. With none,
+            // the harness still archives the prop, which the page does not do (it keeps the old props and shows its
+            // region error). Those cases assert only the after-message and focus.
+            if (r.kind === 'deleted') setPerson((p) => r.person ?? { ...p, archived_at: '2026-10-27T03:00:00Z', roles: [] });
             return r;
           }}
           restorePerson={async () => {
@@ -457,6 +460,44 @@ describe('no server sentence is stored in client code (ST-3, review L-6)', () =>
     const norm = (s: string) => s.replace(/\\'/g, "'").replace(/[‘’]/g, "'");
     const leaked = messages.filter((m) => sources.some((src) => norm(src).includes(norm(m))));
     expect(leaked).toEqual([]);
+  });
+});
+
+// FE-R8, person half (s3-fer8-red.md apply list; fe-r8-s3-ux.md A.1): the sentence follows the person the delete's
+// re-read committed, and names them as that re-read does.
+describe('§2.2 Delete — the sentence follows the re-read person (FE-R8)', () => {
+  const deleteAndRecord = async () => {
+    const atFirstText: string[] = [];
+    const obs = new MutationObserver(() => {
+      if ((status().textContent ?? '') !== '' && atFirstText.length === 0) atFirstText.push(document.activeElement?.tagName ?? '');
+    });
+    obs.observe(status(), { childList: true, characterData: true, subtree: true });
+    const { user, dialog } = await openDelete();
+    await user.click(within(dialog).getByRole('button', { name: 'Delete person' }));
+    await settled();
+    obs.disconnect();
+    return atFirstText;
+  };
+
+  it('T-P2: the re-read reads the person live (restored in between), renamed: "{re-read name} was deleted, and has since been restored.", the <h1> focused when it is written', async () => {
+    render(<Harness initial={PERSON_ACTIVE} deleteAnswer={{ kind: 'deleted', person: { ...PERSON_ACTIVE, display_name: 'Renamed Person', archived_at: null, roles: [] } }} />);
+    const atFirstText = await deleteAndRecord();
+    expect(status().textContent).toBe('Renamed Person was deleted, and has since been restored.');
+    expect(status()).not.toHaveTextContent('archived people');
+    expect(atFirstText).toEqual(['H1']);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it('T-P3: the re-read reads the person archived, renamed: the shipped sentence with the committed name', async () => {
+    render(<Harness initial={PERSON_ACTIVE} deleteAnswer={{ kind: 'deleted', person: { ...PERSON_ACTIVE, display_name: 'Renamed Person', archived_at: '2026-10-27T03:00:00Z', roles: [] } }} />);
+    await deleteAndRecord();
+    expect(status().textContent).toBe("Renamed Person was deleted. They're now in the archived people.");
+  });
+
+  it('T-P4: no re-read person (the re-read failed, the page took over): the shipped sentence with the name on screen when Delete was pressed', async () => {
+    render(<Harness initial={PERSON_ACTIVE} deleteAnswer={{ kind: 'deleted', pageTookOver: 'server-error' }} />);
+    await deleteAndRecord();
+    expect(status().textContent).toBe("Sample Person was deleted. They're now in the archived people.");
   });
 });
 

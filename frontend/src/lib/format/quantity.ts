@@ -22,3 +22,17 @@ export function renderQuantity(served: string): string {
   if (fraction === '' && /^0+$/.test(integer)) sign = '';
   return sign + integer + (fraction === '' ? '' : `.${fraction}`);
 }
+
+/**
+ * A movement's signed change (UX B-5, proposed STATES.md QR-2a; b4-architecture.md Revision 11 R11-5): `renderQuantity`'s
+ * digits, prefixed `+` when stock arrived and U+2212 MINUS SIGN (not a hyphen-minus) when it left. It is the only renderer
+ * of a movement's quantity, and it differs from `renderQuantity` / `QuantityRendering::render()` only by the sign glyph
+ * (stock-st1-red.md L-9). String work only, as above. Zero cannot be served (`stock_movement_quantity_nonzero`); if it ever
+ * is, it is `0` with no sign (QR-4). A string outside the pattern is returned as served, unsigned and untouched.
+ */
+export function renderSignedQuantity(served: string): string {
+  if (!QUANTITY.test(served)) return served;
+  const digits = renderQuantity(served);
+  if (digits.startsWith('-')) return `\u2212${digits.slice(1)}`;
+  return /^0+$/.test(digits) ? digits : `+${digits}`;
+}
