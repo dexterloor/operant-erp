@@ -403,6 +403,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.view'],
     },
   },
+  ListStockLevels: {
+    method: 'GET',
+    template: '/api/v1/stock',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['stock_level.view'],
+    },
+  },
   ListStockMovements: {
     method: 'GET',
     template: '/api/v1/stock-movements',
@@ -726,6 +736,10 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   RoleGrantProposal: ['decided_at', 'decided_by', 'expires_at', 'id', 'is_expired', 'lapse_reason', 'permission_codes', 'proposed_at', 'proposed_by', 'reason', 'role', 'status', 'user'],
   RoleReference: ['id', 'name'],
   SodRowRef: ['half', 'id'],
+  StockLevel: ['id', 'inventory_item', 'qty_on_hand', 'storage_location', 'version', 'warehouse'],
+  'StockLevel.inventory_item': ['id', 'name', 'sku'],
+  'StockLevel.storage_location': ['code', 'id'],
+  'StockLevel.warehouse': ['id', 'name'],
   StockMovement: ['id', 'inventory_item', 'occurred_at', 'quantity', 'reason', 'source_id', 'source_type', 'storage_location'],
   'StockMovement.inventory_item': ['id', 'name', 'sku'],
   'StockMovement.storage_location': ['code', 'id'],

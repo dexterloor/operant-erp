@@ -13,6 +13,8 @@ import { operation } from '@/lib/bff/surface';
 
 const ROOT = path.resolve(__dirname, '../..');
 const LIB = path.join(ROOT, 'src/lib');
+/** Loader files outside the `wired.ts` / `load.ts` names, each a deliberate entry. */
+const WIRED_EXTRA: readonly string[] = ['src/lib/stock/levels.ts'];
 
 function wiredFiles(): { file: string; source: string }[] {
   const out: { file: string; source: string }[] = [];
@@ -24,6 +26,9 @@ function wiredFiles(): { file: string; source: string }[] {
       if (existsSync(f)) out.push({ file: `src/lib/${dir}/${name}`, source: readFileSync(f, 'utf8') });
     }
   }
+  // Stock ST-2 (stock-st2-plan.md §3.1, §7.6): the stock read lives in its own loader file (G-47's one lib row home), not in
+  // lib/stock/load.ts, whose importers include the movement pages. A missing file is red, never skipped.
+  for (const file of WIRED_EXTRA) out.push({ file, source: readFileSync(path.join(ROOT, file), 'utf8') });
   return out;
 }
 
@@ -69,6 +74,12 @@ describe('C-2 — the wired-operation list is exactly what the wired modules cal
   const files = wiredFiles();
   const called = new Set(files.flatMap((f) => [...callsOf(f).ops]));
   const listed: string[] = JSON.parse(readFileSync(CLIENT_OPS_PATH, 'utf8'));
+
+  it('stock ST-2: ListStockLevels is listed, and called by the one loader file that names it', () => {
+    expect(listed).toContain('ListStockLevels');
+    // It also names the marker reads' operations, as the labels of the reads that answered 403 (S-15's `missing`).
+    expect([...callsOf(files.find((f) => f.file === 'src/lib/stock/levels.ts')!).ops].sort()).toEqual(['GetWarehouse', 'ListStockLevels', 'ListStorageLocations', 'ListWarehouses']);
+  });
 
   it('the wired modules exist and call something (no vacuous check)', () => {
     expect(files.length).toBeGreaterThan(0);

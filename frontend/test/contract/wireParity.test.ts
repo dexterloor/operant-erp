@@ -8,7 +8,7 @@ import type { CreateItemInput, Item, SupplierReference, UpdateItemInput } from '
 import type { CreateSupplierInput, CreateSupplierProductInput, Supplier, SupplierItemReference, SupplierProduct, UpdateSupplierInput, UpdateSupplierProductInput } from '@/lib/api/suppliers';
 import type { ActorReference, ApprovePurchaseOrderInput, CancelPurchaseOrderInput, CreateGoodsReceiptInput, CreateGoodsReceiptLineInput, CreatePurchaseOrderInput, CreatePurchaseOrderLineInput, GoodsReceipt, GoodsReceiptLine, GoodsReceiptLocationReference, GoodsReceiptOrderLineReference, GoodsReceiptOrderReference, NamedReference, PurchaseOrder, PurchaseOrderItemReference, PurchaseOrderLine, UpdatePurchaseOrderInput, UpdatePurchaseOrderLineInput } from '@/lib/api/purchasing';
 import type { CreateStorageLocationInput, CreateWarehouseInput, StorageLocation, UpdateStorageLocationInput, UpdateWarehouseInput, Warehouse } from '@/lib/api/warehouses';
-import type { StockMovement, StockMovementItemReference, StockMovementLocationReference } from '@/lib/api/stock';
+import type { StockLevel, StockLevelItemReference, StockLevelLocationReference, StockLevelWarehouseReference, StockMovement, StockMovementItemReference, StockMovementLocationReference } from '@/lib/api/stock';
 import { mirroredSchemas, wireFields } from '@/lib/bff/surface';
 
 // C-1 (b3b §14): every hand-written wire type in lib/api has exactly the served property names. The literal is a
@@ -122,6 +122,11 @@ const MIRRORED: Record<string, string[]> = {
   StockMovement: keysOf<StockMovement>()({ id: true, quantity: true, occurred_at: true, reason: true, source_type: true, source_id: true, inventory_item: true, storage_location: true }),
   'StockMovement.inventory_item': keysOf<StockMovementItemReference>()({ id: true, sku: true, name: true }),
   'StockMovement.storage_location': keysOf<StockMovementLocationReference>()({ id: true, code: true }),
+  // Stock ST-2 (stock-st2-plan.md §7.6): the stock-on-hand row (served inline in its collection) and its three references.
+  StockLevel: keysOf<StockLevel>()({ id: true, inventory_item: true, storage_location: true, warehouse: true, qty_on_hand: true, version: true }),
+  'StockLevel.inventory_item': keysOf<StockLevelItemReference>()({ id: true, sku: true, name: true }),
+  'StockLevel.storage_location': keysOf<StockLevelLocationReference>()({ id: true, code: true }),
+  'StockLevel.warehouse': keysOf<StockLevelWarehouseReference>()({ id: true, name: true }),
 };
 
 describe('C-1 — wire parity of the hand-written lib/api types', () => {

@@ -402,3 +402,46 @@ describe('axe — stock movements (stock ST-1)', () => {
     expect(await run()).toEqual([]);
   });
 });
+
+// Stock ST-2 (stock-st2-plan.md §7.5-8): the one-item and one-location views (with badges and the unknown banner), the
+// picker's step 2, the withheld page and S-9a, each inside the frame's <main>.
+describe('axe — stock on hand (stock ST-2)', () => {
+  const W = 'a1000000-0000-4000-8000-000000000001';
+  const L = 'b1000000-0000-4000-8000-000000000001';
+  const I = 'c1000000-0000-4000-8000-000000000001';
+  const ROW = { id: 'd1000000-0000-4000-8000-000000000001', inventory_item: { id: I, sku: 'WID-001', name: 'Widget' }, storage_location: { id: L, code: 'Q-01' }, warehouse: { id: W, name: 'Main' }, qty_on_hand: '2.500000', version: 1 };
+  const NONE = { quarantine: false, locationArchived: false, warehouseArchived: false, unknown: false };
+  const run = async () => (await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } })).violations.map((v) => `${v.id}: ${v.nodes.length} × ${v.help}`);
+
+  it('the one-item view (badges, the banner) and the one-location view: no violations', async () => {
+    const { StockLevelsView } = await import('@/app/(app)/stock/StockLevelsView');
+    const { renderWired } = await import('./wired/harness');
+    const { unmount } = renderWired(
+      <main>
+        <StockLevelsView scope="item" itemId={I} item={{ sku: 'WID-001', name: 'Widget', unit: 'EA' }} rows={[{ row: ROW, marker: { ...NONE, quarantine: true, unknown: true }, warehouseCode: 'WH-1' }]} tenantHasRows canOpenItem canListMovements canListOrders />
+      </main>,
+    );
+    expect(await run()).toEqual([]);
+    unmount();
+    renderWired(
+      <main>
+        <StockLevelsView scope="location" warehouse={{ id: W, code: 'WH-1', name: 'Main' }} location={{ id: L, code: 'Q-01' }} marker={{ ...NONE, quarantine: true, warehouseArchived: true }} rows={[ROW]} tenantHasRows canOpenItem canListOrders />
+      </main>,
+    );
+    expect(await run()).toEqual([]);
+  });
+
+  it('step 2, the withheld page and S-9a: no violations', async () => {
+    const { StockLocationStep } = await import('@/app/(app)/stock/StockPicker');
+    const { StockFailed, StockWithheld } = await import('@/app/(app)/stock/StockStates');
+    const { renderWired } = await import('./wired/harness');
+    let r = renderWired(<main><StockLocationStep warehouse={{ id: W, code: 'WH-1', name: 'Main', archived_at: '2026-10-01T00:00:00Z' }} locations={[{ id: L, code: 'Q-01', kind: 'quarantine' }]} /></main>);
+    expect(await run()).toEqual([]);
+    r.unmount();
+    r = renderWired(<main><StockWithheld missing={['storage_location.view', 'warehouse.view']} /></main>);
+    expect(await run()).toEqual([]);
+    r.unmount();
+    renderWired(<main><StockFailed heading="Stock on hand" body="The list of locations couldn't be loaded." unreachable={false} /></main>);
+    expect(await run()).toEqual([]);
+  });
+});

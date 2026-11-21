@@ -124,8 +124,8 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
   it('suppliers S-1: the start page moves to /suppliers for a supplier.view holder, in navigation order', () => {
     // Purchase orders PO-1 moved this pin deliberately: /purchase-orders joins BUILT_PAGE_HREFS (its own test is below).
     // Goods receipts GR-1 moved it again: /goods-receipts joins (its own test is below).
-    // Stock ST-1 moved it again: /stock-movements joins (its own test is below).
-    expect(BUILT_PAGE_HREFS).toEqual(['/purchase-orders', '/goods-receipts', '/suppliers', '/items', '/stock-movements', '/warehouses', '/admin/users', '/admin/roles']);
+    // Stock ST-1 moved it again: /stock-movements joins (its own test is below). Stock ST-2 moved it again: /stock joins.
+    expect(BUILT_PAGE_HREFS).toEqual(['/purchase-orders', '/goods-receipts', '/suppliers', '/items', '/stock', '/stock-movements', '/warehouses', '/admin/users', '/admin/roles']);
     expect(startDestination(['supplier.view', 'inventory_item.view', 'warehouse.view', 'app_user.view'])).toBe('/suppliers');
     expect(startDestination(['supplier.view'])).toBe('/suppliers');
     expect(startDestination(['inventory_item.view', 'warehouse.view'])).toBe('/items');
@@ -169,7 +169,21 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
     expect(startDestination(['goods_receipt.view', 'inventory_item.view', 'stock_movement.view', 'warehouse.view', 'storage_location.view'])).toBe('/goods-receipts');
     expect(startDestination(['purchase_order.view', 'goods_receipt.view', 'inventory_item.view', 'stock_movement.view'])).toBe('/purchase-orders');
     expect(startDestination(['inventory_item.view', 'stock_movement.view'])).toBe('/items');
-    // The navigation-only stock-on-hand entry, before it in the menu, is not built, so it is never a start destination.
-    expect(startDestination(['stock_level.view', 'stock_movement.view'])).toBe('/stock-movements');
+    // Stock ST-2 moved this line deliberately (plan owner notice N-3): the stock-on-hand entry, before it in the menu, is
+    // now built, so a seat holding both codes starts there.
+    expect(startDestination(['stock_level.view', 'stock_movement.view'])).toBe('/stock');
+  });
+  // Stock ST-2 (stock-st2-plan.md §7.6, owner notice N-3; UX B-6 "no landing page moves"): Stock on hand follows Items in
+  // Inventory. Every default holder of stock_level.view also holds an earlier page's code (purchase_order.view,
+  // goods_receipt.view, supplier.view or inventory_item.view), so none moves; only a composed seat whose first built page is
+  // Stock on hand lands there, on the withheld page or the denied one if it lacks the marker codes.
+  it('stock ST-2: no default holder’s start page moves; a stock_level.view-only seat starts at /stock', () => {
+    expect(startDestination(['stock_level.view'])).toBe('/stock');
+    expect(startDestination(['stock_level.view', 'storage_location.view', 'warehouse.view'])).toBe('/stock');
+    expect(startDestination(['inventory_item.view', 'stock_level.view', 'storage_location.view', 'warehouse.view'])).toBe('/items');
+    // The default holders, as composed in the ST-1 test above (each holds an earlier code).
+    expect(startDestination(['goods_receipt.view', 'inventory_item.view', 'stock_level.view', 'stock_movement.view', 'warehouse.view', 'storage_location.view'])).toBe('/goods-receipts');
+    expect(startDestination(['purchase_order.view', 'goods_receipt.view', 'supplier.view', 'inventory_item.view', 'stock_level.view', 'warehouse.view'])).toBe('/purchase-orders');
+    expect(startDestination(['supplier.view', 'inventory_item.view', 'stock_level.view', 'warehouse.view'])).toBe('/suppliers');
   });
 });

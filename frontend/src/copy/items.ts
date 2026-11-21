@@ -124,6 +124,11 @@ export const ITEM_PAGE = {
    * ListStockMovements holder, on a live and an archived item. A link, not a stock panel: no stock figure is shown.
    */
   movementsLink: 'Stock movements of this item',
+  /**
+   * `stockLink` (stock-st2-ux-copy.md B-7, NEW; stock ST-2): a link to this item's stock on hand, only for a viewer who
+   * may see stock rows and every location check, on a live and an archived item. A link, not a stock panel.
+   */
+  stockLink: 'Stock on hand of this item',
 } as const;
 
 /** B-4: `/items/new` (create), as amended by R1-1 (the Unit is a select over the served units, BK-22). */

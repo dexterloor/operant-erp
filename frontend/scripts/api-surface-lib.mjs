@@ -83,6 +83,11 @@ const MIRRORED = {
   StockMovement: ['StockMovement'],
   'StockMovement.inventory_item': ['StockMovement', 'properties', 'inventory_item'],
   'StockMovement.storage_location': ['StockMovement', 'properties', 'storage_location'],
+  // Stock ST-2: the stock-on-hand row is served inline in its collection (no top-level schema of its own).
+  StockLevel: ['StockLevelCollection', 'properties', 'items', 'items'],
+  'StockLevel.inventory_item': ['StockLevelCollection', 'properties', 'items', 'items', 'properties', 'inventory_item'],
+  'StockLevel.storage_location': ['StockLevelCollection', 'properties', 'items', 'items', 'properties', 'storage_location'],
+  'StockLevel.warehouse': ['StockLevelCollection', 'properties', 'items', 'items', 'properties', 'warehouse'],
 };
 
 const BANNER =

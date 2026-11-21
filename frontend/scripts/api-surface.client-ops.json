@@ -37,6 +37,7 @@
   "ListPurchaseOrders",
   "ListRoleGrantProposals",
   "ListRoles",
+  "ListStockLevels",
   "ListStockMovements",
   "ListStorageLocations",
   "ListSupplierProducts",

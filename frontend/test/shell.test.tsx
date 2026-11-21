@@ -50,13 +50,23 @@ describe('Sidebar', () => {
 describe('Sidebar — stock ST-1', () => {
   // stock-plan.md §6.7: with the real built list, Inventory reads Items · Stock movements · Warehouses for a holder of the
   // three codes; the unbuilt stock-on-hand entry is never offered, and a movement page marks Stock movements current.
-  it('Inventory: Items · Stock movements · Warehouses with the real built pages; the movement page is current under it', () => {
+  // Stock ST-2 (stock-st2-plan.md §7.6) moved this pin deliberately: Stock on hand is built and sits between them.
+  it('Inventory: Items · Stock on hand · Stock movements · Warehouses with the real built pages; the movement page is current under it', () => {
     render(<Sidebar permissionCodes={['inventory_item.view', 'stock_level.view', 'stock_movement.view', 'warehouse.view']} currentPath="/stock-movements/0b7c1f9e-3f4a-4c8e-9d2b-5a6e7f8091a2" builtHrefs={BUILT_PAGE_HREFS} />);
     const nav = screen.getByRole('navigation', { name: 'Main' });
-    expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual(['Items', 'Stock movements', 'Warehouses']);
+    expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual(['Items', 'Stock on hand', 'Stock movements', 'Warehouses']);
     expect(within(nav).getByRole('link', { name: 'Stock movements' })).toHaveAttribute('href', '/stock-movements');
     expect(within(nav).getByRole('link', { name: 'Stock movements' })).toHaveAttribute('aria-current', 'page');
-    expect(within(nav).queryByText('Stock on hand')).toBeNull();
+    // /stock is a prefix of /stock-movements as text, never as a segment: it is not current there.
+    expect(within(nav).getByRole('link', { name: 'Stock on hand' })).toHaveAttribute('href', '/stock');
+    expect(within(nav).getByRole('link', { name: 'Stock on hand' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('Stock on hand is current on /stock and on a scoped /stock address', () => {
+    render(<Sidebar permissionCodes={['inventory_item.view', 'stock_level.view', 'stock_movement.view', 'warehouse.view']} currentPath="/stock" builtHrefs={BUILT_PAGE_HREFS} />);
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByRole('link', { name: 'Stock on hand' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('link', { name: 'Stock movements' })).not.toHaveAttribute('aria-current');
   });
 });
 

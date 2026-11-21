@@ -89,6 +89,23 @@ describe('/items/[id] — the link to this item’s movements (stock ST-1)', () 
   });
 });
 
+// Stock ST-2 (stock-st2-plan.md §2.5, §7.6; UX B-7): one link to this item's stock on hand, only for a viewer the server's
+// `stockRowsVisible(codes)` admits (`canSeeStock`), on a live AND an archived item. A link, not a stock panel.
+describe('/items/[id] — the link to this item’s stock on hand (stock ST-2)', () => {
+  const STOCK = 'Stock on hand of this item';
+  it('canSeeStock gets the link, href exactly /stock?inventory_item_id=<id>, live and archived; without it there is none', () => {
+    const { unmount } = renderWired(<ItemPage initial={BOLT} canEdit={false} canRestore={false} canSeeStock />);
+    expect(screen.getByRole('link', { name: STOCK })).toHaveAttribute('href', `/stock?inventory_item_id=${IID}`);
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+    unmount();
+    const b = renderWired(<ItemPage initial={ARCHIVED} canEdit canRestore canSeeStock canListMovements />);
+    expect([...document.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([`/stock?inventory_item_id=${IID}`, `/stock-movements?inventory_item_id=${IID}`]);
+    b.unmount();
+    renderWired(<ItemPage initial={BOLT} canEdit={false} canRestore={false} canListMovements />);
+    expect(screen.queryByRole('link', { name: STOCK })).toBeNull();
+  });
+});
+
 describe('/items/[id] — the editor (B-3 as amended)', () => {
   it('h1 "{sku} — {name}"; editable SKU, Name, Unit and the three numbers, in that order (I-4 T-0b); Preferred supplier is text', () => {
     show();

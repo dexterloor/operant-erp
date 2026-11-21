@@ -99,3 +99,91 @@ export function addressedItem(query: Readonly<Record<string, string | string[] |
   if (typeof value === 'string' && isRecordId(value)) return { kind: 'item', id: value };
   return { kind: 'invalid' };
 }
+
+// Stock ST-2 (stock-st2-plan.md §3.2; Revision 11 R11-1, the `loadLocationChoices` precedent): the narrow reads of the
+// location and warehouse facts Stock on hand needs, for its picker and for each row's marker. They name no stock read and
+// this file imports no stock-on-hand file, so the movement pages, which import this file, never reach one (G-47).
+
+/** One location as Stock on hand reads it: its id, its code (the picker's links) and its served kind (the marker). */
+export interface MarkerLocation {
+  readonly id: string;
+  readonly code: string;
+  readonly kind: string;
+}
+/** One warehouse as Stock on hand reads it: its id, code, name and whether it is archived. */
+export interface MarkerWarehouse {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly archived_at: string | null;
+}
+export type MarkerLocationsLoad = { readonly kind: 'ok'; readonly locations: MarkerLocation[] } | { readonly kind: ReadFailure };
+export type MarkerWarehouseLoad = { readonly kind: 'ok'; readonly warehouse: MarkerWarehouse } | { readonly kind: ReadFailure };
+export type MarkerWarehousesLoad = { readonly kind: 'ok'; readonly warehouses: MarkerWarehouse[]; readonly tenantHasRows: boolean } | { readonly kind: ReadFailure };
+
+const isMarkerLocation = (x: unknown): x is MarkerLocation => isObject(x) && typeof x.id === 'string' && typeof x.code === 'string' && typeof x.kind === 'string';
+const isMarkerWarehouse = (x: unknown): x is MarkerWarehouse =>
+  isObject(x) && typeof x.id === 'string' && typeof x.code === 'string' && typeof x.name === 'string' && isNullableString(x.archived_at);
+const asMarkerWarehouse = ({ id, code, name, archived_at }: MarkerWarehouse): MarkerWarehouse => ({ id, code, name, archived_at });
+
+/**
+ * `ListStorageLocations` for one warehouse, the live view (no query) or the Archived view (`archived=true`), the whole set
+ * in one answer: an answer that says there is more is not the whole set, so it is a server error (gr-2-red.md L-2).
+ * Only each location's id, code and kind are kept.
+ */
+export async function loadMarkerLocations(read: Read, warehouseId: string, archived: boolean, signal?: AbortSignal): Promise<MarkerLocationsLoad> {
+  const query = new URLSearchParams();
+  if (archived) query.set('archived', 'true');
+  const a = await read('ListStorageLocations', { params: { id: warehouseId }, query, signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown; next_cursor?: unknown } | null;
+  const items = body?.items;
+  if (!Array.isArray(items) || !items.every(isMarkerLocation) || (body?.next_cursor !== undefined && body.next_cursor !== null)) return { kind: 'server-error' };
+  return { kind: 'ok', locations: items.map(({ id, code, kind }) => ({ id, code, kind })) };
+}
+
+/** `GetWarehouse`: one warehouse's id, code, name and archived state (it answers an archived warehouse too). */
+export async function loadMarkerWarehouse(read: Read, id: string, signal?: AbortSignal): Promise<MarkerWarehouseLoad> {
+  const a = await read('GetWarehouse', { params: { id }, signal });
+  if (a.kind !== 'ok') return a;
+  return isMarkerWarehouse(a.body) ? { kind: 'ok', warehouse: asMarkerWarehouse(a.body) } : { kind: 'server-error' };
+}
+
+/**
+ * `ListWarehouses`, the live view (no query) or the Archived view (`archived=true`), the whole set in one answer (the read
+ * is bounded, not paged). `tenant_has_rows` is required: on an empty live view it says whether any warehouse exists.
+ */
+export async function loadMarkerWarehouses(read: Read, archived: boolean, signal?: AbortSignal): Promise<MarkerWarehousesLoad> {
+  const query = new URLSearchParams();
+  if (archived) query.set('archived', 'true');
+  const a = await read('ListWarehouses', { query, signal });
+  if (a.kind !== 'ok') return a;
+  const body = a.body as { items?: unknown; next_cursor?: unknown; tenant_has_rows?: unknown } | null;
+  const items = body?.items;
+  if (!Array.isArray(items) || !items.every(isMarkerWarehouse) || (body?.next_cursor !== undefined && body.next_cursor !== null) || typeof body?.tenant_has_rows !== 'boolean') {
+    return { kind: 'server-error' };
+  }
+  return { kind: 'ok', warehouses: items.map(asMarkerWarehouse), tenantHasRows: body.tenant_has_rows };
+}
+
+/** One item as Stock on hand's one-item view reads it: its id, SKU, name and unit (the Unit column; UX §B-4). */
+export interface StockItem {
+  readonly id: string;
+  readonly sku: string;
+  readonly name: string;
+  readonly unit_of_measure_code: string;
+}
+export type StockItemLoad = { readonly kind: 'ok'; readonly item: StockItem } | { readonly kind: ReadFailure };
+
+/**
+ * A narrow `GetItem` (R11-1) for the one-item view: the item's id, SKU, name and unit. An item's unit cannot change once
+ * any stock row names it, so it is exactly the unit the rows' figures are in (UX A-2). Only the four members are checked,
+ * and an answer naming another item is a server error (never another item's unit beside these rows).
+ */
+export async function loadStockItem(read: Read, id: string, signal?: AbortSignal): Promise<StockItemLoad> {
+  const a = await read('GetItem', { params: { id }, signal });
+  if (a.kind !== 'ok') return a;
+  const b = a.body;
+  const unit = isObject(b) ? b.unit_of_measure_code : undefined;
+  return isItemReference(b) && b.id === id && typeof unit === 'string' ? { kind: 'ok', item: { id: b.id, sku: b.sku, name: b.name, unit_of_measure_code: unit } } : { kind: 'server-error' };
+}
