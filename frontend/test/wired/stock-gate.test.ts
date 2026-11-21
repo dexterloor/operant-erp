@@ -286,6 +286,15 @@ describe('/stock — the G-47 gate on the server page', () => {
     expect(one.props.warehouse).toEqual({ id: W1, code: 'WH-1', name: 'Main' });
     expect(v.calls.map((c) => c[0]).sort()).toEqual(['loadMarkerLocations', 'loadMarkerLocations', 'loadMarkerWarehouse', 'loadStockForLocation']);
     expect(v.calls[v.calls.length - 1]).toEqual(['loadStockForLocation', W1, LQ]);
+    // Commit RED M-3: an archived bin's own address shows its rows marked Archived, never "couldn't find that location".
+    v.calls = [];
+    v.stockRows = [row('d5000000-0000-4000-8000-000000000005', W1, LA, 'A-01')];
+    const archivedBin = await page(OPERATOR, LOCATION_Q(LA));
+    expect(archivedBin.type).not.toBe(StockUnknownLocation);
+    expect(archivedBin.type).toBe(StockLevelsView);
+    expect(called('loadStockForLocation')).toEqual([['loadStockForLocation', W1, LA]]);
+    expect(archivedBin.props.marker).toEqual({ ...NONE, locationArchived: true });
+    expect((archivedBin.props.marker as typeof NONE).unknown).toBe(false);
   });
 });
 
@@ -359,6 +368,11 @@ describe('/stock — (iv) the rest of the check order, the item read and the pic
     expect(await title(OPERATOR, { warehouse_id: W1 })).toBe(STOCK_LEVELS.heading);
     expect(await title(OPERATOR, LOCATION_Q(LP))).toBe(STOCK_LEVELS.titleLocation('A-02', 'Main'));
     expect(await title(OPERATOR, { inventory_item_id: I })).toBe(STOCK_LEVELS.titleItem('WID-001'));
+    // Commit RED L-2: when a marker read answers 403 the page is the withheld page, and its title names no SKU.
+    v.warehouses = { false: 'forbidden' };
+    expect((await page(OPERATOR, { inventory_item_id: I })).type).toBe(StockWithheld);
+    expect(await title(OPERATOR, { inventory_item_id: I })).toBe(STOCK_LEVELS.heading);
+    v.warehouses = {};
     const missing = await page(OPERATOR, LOCATION_Q(L2));
     expect(missing.type).toBe(StockUnknownLocation);
     expect(missing.props).toEqual({ warehouseId: W1, warehouse: 'Main' });
