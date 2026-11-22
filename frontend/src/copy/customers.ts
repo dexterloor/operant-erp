@@ -1,15 +1,18 @@
 // Every customer screen sentence (Revision 8 R8-2). Customers C-1 (customers-plan.md Revision 1 — FINAL R1-5) ships the
-// list, its Archived view and the read-only customer page with its read-only Contacts and Addresses sections. Sources, each
-// entry naming its own:
+// list, its Archived view and the customer page with its read-only Contacts and Addresses sections; C-2a makes the page an
+// editor of Code, Country, Currency and Payment terms. Sources, each entry naming its own:
 // - `customers-c1-ux-copy.md` Revision 1 — FINAL (R1-9: the interim `noneArchived`, `CONTACTS_SECTION`,
 //   `ADDRESSES_SECTION`, `addressKindLabel`);
 // - `STATES.md` ST-9a (the Archived control, its heading, Back to customers, the caption, the archived search label and
 //   the empty-state table — "Customers read the same, with customer(s) for supplier(s)");
 // - `docs/session13/customers-s1-ux.md` §2.5 (the live search label, the filtered-empty sentence);
 // - the shipped supplier list and page (`copy/suppliers.ts`, UX S-1), word for word with *customer* for *supplier*, where
-//   no customer-specific text exists (the paged list's sentences, the read-only page's labels, the archived banner).
-// Each sentence holds for the web app in this commit (`STATES.md:161`): C-1 has no create, edit, restore or delete, so no
-// entry here names one. Server refusals are never stored here.
+//   no customer-specific text exists (the paged list's sentences, the read-only page's labels, the archived banner);
+// - `customers-c2a-ux-copy.md` Revision 1 — FINAL, as corrected by `customers-c2a-ux-copy-final-red.md` (the editor's keys,
+//   `CUSTOMER_FORBIDDEN`).
+// Each sentence holds for the web app in this commit (`STATES.md:161`). C-2a edits Code, Country, Currency and Payment terms
+// only. There is no create, rename, restore or delete on any web surface, so no entry here offers one;
+// `archivedThenRestored` reports a restore made elsewhere as a fact. Server refusals are never stored here.
 
 /** `{n} days` / `1 day` / `0 days` (the supplier list's "payment terms cell", UX S-1). */
 const days = (n: number) => (n === 1 ? '1 day' : `${n} days`);
@@ -89,11 +92,11 @@ export const CUSTOMERS_PAGING = {
   }),
 } as const;
 
-/** The read-only customer page (`SUPPLIER_PAGE`'s read-only half; IA L-4: the detail page is the editor from C-2a). */
+/** The customer page and, from C-2a, its editor (Name stays text until C-2b). Hints show only beside editable fields (B-3). */
 export const CUSTOMER_PAGE = {
   /** `title(code, name)`: h1 and `<title>` — the code first, so two namesakes read apart (ST-9a). */
   title: (code: string, name: string) => `${code} — ${name}`,
-  /** Labels: Code · Name · Country · Currency · Payment terms (days). A read-only page shows no hints (B-3). */
+  /** Labels: Code · Name · Country · Currency · Payment terms (days). Hints show only beside editable fields (B-3). */
   code: 'Code',
   name: 'Name',
   country: 'Country',
@@ -101,9 +104,61 @@ export const CUSTOMER_PAGE = {
   paymentTerms: 'Payment terms (days)',
   /** "read-only terms": `{n} days` · `1 day` · `0 days`. */
   days,
-  /** The archived banner (ST-9): *"This customer was archived on {date}."* No action in C-1 (Restore ships at C-2b). */
+  /** The archived banner (ST-9): *"This customer was archived on {date}."* No action (Restore ships at C-2b). */
   archivedOn: 'This customer was archived on ',
   archivedAfter: '.',
+  /**
+   * The editor's hints (C-2a; `customers-c2a-ux-copy.md` Revision 1 — FINAL R1-1), each beside its editable field only.
+   * Name has no hint and no field in C-2a (D-1): it is plain text under its label; `nameHint` (G-38) arrives at C-2b.
+   */
+  codeHint: "A short code people will recognise, for example ACME. Two customers can't share a code unless one of them is archived, and capitals and spaces count.",
+  countryHint: 'Two letters, for example GB. Each address below keeps its own country.',
+  /**
+   * Sentence 3 holds while nothing reads `customer.currency_code` (`CustomerWriter.php:58`; `CreateSalesOrderInput.php:90-92`).
+   * The commit that pre-fills an order's currency from the customer (`customers-s1-ux.md` §3.3 item 4, `FLOWS.md` F-5
+   * step 1) must replace it in the same commit.
+   */
+  currencyHint: 'Three letters, for example GBP. The currency this customer is usually invoiced in. For your records only: nothing else in the app uses it.',
+  termsHint: 'Days after the invoice date that payment is due. 0 means due on the invoice date. Invoices already issued keep their due date.',
+  /** An emptied field, caught on the press; no request is sent (copy D-7: only an emptied field, never spaces or a range). */
+  codeRequired: 'Enter a code.',
+  countryRequired: 'Enter a country code.',
+  currencyRequired: 'Enter a currency code.',
+  termsRequired: 'Enter a number of days, or 0.',
+  save: 'Save',
+  /** Save's `aria-disabled` reason while nothing differs (D-5: the shipped key, not `nothingChanged`). */
+  saveNothing: 'Nothing to save.',
+  /** `{code}` is the code as served after the save, so a changed code is spoken in its new form (D-5). */
+  saved: (code: string) => `${code} was saved.`,
+  /** Under `COULD_NOT_REACH` / `WENT_WRONG`; `{code}` is the code shown before the press. */
+  interrupted: (code: string) => `We can't tell whether your changes to ${code} were saved. Reload the page to check.`,
+  /** The region error after a write's re-read fails, with the house Retry. */
+  rereadFailed: "We couldn't load this customer again, so what's shown may be out of date.",
+  /**
+   * K-15 (copy Revision 1a R1a-1, D-6): under **Not saved** when a Save is refused (`customer.is_archived` or any other rule)
+   * and the re-read is archived; the ST-9 banner follows and the form is gone. Replaces the server's R3, whose "…until it's
+   * restored." names a restore no web surface offers in C-2a. C-2b (Restore ships) deletes this key and its branch.
+   */
+  archivedOnSave: "This customer is archived, so it can't be changed.",
+  /**
+   * K-16: under **Not saved** when a Save is refused `customer.is_archived` and the re-read is live; the re-read is not
+   * committed, so the person's edits stay (the supplier shape). Reports a restore made elsewhere as a fact.
+   */
+  archivedThenRestored: 'Nothing was saved, because this customer was archived at that moment. It has since been restored, so you can press Save again.',
+  /**
+   * K-17: under **Not saved** when a Save is refused `customer.is_archived` and the re-read failed; the region shows
+   * `rereadFailed` with Retry beside it, and the edits stay. It names no action and claims nothing about the state now.
+   */
+  archivedAtSave: 'Nothing was saved, because this customer was archived at that moment.',
+} as const;
+
+/**
+ * The lost-permission sentence on Save (copy Revision 1 — FINAL R1-1): `SUPPLIER_FORBIDDEN` word for word, around the
+ * permission label read from `permissionLabels.ts` by `UpdateCustomer`'s code.
+ */
+export const CUSTOMER_FORBIDDEN = {
+  before: 'This needs the ',
+  after: ' permission, which you no longer have. Your workspace administrator can grant it.',
 } as const;
 
 /**

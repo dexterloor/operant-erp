@@ -2,9 +2,9 @@ import { isValidElement, type ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 // Customers C-1 (customers-plan.md Revision 0 §8 C-1 test 6 under Revision 1 — FINAL R1-6; the supplier-gate.test.ts
-// shape): the customer page is read-only for every viewer in C-1 — it takes the customer and its two sections' first
-// reads and nothing else, so no editor, Restore, Delete, Add, Edit or Remove can be offered — and its gate is
-// GetCustomer's. Each section is read on the server only for a holder of its read's codes (A-20). The list page: its gate, the address's view
+// shape), as moved deliberately by C-2a: the customer page takes the customer, `canEdit` (UpdateCustomer's codes — the
+// editor, C-2a) and its two sections' first reads and nothing else, so no Restore, Delete, Add, Edit or Remove can be
+// offered — and its gate is GetCustomer's. Each section is read on the server only for a holder of its read's codes (A-20). The list page: its gate, the address's view
 // (`?archived=true` kept on reload, never a cursor or a search), and 401 / 403 / 404 / a non-record id.
 
 // Fixed loader answers holding distinct rows (customers-c1-commit-red.md M-2): the page must hand each section EXACTLY its
@@ -69,15 +69,19 @@ async function render(codes: string[]): Promise<ReactElement> {
   return el as ReactElement;
 }
 
-describe('/customers/[id] — read-only in C-1, gated on GetCustomer (test 6)', () => {
+describe('/customers/[id] — gated on GetCustomer; the editor only for UpdateCustomer (test 6, C-2a)', () => {
   it.each([
-    ['the viewer shape (customer.view)', ['customer.view']],
-    ['the sales_rep shape (every customer code)', ['customer.view', 'customer.create', 'customer.edit', 'customer.delete']],
-  ] as const)('%s: the read-only page, handed the customer and its two sections\' first reads and nothing else', async (_, codes) => {
+    ['the viewer shape (customer.view): read-only', ['customer.view'], false],
+    ['the sales_rep shape (every customer code): the editor', ['customer.view', 'customer.create', 'customer.edit', 'customer.delete'], true],
+    // Commit RED L-4: two seats that tell UpdateCustomer apart from DeleteCustomer and CreateCustomer.
+    ['customer.view + customer.edit only: the editor', ['customer.view', 'customer.edit'], true],
+    ['customer.view + create + delete, no edit: read-only', ['customer.view', 'customer.create', 'customer.delete'], false],
+  ] as const)('%s, handed the customer, canEdit and its two sections\' first reads and nothing else', async (_, codes, canEdit) => {
     const el = await render([...codes]);
     expect(el.type).toBe(CustomerPage);
-    expect(Object.keys(el.props as object)).toEqual(['customer', 'contacts', 'addresses']);
+    expect(Object.keys(el.props as object)).toEqual(['customer', 'canEdit', 'contacts', 'addresses']);
     const props = el.props as Record<string, unknown>;
+    expect(props.canEdit).toBe(canEdit);
     expect(props.customer).toEqual(CUSTOMER);
     expect(props.contacts).toBe(fixed.contacts);
     expect(props.addresses).toBe(fixed.addresses);

@@ -58,6 +58,7 @@
   "RestoreUser",
   "RestoreWarehouse",
   "RevokeRole",
+  "UpdateCustomer",
   "UpdateItem",
   "UpdatePurchaseOrder",
   "UpdatePurchaseOrderLine",

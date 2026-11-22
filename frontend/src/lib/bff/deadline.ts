@@ -46,6 +46,11 @@ export const ACTION_DEADLINES_MS = {
   /** Create a supplier: the request alone (the page navigates to the new supplier, which reads it). */
   supplierCreate: 30_000,
   /**
+   * Save a customer (Customers C-2a): the request + the GetCustomer re-read (also after a refusal without field
+   * violations, to see whether the page was stale).
+   */
+  customerSave: 30_000,
+  /**
    * Save a supplier catalogue entry: the request + the GetSupplier re-read after a refusal (to see whether the supplier
    * was archived meanwhile). The section re-reads its catalogue after the dialog closes, under its own deadline.
    */

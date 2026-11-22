@@ -613,6 +613,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  UpdateCustomer: {
+    method: 'PATCH',
+    template: '/api/v1/customers/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
   UpdateItem: {
     method: 'PATCH',
     template: '/api/v1/items/{id}',
@@ -749,6 +759,7 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   ActorReference: ['display_name', 'id'],
   Collection: ['items', 'next_cursor', 'previous_cursor', 'tenant_has_rows'],
   Customer: ['archived_at', 'code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days'],
+  'Customer.UpdateCustomerInput.jsonMergePatch': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
   CustomerAddress: ['city', 'country_code', 'id', 'kind', 'line', 'postal_code'],
   CustomerContact: ['email', 'id', 'is_primary', 'name', 'phone'],
   GoodsReceipt: ['id', 'lines', 'purchase_order', 'receipt_number', 'received_at', 'received_by'],

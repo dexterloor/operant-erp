@@ -10,9 +10,10 @@ import { currentViewer, sessionEndedPath } from '../../currentViewer';
 import { CustomersDenied } from '../CustomerStates';
 import { CustomerPage } from './CustomerPage';
 
-// `/customers/[id]` (customers-plan.md Revision 1 — FINAL R1-5 C-1; the /suppliers/[id] shape; Revision 8 R8-2; Revision 7
-// A-15, A-20). First render: GetCustomer over the server transport, once per request (shared with the title). Read-only in
-// C-1: no editor, Restore or Delete is offered to anyone. The Contacts and Addresses sections are each read and rendered
+// `/customers/[id]` (customers-plan.md Revision 1 — FINAL R1-5 C-1, C-2a; the /suppliers/[id] shape; Revision 8 R8-2;
+// Revision 7 A-15, A-20). First render: GetCustomer over the server transport, once per request (shared with the title).
+// `canEdit` = UpdateCustomer's codes (C-2a: the editor on a live customer). No Restore or Delete is offered to anyone before
+// C-2b / C-6. The Contacts and Addresses sections are each read and rendered
 // only for a viewer holding their read's codes (ListCustomerContacts', ListCustomerAddresses'; A-20): for anyone else the
 // section is absent and not fetched. A 401 on either read → the session-ended notice; any other failure is the section's own
 // state. 401 → the session-ended notice; 403 → ST-4b; 404 or a non-record id → ST-5 (`not-found.tsx`); any other failure
@@ -58,5 +59,5 @@ export default async function Page({ params }: Params) {
     addresses = await loadAddresses(serverRead(session), id);
     if (addresses.kind === 'session-ended') redirect(back);
   }
-  return <CustomerPage customer={first.customer} contacts={contacts} addresses={addresses} />;
+  return <CustomerPage customer={first.customer} canEdit={viewerMay('UpdateCustomer', codes)} contacts={contacts} addresses={addresses} />;
 }

@@ -57,6 +57,8 @@ const MIRRORED = {
   Customer: ['Customer'],
   CustomerContact: ['CustomerContact'],
   CustomerAddress: ['CustomerAddress'],
+  // Customers C-2a: the editor's merge-patch body.
+  'Customer.UpdateCustomerInput.jsonMergePatch': ['Customer.UpdateCustomerInput.jsonMergePatch'],
   Supplier: ['Supplier'],
   'Supplier.CreateSupplierInput': ['Supplier.CreateSupplierInput'],
   'Supplier.UpdateSupplierInput.jsonMergePatch': ['Supplier.UpdateSupplierInput.jsonMergePatch'],

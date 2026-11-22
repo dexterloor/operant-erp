@@ -200,9 +200,10 @@ const LITERAL_SCAN_DIRS = [
   'src/components/suppliers',
   // Purchase orders PO-1 (Revision 8 R8-2, R8-3 completeness; Revision 10 R10-2): the purchasing family's logic.
   'src/lib/purchasing',
-  // Customers C-1 (customers-plan.md Revision 1 R1-8; R8-3 completeness): the customer family's logic. No
-  // components/customers yet: C-1's pages need no props-only component (the editor's form arrives at C-2a).
+  // Customers C-1 (customers-plan.md Revision 1 R1-8; R8-3 completeness): the customer family's logic. Customers C-2a: the
+  // family's components (CustomerForm, the page's editor), enrolled with the folder's first file.
   'src/lib/customers',
+  'src/components/customers',
   // Purchase orders PO-3 (R8-3 completeness): the family's components (NewOrderForm, the create page's form).
   'src/components/purchasing',
   // Stock ST-1 (stock-plan.md §3.1; Revision 11 R11-1): the stock family's logic.
@@ -286,6 +287,8 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
   // Purchase orders PO-4b (po-4b-red.md L-4): the line update's archived-line rule, compared in lib/purchasing/wired.ts.
   // Purchase orders GR-2 (plan §2.6 R1 → lines re-read, X-15; final RED M-1, R3 → the client's sentence): the over-receipt
   // and the on-hand-fits rules, compared in lib/purchasing/wired.ts.
+  // Customers C-2a (customers-c2a-ux-copy.md D-6): the Save's archived rule, compared in lib/customers/wired.ts
+  'src/lib/api/customers.ts': ['customer.is_archived'],
   'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived', 'purchase_order_line.is_archived', 'purchase_order_line.is_not_over_received', 'stock_level.on_hand_fits'],
 };
 
@@ -362,7 +365,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Stock ST-1 (Revision 11 R11-1) added: lib/api/stock.ts, lib/stock/{load,source}.ts (no results or wired: nothing is written).
   // Stock ST-2 (stock-st2-plan.md §4) added: lib/stock/{levels,visibility,marker}.ts (G-47's row loader and two helpers).
   // Customers C-1 added: lib/api/customers.ts, lib/customers/load.ts (no results or wired: C-1 writes nothing).
-  'src/lib': 84,
+  // Customers C-2a added: lib/customers/{results,wired}.ts (the editor's Save).
+  'src/lib': 86,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -388,7 +392,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-8 added: components/purchasing/PlaceOrderDialog.tsx (Approve's confirm dialog, plan §3).
   // Purchase orders PO-4b added: components/purchasing/EditLineRow.tsx (a live line's edit row, R10-6).
   // Purchase orders GR-2 added: components/purchasing/ReceiveForm.tsx (the receive page's form, plan R1-4: the M-6 map lives here).
-  'src/components': 74,
+  // Customers C-2a added: components/customers/CustomerForm.tsx (the customer page's editor).
+  'src/components': 75,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
   // Purchase orders PO-1 added: lib/api/purchasing.ts. Stock ST-1 added: lib/api/stock.ts. Customers C-1: lib/api/customers.ts.
   'src/lib/api': 12,
@@ -406,8 +411,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/items': 2,
   // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
   'src/lib/suppliers': 3,
-  // Customers C-1 (Revision 8 R8-2) added: the customer loaders (no results or wired before C-2a's Save).
-  'src/lib/customers': 1,
+  // Customers C-1 (Revision 8 R8-2) added: the customer loaders. Customers C-2a added: results.ts and wired.ts (Save).
+  'src/lib/customers': 3,
+  // Customers C-2a added: CustomerForm.tsx (the customer page's editor; Customers.module.css is not counted).
+  'src/components/customers': 1,
   // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: the purchasing loaders. PO-2 added: results and
   // wired (Restore purchase order, the family's first action).
   'src/lib/purchasing': 3,
@@ -745,6 +752,8 @@ const NETWORK_SCAN_DIRS = [
   'src/components/suppliers',
   // Purchase orders PO-3 (Revision 8 R8-3 completeness): the create page's form, props-only (its reads are the page's).
   'src/components/purchasing',
+  // Customers C-2a (Revision 8 R8-3 completeness): the customer page's editor, props-only.
+  'src/components/customers',
   'src/components/auth',
   'src/components/shell',
   'src/components/states',
@@ -1463,6 +1472,8 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ForgotPasswordForm.tsx',
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
+      // Customers C-2a (G-F2 row; customers-plan.md Revision 1 R1-8): the customer page's editor.
+      'src/components/customers/CustomerForm.tsx',
       // Items I-1 (G-F2 row): the item page's editor.
       // Items I-2 (G-F2 row): the create page's form.
       'src/components/items/ItemCreateForm.tsx',
@@ -1946,7 +1957,9 @@ describe('architecture — R8-3: components/records is props-only and names no f
 // Goods receipts GR-1: the receipt route dir joins (a receipt line's quantity is a served decimal).
 // Stock ST-1 (stock-plan.md §3.1; Revision 11 R11-5): the stock logic and the movement route dir (a movement's quantity is a
 // served signed decimal).
-const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/components/purchasing', 'src/app/(app)/purchase-orders', 'src/app/(app)/goods-receipts', 'src/lib/stock', 'src/app/(app)/stock-movements', 'src/app/(app)/stock'] as const;
+// Customers C-2a (customers-plan.md Revision 0 §6.2, Revision 1c R1c-4): the three customer dirs, from the first commit that
+// converts a typed day count (terms go through `wholeNumberOrText`, which is outside the scan — the suppliers L-8 shape).
+const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/components/purchasing', 'src/app/(app)/purchase-orders', 'src/app/(app)/goods-receipts', 'src/lib/stock', 'src/app/(app)/stock-movements', 'src/app/(app)/stock', 'src/lib/customers', 'src/components/customers', 'src/app/(app)/customers'] as const;
 const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts', 'src/lib/format/money.ts'] as const;
 // Suppliers S-3 RED L-7: widened to the money names (`amount`, `unit_cost`, `unitCost`) now that `money.ts` is scanned.
 const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served|amount|unit_cost|unitCost/i;
@@ -2007,8 +2020,9 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
     // receipt route dir joins with its 6 files. GR-2: the order route dir gains [id]/receive/{page,ReceivePage}.tsx → 12; the
     // receive form (a quantity typed and sent as text) and the zero rule (`isNotReceived`, results.ts) are in the control.
     // Stock ST-1: lib/stock (counted by EXPECTED_COUNTS) and the movement route dir with its 6 files. Stock ST-2: the
-    // stock-on-hand route dir with its 5 files (plan §7.1-2).
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 12 + 6 + EXPECTED_COUNTS['src/lib/stock']! + 6 + 5);
+    // stock-on-hand route dir with its 5 files (plan §7.1-2). Customers C-2a: lib/customers and components/customers
+    // (counted by EXPECTED_COUNTS) and the customer route dir with its 8 files.
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 12 + 6 + EXPECTED_COUNTS['src/lib/stock']! + 6 + 5 + EXPECTED_COUNTS['src/lib/customers']! + EXPECTED_COUNTS['src/components/customers']! + 8);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 
@@ -2247,8 +2261,9 @@ const GROUP_OF_FOLDER: Readonly<Record<string, string>> = {
   // there is no `components/stock` (plan D-5).
   'stock-movements': 'stock',
   stock: 'stock',
-  // Customers C-1: the route folder (components/customers joins with C-2a's form).
+  // Customers C-1: the route folder. Customers C-2a: components/customers (the editor's form) joins.
   customers: 'customers',
+  'components/customers': 'customers',
   account: 'account', 'admin/users': 'admin', 'admin/roles': 'admin',
   'components/items': 'items', 'components/warehouses': 'warehouses', 'components/suppliers': 'suppliers',
   'components/purchasing': 'purchasing', 'components/auth': 'account', 'components/people': 'admin', 'components/roles': 'admin',
@@ -2445,7 +2460,7 @@ const REAL_GUARD_LISTS: GuardLists = {
 describe('architecture — guard enrolment is complete (items-red.md M-2, items I-0a)', () => {
   it('every folder under src/components and src/lib is in each applicable guard list, or exempt with a reason', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items', 'src/components/suppliers', 'src/lib/suppliers', 'src/lib/customers']));
+    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items', 'src/components/suppliers', 'src/lib/suppliers', 'src/lib/customers', 'src/components/customers']));
     expect(folders.length).toBeGreaterThan(15);
     expect(enrolmentGaps(folders, REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([]);
   });
