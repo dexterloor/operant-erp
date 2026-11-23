@@ -73,6 +73,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  CreateCustomerContact: {
+    method: 'POST',
+    template: '/api/v1/customers/{id}/contacts',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
   CreateGoodsReceipt: {
     method: 'POST',
     template: '/api/v1/purchase-orders/{id}/goods-receipts',
@@ -623,6 +633,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['customer.edit'],
     },
   },
+  UpdateCustomerContact: {
+    method: 'PATCH',
+    template: '/api/v1/customers/{id}/contacts/{contactId}',
+    pathParams: ['id', 'contactId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
   UpdateItem: {
     method: 'PATCH',
     template: '/api/v1/items/{id}',
@@ -762,6 +782,8 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'Customer.UpdateCustomerInput.jsonMergePatch': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
   CustomerAddress: ['city', 'country_code', 'id', 'kind', 'line', 'postal_code'],
   CustomerContact: ['email', 'id', 'is_primary', 'name', 'phone'],
+  'CustomerContact.CreateCustomerContactInput': ['email', 'is_primary', 'name', 'phone'],
+  'CustomerContact.UpdateCustomerContactInput.jsonMergePatch': ['email', 'is_primary', 'name', 'phone'],
   GoodsReceipt: ['id', 'lines', 'purchase_order', 'receipt_number', 'received_at', 'received_by'],
   'GoodsReceipt.CreateGoodsReceiptInput': ['lines', 'received_at'],
   'GoodsReceipt.CreateGoodsReceiptInput.lines[]': ['purchase_order_line_id', 'quantity', 'storage_location_id'],

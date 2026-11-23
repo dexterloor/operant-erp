@@ -79,9 +79,13 @@ describe('/customers/[id] — gated on GetCustomer; the editor only for UpdateCu
   ] as const)('%s, handed the customer, canEdit and its two sections\' first reads and nothing else', async (_, codes, canEdit) => {
     const el = await render([...codes]);
     expect(el.type).toBe(CustomerPage);
-    expect(Object.keys(el.props as object)).toEqual(['customer', 'canEdit', 'contacts', 'addresses']);
+    // Customers C-4a (customers-plan-c4c5.md Revision 1 R1-0 F-8): `canAddContact` and `canEditContact` join, in the fixed order.
+    expect(Object.keys(el.props as object)).toEqual(['customer', 'canEdit', 'canAddContact', 'canEditContact', 'contacts', 'addresses']);
     const props = el.props as Record<string, unknown>;
     expect(props.canEdit).toBe(canEdit);
+    // Every contact write needs customer.edit today, as UpdateCustomer does.
+    expect(props.canAddContact).toBe(canEdit);
+    expect(props.canEditContact).toBe(canEdit);
     expect(props.customer).toEqual(CUSTOMER);
     expect(props.contacts).toBe(fixed.contacts);
     expect(props.addresses).toBe(fixed.addresses);
@@ -92,6 +96,23 @@ describe('/customers/[id] — gated on GetCustomer; the editor only for UpdateCu
       ['contacts', 'read', CUSTOMER.id],
       ['addresses', 'read', CUSTOMER.id],
     ]);
+  });
+
+  // Customers C-4a test 20a (customers-plan-c4c5.md Revision 1 R1-2): each contact prop is read from ITS operation's codes.
+  // Every contact write and UpdateCustomer share customer.edit, so only a withheld gate tells them apart (the A-20 shape).
+  it.each([
+    ['CreateCustomerContact', 'canAddContact'],
+    ['UpdateCustomerContact', 'canEditContact'],
+  ] as const)('test 20a — withholding %s turns off %s alone (each from its own gate, never UpdateCustomer\'s)', async (op, prop) => {
+    gate.withheld = [op];
+    try {
+      const el = await render(['customer.view', 'customer.edit']);
+      const props = el.props as Record<string, unknown>;
+      expect(props.canEdit).toBe(true);
+      for (const p of ['canAddContact', 'canEditContact']) expect(props[p], p).toBe(p !== prop);
+    } finally {
+      gate.withheld = [];
+    }
   });
 
   it('a 401 on either section read → the session-ended notice for this address; any other failure is the section\'s own', async () => {

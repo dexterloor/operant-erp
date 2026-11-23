@@ -6,7 +6,9 @@
 // `CustomerAddressResource.php`). The four `customer` columns nothing writes (`email`, `phone`,
 // `credit_limit`, `is_active`, RESIDUAL_GAPS.md G-36) are not served and are never mirrored here. Customers C-2a adds
 // `UpdateCustomerInput` (served `Customer.UpdateCustomerInput.jsonMergePatch`), and, from C-2a, the one Save refusal code
-// the family branches on (`CUSTOMER_SAVE_REFUSAL`).
+// the family branches on (`CUSTOMER_SAVE_REFUSAL`). Customers C-4a adds the contact write bodies
+// (`CreateCustomerContactInput`, `UpdateCustomerContactInput`) and, from C-4a, the two contact refusal codes the family
+// branches on (`CONTACT_ADD_REFUSAL`, `CONTACT_SAVE_REFUSAL`).
 
 /** `GetCustomer` / `ListCustomers` item. */
 export interface Customer {
@@ -71,5 +73,49 @@ export interface UpdateCustomerInput {
  * against other importers (customers-plan.md Revision 1c R1c-2 item 5; ARCH decides whether to pin it).
  */
 export const CUSTOMER_SAVE_REFUSAL = {
+  archived: 'customer.is_archived',
+} as const;
+
+/**
+ * `CreateCustomerContact`'s body (served `CustomerContact.CreateCustomerContactInput`). Add contact sends `name` as typed,
+ * `is_primary` always (a JSON boolean, `false` when unchecked), and omits an empty Email or Phone (`minLength: 1`).
+ */
+export interface CreateCustomerContactInput {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  is_primary?: boolean;
+}
+
+/**
+ * `UpdateCustomerContact`'s merge-patch body (served `CustomerContact.UpdateCustomerContactInput.jsonMergePatch`). Every
+ * member is optional; Edit sends the changed ones only, a cleared Email or Phone as `null`.
+ */
+export interface UpdateCustomerContactInput {
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  is_primary?: boolean;
+}
+
+/**
+ * The one `CreateCustomerContact` refusal code Add contact branches on (customers-plan-c4c5.md Revision 0 F-1; the
+ * `CUSTOMER_SAVE_REFUSAL` shape). Any refusal without field errors re-reads the customer inside the action; when the rule
+ * is this one, a live re-read shows `ADD_CONTACT.archivedThenRestored` and a failed one `archivedAtAdd`. An archived
+ * re-read shows the interim `ADD_CONTACT.archived` whatever the rule (copy D-15). At C-2b, which ships Restore customer,
+ * the interim `archived` branch goes (an archived re-read then renders S-1 as sent); `archivedThenRestored` and
+ * `archivedAtAdd` stay (copy D-1). Compared only inside `contactCreate` in `lib/customers/wired.ts` (P-1).
+ */
+export const CONTACT_ADD_REFUSAL = {
+  archived: 'customer.is_archived',
+} as const;
+
+/**
+ * The one `UpdateCustomerContact` refusal code Edit contact branches on (the `CONTACT_ADD_REFUSAL` shape): a live re-read
+ * → `EDIT_CONTACT.archivedThenRestored`, a failed one → `archivedAtSave`, an archived one → the interim
+ * `EDIT_CONTACT.archived` whatever the rule. At C-2b only the interim `archived` branch goes (copy D-1). Compared only
+ * inside `contactSave` in `lib/customers/wired.ts` (P-1).
+ */
+export const CONTACT_SAVE_REFUSAL = {
   archived: 'customer.is_archived',
 } as const;

@@ -288,7 +288,12 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
   // Purchase orders GR-2 (plan §2.6 R1 → lines re-read, X-15; final RED M-1, R3 → the client's sentence): the over-receipt
   // and the on-hand-fits rules, compared in lib/purchasing/wired.ts.
   // Customers C-2a (customers-c2a-ux-copy.md D-6): the Save's archived rule, compared in lib/customers/wired.ts
-  'src/lib/api/customers.ts': ['customer.is_archived'],
+  // (`CUSTOMER_SAVE_REFUSAL`, CustomerWriter's result).
+  // Customers C-4a (customers-plan-c4c5.md Revision 0 F-1): Add contact's archived rule, `CONTACT_ADD_REFUSAL`
+  // (CustomerContactWriter::ARCHIVED_ON_CREATE's result), compared in contactCreate only.
+  // Customers C-4a: Edit contact's archived rule, `CONTACT_SAVE_REFUSAL` (CustomerContactWriter::ARCHIVED_ON_UPDATE's
+  // result), compared in contactSave only. One constant per writer result (R1c-2 item 7): no shared rule→copy table.
+  'src/lib/api/customers.ts': ['customer.is_archived', 'customer.is_archived', 'customer.is_archived'],
   'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived', 'purchase_order_line.is_archived', 'purchase_order_line.is_not_over_received', 'stock_level.on_hand_fits'],
 };
 
@@ -393,7 +398,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-4b added: components/purchasing/EditLineRow.tsx (a live line's edit row, R10-6).
   // Purchase orders GR-2 added: components/purchasing/ReceiveForm.tsx (the receive page's form, plan R1-4: the M-6 map lives here).
   // Customers C-2a added: components/customers/CustomerForm.tsx (the customer page's editor).
-  'src/components': 75,
+  // Customers C-4a added: components/customers/AddContactForm.tsx (Add contact's dialog) and ContactForm.tsx (Edit contact's).
+  'src/components': 77,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
   // Purchase orders PO-1 added: lib/api/purchasing.ts. Stock ST-1 added: lib/api/stock.ts. Customers C-1: lib/api/customers.ts.
   'src/lib/api': 12,
@@ -414,7 +420,9 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Customers C-1 (Revision 8 R8-2) added: the customer loaders. Customers C-2a added: results.ts and wired.ts (Save).
   'src/lib/customers': 3,
   // Customers C-2a added: CustomerForm.tsx (the customer page's editor; Customers.module.css is not counted).
-  'src/components/customers': 1,
+  // Customers C-4a added: AddContactForm.tsx and ContactForm.tsx (Add and Edit contact's dialogs, customers-plan-c4c5.md
+  // Revision 0 F-7: create and edit split, the AddEntryForm / EntryForm precedent).
+  'src/components/customers': 3,
   // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: the purchasing loaders. PO-2 added: results and
   // wired (Restore purchase order, the family's first action).
   'src/lib/purchasing': 3,
@@ -705,7 +713,9 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
 
 const CUSTOMERS_API = 'src/lib/api/customers';
 const CUSTOMERS_WIRED = 'src/lib/customers/wired.ts';
-const CUSTOMER_REFUSAL_ACTIONS: Readonly<Record<string, string>> = { CUSTOMER_SAVE_REFUSAL: 'customerSave' };
+// The map is a deliberate edit per commit (customers-plan-c4c5.md Revision 1 R1-1 P-1 (ii)): C-2a's Save; C-4a adds the
+// two contact actions.
+const CUSTOMER_REFUSAL_ACTIONS: Readonly<Record<string, string>> = { CUSTOMER_SAVE_REFUSAL: 'customerSave', CONTACT_ADD_REFUSAL: 'contactCreate', CONTACT_SAVE_REFUSAL: 'contactSave' };
 const REFUSAL_NAME = /_REFUSAL$/;
 const DECLARATION_FORM = 'each action is a top-level `export function`, as every shipped `wired.ts` is (customers-plan-c4c5.md R1-0 F-1)';
 
@@ -848,7 +858,8 @@ describe('architecture — the customers refusal constants: importers and action
       { file: 'src/lib/customers/results.ts', source: "import type { CUSTOMER_SAVE_REFUSAL } from '../api/customers.ts';" },
       { file: 'src/components/customers/D.tsx', source: "const m = import('@/lib/api/customers');" },
       { file: 'src/components/customers/E.tsx', source: "type R = import('@/lib/api/customers').CUSTOMER_SAVE_REFUSAL;" },
-      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL, CONTACT_ADD_REFUSAL } from '../api/customers';\nexport function contactCreate() { return CUSTOMER_SAVE_REFUSAL.archived; }\nexport function customerSave() { return CONTACT_ADD_REFUSAL.archived; }\nfunction customerSave2() { return 1; }\nconst helper = () => CUSTOMER_SAVE_REFUSAL;\ntype T = typeof CUSTOMER_SAVE_REFUSAL;" },
+      // Customers C-4a: the map now holds CONTACT_ADD_REFUSAL, so the unmapped-name case uses C-4b's CONTACT_REMOVE_REFUSAL.
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL, CONTACT_REMOVE_REFUSAL } from '../api/customers';\nexport function contactCreate() { return CUSTOMER_SAVE_REFUSAL.archived; }\nexport function customerSave() { return CONTACT_REMOVE_REFUSAL.archived; }\nfunction customerSave2() { return 1; }\nconst helper = () => CUSTOMER_SAVE_REFUSAL;\ntype T = typeof CUSTOMER_SAVE_REFUSAL;" },
       { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nfunction customerSave() { return CUSTOMER_SAVE_REFUSAL; }" },
       // Commit RED M-2: wired.ts may not launder a constant (alias, export *, namespace, a re-export, a dynamic load), and a
       // component may not take one from wired.ts.
@@ -873,7 +884,7 @@ describe('architecture — the customers refusal constants: importers and action
       { file: 'src/components/customers/D.tsx', detail: `a dynamic import() of ${CUSTOMERS_API}` },
       { file: 'src/components/customers/E.tsx', detail: `an inline import('${CUSTOMERS_API}').CUSTOMER_SAVE_REFUSAL type` },
       { file: CUSTOMERS_WIRED, detail: 'CUSTOMER_SAVE_REFUSAL is referenced in contactCreate, not in its mapped export function customerSave' },
-      { file: CUSTOMERS_WIRED, detail: 'CONTACT_ADD_REFUSAL has no mapped action: the map is a deliberate edit' },
+      { file: CUSTOMERS_WIRED, detail: 'CONTACT_REMOVE_REFUSAL has no mapped action: the map is a deliberate edit' },
       { file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
       { file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
       { file: CUSTOMERS_WIRED, detail: 'CUSTOMER_SAVE_REFUSAL is referenced in customerSave, which is not exported' },
@@ -1693,6 +1704,10 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ForgotPasswordForm.tsx',
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
+      // Customers C-4a (G-F2 row; customers-plan-c4c5.md Revision 0 I-11): Add contact's dialog.
+      'src/components/customers/AddContactForm.tsx',
+      // Customers C-4a (G-F2 row): Edit contact's dialog.
+      'src/components/customers/ContactForm.tsx',
       // Customers C-2a (G-F2 row; customers-plan.md Revision 1 R1-8): the customer page's editor.
       'src/components/customers/CustomerForm.tsx',
       // Items I-1 (G-F2 row): the item page's editor.

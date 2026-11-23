@@ -1,11 +1,11 @@
-import { CUSTOMER_SAVE_REFUSAL, type Customer } from '../api/customers';
+import { CONTACT_ADD_REFUSAL, CONTACT_SAVE_REFUSAL, CUSTOMER_SAVE_REFUSAL, type CreateCustomerContactInput, type Customer } from '../api/customers';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { wholeNumberOrText } from '../forms/wholeNumberOrText';
-import { isCustomer, loadCustomer } from './load';
-import { CUSTOMER_FIELDS, type CustomerChange, type SaveCustomerAction } from './results';
+import { isCustomer, isCustomerContact, loadCustomer } from './load';
+import { CONTACT_FIELDS, CUSTOMER_FIELDS, type ContactChange, type CreateContactAction, type CustomerChange, type SaveContactAction, type SaveCustomerAction } from './results';
 
 // The customer page's Save over the BFF (customers-plan.md Revision 1 — FINAL R1-5 C-2a + Revision 1c; the
 // `lib/suppliers/wired.ts` `supplierSave` shape, with one deliberate departure below). No Idempotency-Key: the update is a
@@ -90,6 +90,102 @@ export function customerSave(w: CustomerWiring): SaveCustomerAction {
         w.onRereadFailed(again.kind, s);
       }
       return { kind: 'saved', customer: r.body };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// The contact actions (customers-plan-c4c5.md Revision 1 R1-2 I-10a over Revision 0 F-1, F-9, F-10; the
+// `entryCreate` / `entrySave` shape, with one departure). No P1 short-circuit in any action. Remove alone compares P1, and
+// only after a live or failed customer re-read (K-1 (a′)). A refusal with field violations goes beside its fields with no
+// re-read. **The departure:** after ANY other refusal (P1 included) the CUSTOMER is re-read under the action's own
+// deadline, and what it shows decides (copy D-15, R1a-1): archived (any rule) → `refused-archived` (the interim client
+// sentence, Close only); live → `archived-then-restored` when the rule is the action's own constant, else the refusal as
+// sent; failed → `archived-at-add` / `archived-at-save` when the rule is the action's own constant, else the refusal as
+// sent. Nothing is committed here and no re-read failure is reported to the page (the supplier entry shape): the page
+// re-reads the customer itself when the dialog goes (`onParentStale`). `not-found`, `forbidden`, `unreachable`,
+// `server-error` and `session-ended` never re-read. A 201/200 body that is not a whole contact is `server-error`. The
+// section re-reads its contacts after the dialog closes, under `reread`. Each action compares only its own constant
+// (`CONTACT_ADD_REFUSAL` / `CONTACT_SAVE_REFUSAL`), inline, and nowhere else (P-1).
+
+/**
+ * Add contact over the BFF. `CreateCustomerContact` requires an Idempotency-Key but does not replay on it in any way the
+ * page relies on, so a fresh key is minted for EVERY submit (`newKey`) and never stored. The body is copied by name (never
+ * a spread): `name` as typed (spaces too: the server's S-6 shows beside the field), an empty Email or Phone OMITTED
+ * (`minLength: 1`), `is_primary` always, as a JSON boolean (F-10).
+ */
+export function contactCreate(caller: ApiCaller, customerId: string, newKey: () => string = () => crypto.randomUUID()): CreateContactAction {
+  return async (values) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.contactCreate);
+    try {
+      const body: CreateCustomerContactInput = { name: values.name };
+      if (values.email !== '') body.email = values.email;
+      if (values.phone !== '') body.phone = values.phone;
+      body.is_primary = values.is_primary;
+      const r = await caller.call('CreateCustomerContact', { id: customerId }, body, { signal: deadline.signal, idempotencyKey: newKey() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, CONTACT_FIELDS) };
+            const archivedRule = r.rule === CONTACT_ADD_REFUSAL.archived;
+            const again = await loadCustomer(readOf(caller), customerId, deadline.signal);
+            if (again.kind === 'ok' && again.customer.archived_at !== null) return { kind: 'refused-archived' };
+            if (again.kind === 'ok') return archivedRule ? { kind: 'archived-then-restored' } : r;
+            return archivedRule ? { kind: 'archived-at-add' } : r;
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isCustomerContact(r.body) ? { kind: 'created', contact: r.body } : { kind: 'server-error' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+/**
+ * Edit contact over the BFF. No Idempotency-Key: the update is a merge patch. The body is the changed members only, copied
+ * by name from `CONTACT_FIELDS` (never a spread); a cleared Email or Phone arrives as `null` and is sent as `null`.
+ */
+export function contactSave(caller: ApiCaller, customerId: string): SaveContactAction {
+  return async (contactId, changes) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.contactSave);
+    try {
+      const body: ContactChange = {};
+      const copy = <K extends (typeof CONTACT_FIELDS)[number]>(k: K) => {
+        if (changes[k] !== undefined) body[k] = changes[k];
+      };
+      for (const f of CONTACT_FIELDS) copy(f);
+      const r = await caller.call('UpdateCustomerContact', { id: customerId, contactId }, body, { signal: deadline.signal });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, CONTACT_FIELDS) };
+            const archivedRule = r.rule === CONTACT_SAVE_REFUSAL.archived;
+            const again = await loadCustomer(readOf(caller), customerId, deadline.signal);
+            if (again.kind === 'ok' && again.customer.archived_at !== null) return { kind: 'refused-archived' };
+            if (again.kind === 'ok') return archivedRule ? { kind: 'archived-then-restored' } : r;
+            return archivedRule ? { kind: 'archived-at-save' } : r;
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isCustomerContact(r.body) ? { kind: 'saved', contact: r.body } : { kind: 'server-error' };
     } finally {
       deadline.cancel();
     }

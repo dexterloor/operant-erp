@@ -15,10 +15,12 @@ export interface AddressesSectionProps {
   customerId: string;
   /** `ListCustomerAddresses` on first render, over the server transport (the page reads it only for its holder, A-20). */
   initial: AddressesLoad;
-  /** The page's one status region (the section has none of its own). */
-  announce: (text: string) => void;
-  /** Empties that region (FE-R9: a press that may write to it empties it first, after its guards). */
-  clearRegion: () => void;
+  /**
+   * The page's counted writer for its one status region (the section has none of its own): it writes and returns the
+   * write's number (Customers C-4a, I-13a). A press that may write to it empties it first, after its guards (FE-R9), by
+   * writing `''` through it.
+   */
+  announce: (text: string) => number;
 }
 
 /**
@@ -33,7 +35,7 @@ export interface AddressesSectionProps {
  * non-null cursor → `loadFailed` with Retry; empty → `empty`, whatever `tenant_has_rows` says; no archived-parent note in
  * C-1; the count only on the first successful load after a failed one, after the focus move).
  */
-export function AddressesSection({ customerId, initial, announce, clearRegion }: AddressesSectionProps) {
+export function AddressesSection({ customerId, initial, announce }: AddressesSectionProps) {
   const caller = useApiCaller();
   const headingId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -54,7 +56,7 @@ export function AddressesSection({ customerId, initial, announce, clearRegion }:
 
   const retry = async () => {
     if (retrying) return;
-    if (!everLoaded.current) clearRegion();
+    if (!everLoaded.current) announce('');
     setRetrying(true);
     const d = startDeadline(ACTION_DEADLINES_MS.reread);
     const r = await loadAddresses(readOf(caller), customerId, d.signal);

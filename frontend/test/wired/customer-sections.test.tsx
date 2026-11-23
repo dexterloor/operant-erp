@@ -59,9 +59,10 @@ describe('/customers/[id] — the read-only Contacts section (C-1)', () => {
     ]);
   });
 
-  it('empty: "This customer has no contacts." and nothing offered; a 403: the denied sentence; first paint speaks nothing', () => {
+  // Customers C-4a (deliberate edit; copy R1-2 row 7): a live customer's empty section reads the live `empty`.
+  it('empty: "No contacts for this customer yet." and nothing offered; a 403: the denied sentence; first paint speaks nothing', () => {
     const { unmount } = show(okContacts([]));
-    expect(within(contactsSection()).getByText('This customer has no contacts.', { selector: 'p' })).toBeInTheDocument();
+    expect(within(contactsSection()).getByText('No contacts for this customer yet.', { selector: 'p' })).toBeInTheDocument();
     expect(within(contactsSection()).queryAllByRole('button')).toEqual([]);
     expect(within(contactsSection()).queryByRole('table')).toBeNull();
     expect(pageRegion().textContent).toBe('');
@@ -76,11 +77,12 @@ describe('/customers/[id] — the read-only Contacts section (C-1)', () => {
     expect(screen.queryByRole('heading', { name: 'Contacts' })).toBeNull();
   });
 
-  it('an archived customer: the rows are listed as usual, with no archived-parent note and no action (copy R1-4, R1-5 L-3)', () => {
+  // Customers C-4a (deliberate edit, L-10): the contacts half now shows `archivedParent` for everyone on an archived page.
+  it('an archived customer: the rows are listed as usual; Contacts carries the archived-parent note, Addresses none; no action', () => {
     show(okContacts([contact(1, { is_primary: true })]), okAddresses([address(1, 'shipping', '1 High St')]), { ...LIVE, archived_at: '2026-03-04T11:00:00Z' });
     expect(rowsOf(contactsSection())).toHaveLength(1);
     expect(rowsOf(addressesSection())).toHaveLength(1);
-    expect(contactsSection().textContent).not.toMatch(/archived|restore|can't be changed/i);
+    expect(within(contactsSection()).getAllByText(/archived/i, { selector: 'p' }).map((p) => p.textContent)).toEqual(["Contacts can't be added, changed or removed while the customer is archived."]);
     expect(addressesSection().textContent).not.toMatch(/archived|restore|can't be changed/i);
     expect(screen.queryAllByRole('button')).toEqual([]);
   });
@@ -108,7 +110,8 @@ describe('/customers/[id] — the read-only Contacts section (C-1)', () => {
 
   it.each([
     ['1 contact', [contact(1)], '1 contact for this customer.'],
-    ['none, though the workspace has contacts (tenant_has_rows ignored)', [], 'This customer has no contacts.'],
+    // Customers C-4a (deliberate edit, F-11): a live customer's Retry that brings none speaks the live `empty`.
+    ['none, though the workspace has contacts (tenant_has_rows ignored)', [], 'No contacts for this customer yet.'],
   ] as const)('Retry → %s: the page region says "%s"', async (_, items, said) => {
     stubFetch([json(200, page([...items], { tenant_has_rows: true }))]);
     const u = userEvent.setup();

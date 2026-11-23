@@ -10,9 +10,13 @@
 //   no customer-specific text exists (the paged list's sentences, the read-only page's labels, the archived banner);
 // - `customers-c2a-ux-copy.md` Revision 1 — FINAL, as corrected by `customers-c2a-ux-copy-final-red.md` (the editor's keys,
 //   `CUSTOMER_FORBIDDEN`).
+// - `customers-c4c5-ux-copy.md` Revision 1a > Revision 1 > Revision 0 (contacts added and changed, C-4a: the
+//   `CONTACTS_SECTION` additions, `ADD_CONTACT`, `EDIT_CONTACT`).
 // Each sentence holds for the web app in this commit (`STATES.md:161`). C-2a edits Code, Country, Currency and Payment terms
-// only. There is no create, rename, restore or delete on any web surface, so no entry here offers one;
-// `archivedThenRestored` reports a restore made elsewhere as a fact. Server refusals are never stored here.
+// only. There is no create, rename, restore or delete of a customer on any web surface, so no entry here offers one;
+// `archivedThenRestored` reports a restore made elsewhere as a fact. Contacts can be added and changed (C-4a); every refusal
+// that names a restore is replaced by a client sentence while no web surface can restore (copy D-1). Server refusals are
+// never stored here.
 
 /** `{n} days` / `1 day` / `0 days` (the supplier list's "payment terms cell", UX S-1). */
 const days = (n: number) => (n === 1 ? '1 day' : `${n} days`);
@@ -162,10 +166,11 @@ export const CUSTOMER_FORBIDDEN = {
 } as const;
 
 /**
- * The customer page's read-only Contacts section (`customers-c1-ux-copy.md` Revision 1 — FINAL §2, R1-9). The email and
- * phone words live ONLY in this group, under the **Contacts** heading, so they read as the contact's, never the customer's
- * (customers-plan.md §4, G-36). C-1 offers no Add, Edit or Remove, so no sentence here names one (`STATES.md:161`), and
- * there is no archived-parent note before C-2b / C-4 (copy R1-4 matrix).
+ * The customer page's Contacts section (`customers-c1-ux-copy.md` Revision 1 — FINAL §2, R1-9; from C-4a
+ * `customers-c4c5-ux-copy.md` §2.1 + R1-1 + R1-2). The email and phone words live ONLY in this group, under the
+ * **Contacts** heading, so they read as the contact's, never the customer's (customers-plan.md §4, G-36): the dialogs' field
+ * words are top-level `field…` members here, never in a dialog group (copy R1-1). C-4a offers Add and Edit; Remove (and
+ * `remove` / `removeFor`) waits for C-4b, so no sentence here names it.
  */
 export const CONTACTS_SECTION = {
   heading: 'Contacts',
@@ -181,10 +186,103 @@ export const CONTACTS_SECTION = {
   none: 'None',
   /** Spoken only on the section's first successful load after a failed one (the `CATALOGUE.count` rule). */
   count: (n: number) => (n === 1 ? '1 contact for this customer.' : `${n} contacts for this customer.`),
-  empty: 'This customer has no contacts.',
+  /** The empty table on a LIVE customer (copy R1-2 row 7); Add contact follows it for those who may add. */
+  empty: 'No contacts for this customer yet.',
+  /** The empty table on an ARCHIVED customer, under `archivedParent` (copy R1-2 row 101: C-1's text, kept). */
+  emptyArchived: 'This customer has no contacts.',
   /** A failed read, a 404 or a non-null cursor: the region error with the house Retry (copy R1-5 L-3). */
   loadFailed: "The contacts couldn't be loaded.",
   denied: "You don't have access to this customer's contacts.",
+  /** The section header's action and the empty state's, for an Add holder on a live customer (copy row 1). */
+  add: 'Add contact',
+  /** The column after Primary, only when the viewer may Edit on a live customer (copy row 2). */
+  actions: 'Actions',
+  /** The row action, and its accessible name `editFor(name)` with the served name unquoted (copy rows 3–4). */
+  edit: 'Edit',
+  editFor: (name: string) => `Edit ${name}`,
+  /** Above the table on an archived customer's page, for everyone; no actions (copy row 8, D-5). */
+  archivedParent: "Contacts can't be added, changed or removed while the customer is archived.",
+  /** The Add and Edit dialogs' field words (copy R1-1 rows 9–15). */
+  fieldName: 'Name',
+  fieldEmail: 'Email (optional)',
+  fieldPhone: 'Phone (optional)',
+  fieldPrimary: 'Primary contact',
+  /** Under the checkbox: Add always; Edit when the served contact is NOT primary. */
+  primaryHint: "Only one contact can be primary, and it's listed first. Marking this one takes the mark off any other.",
+  /** Under the checkbox in Edit when the served contact IS primary. */
+  primaryClearHint: 'This is the primary contact. If you clear the mark, this customer has no primary contact until another one is marked.',
+  /** Beside an empty Name on Add or Edit; no request is sent (copy row 15, T-C6). */
+  nameRequired: 'Enter a name.',
+} as const;
+
+/** The composed clauses (copy R1-1, the `ADD_AFTER` shape): module-private, exposed only as each dialog group's members. */
+const CONTACT_PRIMARY_NOW = "It's now the primary contact.";
+const CONTACT_PRIMARY_NO_LONGER = "It's no longer the primary contact.";
+/** `WAITING.listStale` (`roles.ts`) word for word. */
+const LIST_STALE = "We couldn't load the list again, so it may be out of date.";
+const CONTACT_ADDED = (name: string) => `“${name}” was added to the contacts.`;
+const CONTACT_SAVED = (name: string) => `“${name}” was saved.`;
+
+/**
+ * Add contact's dialog (copy §2.3 + R1-1 + R1-2 + R1a-3 row 24; refusal heading `NOT_ADDED`). `{name}` in a sentence is in
+ * curly quotes; the email and phone never appear in a sentence (copy D-8).
+ */
+export const ADD_CONTACT = {
+  /** `{code}` = the customer's served code. */
+  title: (code: string) => `Add a contact to ${code}`,
+  submit: 'Add contact',
+  cancel: 'Cancel',
+  /** The one button after a refusal that leaves nothing to press (an archived re-read, or a 404). */
+  close: 'Close',
+  /** Polite status after the 201; `{name}` = the 201's name. */
+  after: CONTACT_ADDED,
+  primaryNowClause: CONTACT_PRIMARY_NOW,
+  listStaleClause: LIST_STALE,
+  /**
+   * `after` · `primaryNowClause` (when `is_primary: true` was sent AND the 201 has `is_primary: true`, decided by the
+   * caller) · `listStaleClause` (the section's re-read failed; written only through `replaceIfCurrent`).
+   */
+  afterComposed: (name: string, { primary, stale }: { primary: boolean; stale: boolean }) =>
+    [CONTACT_ADDED(name), primary ? CONTACT_PRIMARY_NOW : null, stale ? LIST_STALE : null].filter((p): p is string => p !== null).join(' '),
+  /** Under `COULD_NOT_REACH` / `WENT_WRONG`; `{name}` = as typed. Add stays. */
+  interrupted: (name: string) => `We can't tell whether “${name}” was added. Check this customer's contacts before you try again.`,
+  /** INTERIM until C-2b: any refusal whose customer re-read is archived; Close only. */
+  archived: 'This customer is archived, so no contact can be added to it.',
+  /** Refused `customer.is_archived`, re-read live: the typed values and Add stay. */
+  archivedThenRestored: 'Nothing was added, because this customer was archived at that moment. It has since been restored, so you can press Add contact again.',
+  /** Refused `customer.is_archived`, re-read failed: the typed values and Add stay (D-3). */
+  archivedAtAdd: "Nothing was added, because this customer was archived at that moment. We couldn't check whether it still is.",
+} as const;
+
+/** A contact row's Edit dialog (copy §2.4 + R1-1 + R1-2 row 35; refusal heading `NOT_SAVED`). */
+export const EDIT_CONTACT = {
+  /** `{name}` = the served name at open. */
+  title: (name: string) => `Edit contact “${name}”`,
+  save: 'Save',
+  cancel: 'Cancel',
+  /** After an archived re-read or a 404. */
+  close: 'Close',
+  /** Save's `aria-disabled` reason while nothing differs. */
+  saveNothing: 'Nothing to save.',
+  /** Polite status; `{name}` = the 200's name. */
+  saved: CONTACT_SAVED,
+  primaryNowClause: CONTACT_PRIMARY_NOW,
+  primaryNoLongerClause: CONTACT_PRIMARY_NO_LONGER,
+  listStaleClause: LIST_STALE,
+  /**
+   * `saved` · (`primaryNowClause` when `is_primary: true` was sent AND the 200 has `is_primary: true`;
+   * `primaryNoLongerClause` when `is_primary: false` was sent — decided by the caller) · `listStaleClause`.
+   */
+  afterComposed: (name: string, { primary, stale }: { primary: 'now' | 'no-longer' | null; stale: boolean }) =>
+    [CONTACT_SAVED(name), primary === 'now' ? CONTACT_PRIMARY_NOW : primary === 'no-longer' ? CONTACT_PRIMARY_NO_LONGER : null, stale ? LIST_STALE : null].filter((p): p is string => p !== null).join(' '),
+  /** Under `COULD_NOT_REACH` / `WENT_WRONG`; `{name}` = shown before the press. Save stays. */
+  interrupted: (name: string) => `We can't tell whether your changes to “${name}” were saved. Close this and check the contacts before you try again.`,
+  /** INTERIM until C-2b: any refusal whose customer re-read is archived; Close only. */
+  archived: "This customer is archived, so its contacts can't be changed.",
+  /** Refused `customer.is_archived`, re-read live (= C-2a K-16 word for word): the edits and Save stay. */
+  archivedThenRestored: 'Nothing was saved, because this customer was archived at that moment. It has since been restored, so you can press Save again.',
+  /** Refused `customer.is_archived`, re-read failed: the edits and Save stay (D-3). */
+  archivedAtSave: "Nothing was saved, because this customer was archived at that moment. We couldn't check whether it still is.",
 } as const;
 
 /**
