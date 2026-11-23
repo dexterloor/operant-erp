@@ -678,6 +678,227 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Customers C-4a0 (customers-plan-c4c5.md Revision 1 R1-1 P-1, as fixed by customers-plan-c4a-final-red.md L-1 and cut by
+// its M-5; ARCH customers-c4c5-arch.md §5.1): the customers family's `*_REFUSAL` constants. A comparison through a constant
+// holds no literal, so REFUSAL_HOMES cannot see one made in the wrong place; this pin can.
+// (i) Importer clause. In `src`, outside `src/lib/api/customers.ts`, an import from it may not bring in a name matching
+//     /_REFUSAL$/ (the imported name, `propertyName ?? name`, so `import { CUSTOMER_SAVE_REFUSAL as R }` is red too). Only
+//     `src/lib/customers/wired.ts` is exempt, and only for named imports by the constant's own name. A namespace import, a
+//     default import, an `export … from`, an `import x = require(…)`, a `require(…)` or an `import(…)` of the module is a
+//     violation everywhere, `wired.ts` included, and so is a renamed refusal import in `wired.ts` (commit RED M-2). An inline
+//     `import('…').X` type is checked by its name like a named import. A `type`-only import of a non-refusal name stays
+//     legal. Outside `wired.ts`, importing a `*_REFUSAL` name from `wired.ts` is a violation too. The specifier is matched
+//     with any of .ts/.tsx/.js/.jsx/.mjs/.cjs and a trailing /index stripped (commit RED L-5).
+// (ii) Action clause. In `src/lib/customers/wired.ts`, each refusal constant imported from the home, other than at its
+//     import specifier, is referenced only inside its mapped top-level `export function`; a reference in a type position
+//     (`typeof X`) counts as a reference, and a local re-export is a violation. A constant imported from the home with no
+//     entry in the map is a violation. A `*_REFUSAL` name from another module (`PLATFORM_REFUSAL`) is not read here: it is
+//     P-2's (commit RED M-3). The map is a deliberate edit per commit:
+//     C-4a0 holds C-2a's one entry; C-4a adds `CONTACT_ADD_REFUSAL → contactCreate`, `CONTACT_SAVE_REFUSAL → contactSave`;
+//     C-4b `CONTACT_REMOVE_REFUSAL → contactDelete`; C-5 the three address constants.
+// (iii) Declaration form. A reference whose top-level ancestor is not a `FunctionDeclaration` is reported with its own
+//     message. `topLevelFunctionOf` is the one enclosing-function helper; C-4b's `CUSTOMER_P1_ACTIONS` pin (P-2) reuses it.
+// Scope (ARCH §5.1 stated limit): the customers home only. Roles' and purchasing's refusal constants are not pinned here.
+// The home itself is not read: it owns the constants, so a constant re-exported there under another name, or a comparing
+// helper exported from it, is not seen (a stated limit, commit RED §4).
+// ---------------------------------------------------------------------------------------------------------------------
+
+const CUSTOMERS_API = 'src/lib/api/customers';
+const CUSTOMERS_WIRED = 'src/lib/customers/wired.ts';
+const CUSTOMER_REFUSAL_ACTIONS: Readonly<Record<string, string>> = { CUSTOMER_SAVE_REFUSAL: 'customerSave' };
+const REFUSAL_NAME = /_REFUSAL$/;
+const DECLARATION_FORM = 'each action is a top-level `export function`, as every shipped `wired.ts` is (customers-plan-c4c5.md R1-0 F-1)';
+
+/** The node's top-level statement, and the name of that statement when it is an exported function declaration. */
+function topLevelFunctionOf(node: ts.Node): { declaration: boolean; exported: boolean; name: string | null } {
+  let top: ts.Node = node;
+  while (top.parent && !ts.isSourceFile(top.parent)) top = top.parent;
+  if (!ts.isFunctionDeclaration(top)) return { declaration: false, exported: false, name: null };
+  const exported = (ts.getModifiers(top) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+  return { declaration: true, exported, name: top.name?.text ?? null };
+}
+
+const moduleOf = (file: string, spec: string) => targetOf(file, spec).replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, '').replace(/\/index$/, '');
+const isCustomersApi = (file: string, spec: string) => moduleOf(file, spec) === CUSTOMERS_API;
+const isCustomersWired = (file: string, spec: string) => moduleOf(file, spec) === CUSTOMERS_WIRED.replace(/\.ts$/, '');
+
+/**
+ * P-1: every breach of the customers refusal pin, plus what the check saw (for anti-vacuity): the files importing the home,
+ * and, per map key, the references made inside its own action. The action clause reads only the refusal names `wired.ts`
+ * imports from the home by their own name (commit RED M-3), so a platform constant such as `PLATFORM_REFUSAL`, owned by
+ * the `CUSTOMER_P1_ACTIONS` pin (P-2), is not this check's to refuse.
+ */
+function customerRefusalViolations(files: readonly SourceFile[], map: Readonly<Record<string, string>>): { violations: Violation[]; importers: string[]; references: Record<string, number> } {
+  const violations: Violation[] = [];
+  const importers = new Set<string>();
+  const references: Record<string, number> = Object.fromEntries(Object.keys(map).map((k) => [k, 0]));
+  for (const sf of files) {
+    if (!under(sf.file, 'src') || sf.file === `${CUSTOMERS_API}.ts`) continue;
+    const tree = parse(sf);
+    const breach = (detail: string) => violations.push({ file: sf.file, detail });
+    const isWired = sf.file === CUSTOMERS_WIRED;
+    // The refusal names wired.ts imports from the home, each by its own name.
+    const homeNames = new Set<string>();
+    const visitImports = (node: ts.Node) => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && isCustomersApi(sf.file, node.moduleSpecifier.text)) {
+        importers.add(sf.file);
+        const clause = node.importClause;
+        if (clause) {
+          if (clause.name) breach(`a default import of ${CUSTOMERS_API}`);
+          const bindings = clause.namedBindings;
+          if (bindings && ts.isNamespaceImport(bindings)) breach(`a namespace import of ${CUSTOMERS_API}`);
+          if (bindings && ts.isNamedImports(bindings)) {
+            for (const el of bindings.elements) {
+              const imported = (el.propertyName ?? el.name).text;
+              if (!REFUSAL_NAME.test(imported)) continue;
+              if (!isWired) breach(`imports ${imported} from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may`);
+              else if (el.propertyName) breach(`renames ${imported}: import it by its own name`);
+              else homeNames.add(imported);
+            }
+          }
+        }
+      } else if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && !isWired && isCustomersWired(sf.file, node.moduleSpecifier.text)) {
+        const bindings = node.importClause?.namedBindings;
+        if (bindings && ts.isNamedImports(bindings)) {
+          for (const el of bindings.elements) {
+            const imported = (el.propertyName ?? el.name).text;
+            if (REFUSAL_NAME.test(imported)) breach(`imports ${imported} from ${CUSTOMERS_WIRED.replace(/\.ts$/, '')}: only ${CUSTOMERS_WIRED} may hold it`);
+          }
+        }
+      } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) && isCustomersApi(sf.file, node.moduleSpecifier.text)) {
+        importers.add(sf.file);
+        breach(`re-exports from ${CUSTOMERS_API}`);
+      } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && ts.isStringLiteral(node.moduleReference.expression) && isCustomersApi(sf.file, node.moduleReference.expression.text)) {
+        importers.add(sf.file);
+        breach(`an import = require of ${CUSTOMERS_API}`);
+      } else if (ts.isCallExpression(node) && node.arguments.length > 0 && ts.isStringLiteralLike(node.arguments[0]!) && isCustomersApi(sf.file, node.arguments[0]!.text)) {
+        const isImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+        const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+        if (isImport || isRequire) {
+          importers.add(sf.file);
+          breach(`a dynamic ${isImport ? 'import()' : 'require()'} of ${CUSTOMERS_API}`);
+        }
+      } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal) && isCustomersApi(sf.file, node.argument.literal.text)) {
+        importers.add(sf.file);
+        const q = node.qualifier;
+        const first = q === undefined ? null : ts.isIdentifier(q) ? q.text : (() => {
+          let e: ts.EntityName = q;
+          while (ts.isQualifiedName(e)) e = e.left;
+          return e.text;
+        })();
+        if (!isWired && (first === null || REFUSAL_NAME.test(first))) breach(`an inline import('${CUSTOMERS_API}')${first === null ? '' : `.${first}`} type`);
+      }
+      ts.forEachChild(node, visitImports);
+    };
+    visitImports(tree);
+    if (!isWired) continue;
+    const visitRefs = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && homeNames.has(node.text) && !(node.parent && ts.isImportSpecifier(node.parent))) {
+        const name = node.text;
+        const mapped = map[name];
+        const at = topLevelFunctionOf(node);
+        if (node.parent && ts.isExportSpecifier(node.parent)) breach(`re-exports ${name}`);
+        else if (mapped === undefined) breach(`${name} has no mapped action: the map is a deliberate edit`);
+        else if (!at.declaration) breach(`${name} is referenced outside a function declaration: ${DECLARATION_FORM}`);
+        else if (at.name === mapped && !at.exported) breach(`${name} is referenced in ${at.name}, which is not exported`);
+        else if (at.name !== mapped) breach(`${name} is referenced in ${at.name ?? 'an anonymous function'}, not in its mapped export function ${mapped}`);
+        else references[name] = (references[name] ?? 0) + 1;
+      }
+      ts.forEachChild(node, visitRefs);
+    };
+    visitRefs(tree);
+  }
+  return { violations, importers: [...importers].sort(), references };
+}
+
+describe('architecture — the customers refusal constants: importers and actions (customers C-4a0, P-1)', () => {
+  it('the real tree has no breach, and the check sees the real importers and the real reference (not vacuous)', () => {
+    const got = customerRefusalViolations(walk('src'), CUSTOMER_REFUSAL_ACTIONS);
+    expect(got.violations).toEqual([]);
+    expect(got.importers).toEqual(expect.arrayContaining([CUSTOMERS_WIRED, 'src/app/(app)/customers/[id]/CustomerPage.tsx', 'src/components/customers/CustomerForm.tsx']));
+    for (const [constant, action] of Object.entries(CUSTOMER_REFUSAL_ACTIONS)) expect(got.references[constant], `${constant} is referenced inside ${action}`).toBeGreaterThan(0);
+  });
+
+  it('green controls: a type import of a non-refusal name, the import specifier, and typeof inside the mapped action', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/customers/[id]/CustomerPage.tsx', source: "import type { Customer } from '@/lib/api/customers';" },
+      { file: 'src/components/customers/X.tsx', source: "type C = import('@/lib/api/customers').Customer;" },
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nexport function customerSave() { type R = typeof CUSTOMER_SAVE_REFUSAL; return async (r: { rule: string }) => r.rule === CUSTOMER_SAVE_REFUSAL.archived; }" },
+      // Commit RED M-3: a platform constant in wired.ts is P-2's (CUSTOMER_P1_ACTIONS), not this pin's, so C-4b's
+      // PLATFORM_REFUSAL inside its listed action is no breach here.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport function customerSave() { return PLATFORM_REFUSAL.contention; }" },
+    ];
+    expect(customerRefusalViolations(planted, CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([]);
+  });
+
+  it('planted: the arrow-form action is reported with the declaration-form message (iii)', () => {
+    const planted: SourceFile[] = [
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nexport const customerSave = (w: unknown) => async (r: { rule: string }) => r.rule === CUSTOMER_SAVE_REFUSAL.archived;" },
+    ];
+    expect(customerRefusalViolations(planted, CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([{ file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` }]);
+  });
+
+  it('planted: each importer and action breach goes red with its own message', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/customers/CustomerForm.tsx', source: "import { CUSTOMER_SAVE_REFUSAL } from '@/lib/api/customers';" },
+      { file: 'src/components/customers/A.tsx', source: "import { CUSTOMER_SAVE_REFUSAL as R } from '@/lib/api/customers';" },
+      { file: 'src/components/customers/B.tsx', source: "import * as api from '@/lib/api/customers';" },
+      { file: 'src/components/customers/C.tsx', source: "import api from '@/lib/api/customers';" },
+      { file: 'src/lib/customers/load.ts', source: "export * from '../api/customers';" },
+      { file: 'src/lib/customers/results.ts', source: "import type { CUSTOMER_SAVE_REFUSAL } from '../api/customers.ts';" },
+      { file: 'src/components/customers/D.tsx', source: "const m = import('@/lib/api/customers');" },
+      { file: 'src/components/customers/E.tsx', source: "type R = import('@/lib/api/customers').CUSTOMER_SAVE_REFUSAL;" },
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL, CONTACT_ADD_REFUSAL } from '../api/customers';\nexport function contactCreate() { return CUSTOMER_SAVE_REFUSAL.archived; }\nexport function customerSave() { return CONTACT_ADD_REFUSAL.archived; }\nfunction customerSave2() { return 1; }\nconst helper = () => CUSTOMER_SAVE_REFUSAL;\ntype T = typeof CUSTOMER_SAVE_REFUSAL;" },
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nfunction customerSave() { return CUSTOMER_SAVE_REFUSAL; }" },
+      // Commit RED M-2: wired.ts may not launder a constant (alias, export *, namespace, a re-export, a dynamic load), and a
+      // component may not take one from wired.ts.
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL as SAVE } from '../api/customers';\nexport function contactCreate() { return SAVE.archived; }" },
+      { file: CUSTOMERS_WIRED, source: "export * from '../api/customers';" },
+      { file: CUSTOMERS_WIRED, source: "import * as api from '../api/customers';\nexport function contactCreate() { return api['CUSTOMER_SAVE_REFUSAL'].archived; }" },
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nexport { CUSTOMER_SAVE_REFUSAL };" },
+      { file: CUSTOMERS_WIRED, source: "export function customerSave() { return import('../api/customers'); }" },
+      { file: 'src/components/customers/H.tsx', source: "import { CUSTOMER_SAVE_REFUSAL } from '@/lib/customers/wired';" },
+      // Commit RED L-4 and L-5: require(), import = require and a .js specifier.
+      { file: 'src/components/customers/F.tsx', source: "const m = require('@/lib/api/customers');" },
+      { file: 'src/components/customers/G.tsx', source: "import m = require('@/lib/api/customers');" },
+      { file: 'src/components/customers/I.tsx', source: "import { CUSTOMER_SAVE_REFUSAL } from '@/lib/api/customers.js';" },
+    ];
+    expect(customerRefusalViolations(planted, CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([
+      { file: 'src/components/customers/CustomerForm.tsx', detail: `imports CUSTOMER_SAVE_REFUSAL from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may` },
+      { file: 'src/components/customers/A.tsx', detail: `imports CUSTOMER_SAVE_REFUSAL from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may` },
+      { file: 'src/components/customers/B.tsx', detail: `a namespace import of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/C.tsx', detail: `a default import of ${CUSTOMERS_API}` },
+      { file: 'src/lib/customers/load.ts', detail: `re-exports from ${CUSTOMERS_API}` },
+      { file: 'src/lib/customers/results.ts', detail: `imports CUSTOMER_SAVE_REFUSAL from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may` },
+      { file: 'src/components/customers/D.tsx', detail: `a dynamic import() of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/E.tsx', detail: `an inline import('${CUSTOMERS_API}').CUSTOMER_SAVE_REFUSAL type` },
+      { file: CUSTOMERS_WIRED, detail: 'CUSTOMER_SAVE_REFUSAL is referenced in contactCreate, not in its mapped export function customerSave' },
+      { file: CUSTOMERS_WIRED, detail: 'CONTACT_ADD_REFUSAL has no mapped action: the map is a deliberate edit' },
+      { file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
+      { file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
+      { file: CUSTOMERS_WIRED, detail: 'CUSTOMER_SAVE_REFUSAL is referenced in customerSave, which is not exported' },
+      { file: CUSTOMERS_WIRED, detail: 'renames CUSTOMER_SAVE_REFUSAL: import it by its own name' },
+      { file: CUSTOMERS_WIRED, detail: `re-exports from ${CUSTOMERS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `a namespace import of ${CUSTOMERS_API}` },
+      { file: CUSTOMERS_WIRED, detail: 're-exports CUSTOMER_SAVE_REFUSAL' },
+      { file: CUSTOMERS_WIRED, detail: `a dynamic import() of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/H.tsx', detail: `imports CUSTOMER_SAVE_REFUSAL from src/lib/customers/wired: only ${CUSTOMERS_WIRED} may hold it` },
+      { file: 'src/components/customers/F.tsx', detail: `a dynamic require() of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/G.tsx', detail: `an import = require of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/I.tsx', detail: `imports CUSTOMER_SAVE_REFUSAL from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may` },
+    ]);
+  });
+
+  it('documents its scope: a test file and the home itself are not read', () => {
+    const planted: SourceFile[] = [
+      { file: 'test/wired/x.test.tsx', source: "import { CUSTOMER_SAVE_REFUSAL } from '@/lib/api/customers';" },
+      { file: `${CUSTOMERS_API}.ts`, source: "export const CUSTOMER_SAVE_REFUSAL = { archived: 'customer.is_archived' } as const;\nconst x = CUSTOMER_SAVE_REFUSAL;" },
+    ];
+    expect(customerRefusalViolations(planted, CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
 // RED H-5 items 6–7 (step 5): no clock in expiry, no identity comparison for Withdraw. Static backstop over the picker
 // dirs; the behavioural checks render below.
 // ---------------------------------------------------------------------------------------------------------------------
