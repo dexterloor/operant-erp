@@ -2,7 +2,7 @@
 // shared kinds in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
 import type { CreateCustomerContactInput, Customer, CustomerContact, UpdateCustomerContactInput, UpdateCustomerInput } from '../api/customers';
-import type { FieldErrors, Forbidden, NotFound, Refused, ServerError, SessionEnded, Unreachable } from '../results';
+import type { Contention, FieldErrors, Forbidden, NotFound, Refused, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
  * The customer page's editable fields in C-2a, in screen order (the first field with a sentence takes focus): Code,
@@ -105,3 +105,32 @@ export type SaveContactResult =
 
 /** Edit contact: no Idempotency-Key (a merge patch). */
 export type SaveContactAction = (contactId: string, changes: ContactChange) => Promise<SaveContactResult>;
+
+/**
+ * `DELETE /customers/{id}/contacts/{contactId}` (customers-plan-c4c5.md Revision 1 R1-3 I-9b; no body, no key). `deleted` is
+ * the 204. Any refusal re-reads the customer inside the action FIRST, and the re-read decides (copy D-15, R1a-1):
+ * - `refused-archived`: the re-read found the customer archived, after ANY refusal (P1 included): **Not removed** + the
+ *   interim `REMOVE_CONTACT.archived`, Close only.
+ * - `archived-then-restored`: refused `customer.is_archived`, re-read live: **Not removed** + `archivedThenRestored`, Close
+ *   only (D-2: the shared Delete dialog's `refused` leaves Close).
+ * - `archived-at-remove`: refused `customer.is_archived`, re-read failed: **Not removed** + `archivedAtRemove`, Close only.
+ * - `contention`: P1, decided only after a live or failed re-read (K-1 (a′)): shown as sent, Remove stays.
+ * - `refused`: any other refusal whose re-read is live or failed, shown as sent (or `REFUSED_WITHOUT_MESSAGE`), Close only.
+ * **A deviation from F-9's union (final RED L-2):** the three archived kinds carry the served `rule`, so the section can hand
+ * the shared dialog a whole `Refused` without importing a refusal constant (P-1); the dialog never reads it.
+ */
+export type RemoveContactResult =
+  | { kind: 'deleted' }
+  | Contention
+  | { kind: 'refused-archived'; rule: string }
+  | { kind: 'archived-then-restored'; rule: string }
+  | { kind: 'archived-at-remove'; rule: string }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/** Remove contact: no body, no Idempotency-Key (a repeat after a removal answers 404). */
+export type RemoveContactAction = (contactId: string) => Promise<RemoveContactResult>;

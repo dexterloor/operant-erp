@@ -1,11 +1,12 @@
-import { CONTACT_ADD_REFUSAL, CONTACT_SAVE_REFUSAL, CUSTOMER_SAVE_REFUSAL, type CreateCustomerContactInput, type Customer } from '../api/customers';
+import { CONTACT_ADD_REFUSAL, CONTACT_REMOVE_REFUSAL, CONTACT_SAVE_REFUSAL, CUSTOMER_SAVE_REFUSAL, type CreateCustomerContactInput, type Customer } from '../api/customers';
+import { PLATFORM_REFUSAL } from '../api/problems';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { wholeNumberOrText } from '../forms/wholeNumberOrText';
 import { isCustomer, isCustomerContact, loadCustomer } from './load';
-import { CONTACT_FIELDS, CUSTOMER_FIELDS, type ContactChange, type CreateContactAction, type CustomerChange, type SaveContactAction, type SaveCustomerAction } from './results';
+import { CONTACT_FIELDS, CUSTOMER_FIELDS, type ContactChange, type CreateContactAction, type CustomerChange, type RemoveContactAction, type SaveContactAction, type SaveCustomerAction } from './results';
 
 // The customer page's Save over the BFF (customers-plan.md Revision 1 — FINAL R1-5 C-2a + Revision 1c; the
 // `lib/suppliers/wired.ts` `supplierSave` shape, with one deliberate departure below). No Idempotency-Key: the update is a
@@ -21,7 +22,9 @@ import { CONTACT_FIELDS, CUSTOMER_FIELDS, type ContactChange, type CreateContact
 // - archived (after ANY refusal, P1 included) → the re-read is committed (the page turns archived and read-only) and the
 //   result is `refused-archived`: the page shows K-15, never the served sentence. **The departure from the supplier
 //   shape:** `supplierSave` returns P1 ("try again") as sent here; on a read-only page "try again" names an action that
-//   cannot be taken (H-1, customers-plan.md Revision 1c R1c-5), so no platform rule is compared in this file.
+//   cannot be taken (H-1, customers-plan.md Revision 1c R1c-5), so no platform rule is compared in `customerSave`,
+//   `contactCreate` or `contactSave`; the Remove actions compare P1 after the customer re-read (K-1 (a′), pinned by
+//   `CUSTOMER_P1_ACTIONS`).
 // - live → not committed, so the person's edits stay: `archived-then-restored` (K-16) when the rule was the archived one,
 //   else the refusal as sent (R2, P1, …).
 // - failed → the page is told (its region error) and the edits stay: `archived-at-save` (K-17) when the rule was the
@@ -107,7 +110,7 @@ export function customerSave(w: CustomerWiring): SaveCustomerAction {
 // re-reads the customer itself when the dialog goes (`onParentStale`). `not-found`, `forbidden`, `unreachable`,
 // `server-error` and `session-ended` never re-read. A 201/200 body that is not a whole contact is `server-error`. The
 // section re-reads its contacts after the dialog closes, under `reread`. Each action compares only its own constant
-// (`CONTACT_ADD_REFUSAL` / `CONTACT_SAVE_REFUSAL`), inline, and nowhere else (P-1).
+// (`CONTACT_ADD_REFUSAL` / `CONTACT_SAVE_REFUSAL` / `CONTACT_REMOVE_REFUSAL`), inline, and nowhere else (P-1).
 
 /**
  * Add contact over the BFF. `CreateCustomerContact` requires an Idempotency-Key but does not replay on it in any way the
@@ -186,6 +189,45 @@ export function contactSave(caller: ApiCaller, customerId: string): SaveContactA
         }
       }
       return isCustomerContact(r.body) ? { kind: 'saved', contact: r.body } : { kind: 'server-error' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+/**
+ * Remove contact over the BFF (customers-plan-c4c5.md Revision 1 R1-3 I-10b; the `entryDelete` shape, with its order
+ * reversed). No body and no Idempotency-Key. After ANY refusal the customer is re-read FIRST, under the action's own
+ * deadline: archived (any rule, P1 included) → `refused-archived`; the rule is `CONTACT_REMOVE_REFUSAL.archived` → live
+ * `archived-then-restored`, failed `archived-at-remove`; otherwise, **only now**, P1 → `contention` (Remove stays), else the
+ * refusal as sent. Each archived kind carries the served rule (final RED L-2). `not-found`, `forbidden`, `unreachable`,
+ * `server-error` and `session-ended` never re-read. The one platform rule compared in this file is compared here, and only
+ * here (P-2, `CUSTOMER_P1_ACTIONS`).
+ */
+export function contactDelete(caller: ApiCaller, customerId: string): RemoveContactAction {
+  return async (contactId) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.contactDelete);
+    try {
+      const r = await caller.call('DeleteCustomerContact', { id: customerId, contactId }, undefined, { signal: deadline.signal });
+      if (r.kind === 'ok') return { kind: 'deleted' };
+      switch (r.kind) {
+        case 'refused': {
+          const archivedRule = r.rule === CONTACT_REMOVE_REFUSAL.archived;
+          const again = await loadCustomer(readOf(caller), customerId, deadline.signal);
+          if (again.kind === 'ok' && again.customer.archived_at !== null) return { kind: 'refused-archived', rule: r.rule };
+          if (archivedRule) return again.kind === 'ok' ? { kind: 'archived-then-restored', rule: r.rule } : { kind: 'archived-at-remove', rule: r.rule };
+          if (r.rule === PLATFORM_REFUSAL.contention) return { kind: 'contention', message: r.message };
+          return r;
+        }
+        case 'not-found':
+        case 'forbidden':
+        case 'session-ended':
+        case 'unreachable':
+        case 'server-error':
+          return r;
+        default:
+          return { kind: 'server-error' };
+      }
     } finally {
       deadline.cancel();
     }

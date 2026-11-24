@@ -150,7 +150,8 @@ interface Violation {
 // Suppliers S-1 (suppliers-plan.md Revision 0 §3, PROBLEMS_IMPORTERS row) added lib/suppliers/wired.ts (P1 on Save/Restore).
 // Purchase orders PO-4a (plan Revision 0 §3 PROBLEMS_IMPORTERS row, moved from PO-2 by po-2-progress.md D-2: the first
 // action that must tell P1 apart) added lib/purchasing/wired.ts (P1 on the draft header's Save).
-const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/purchasing/wired.ts', 'src/lib/suppliers/wired.ts', 'src/lib/warehouses/wired.ts'];
+// Customers C-4b (K-1 (a′)): P1 on Remove only, after the customer re-read; pinned to CUSTOMER_P1_ACTIONS.
+const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/customers/wired.ts', 'src/lib/items/wired.ts', 'src/lib/purchasing/wired.ts', 'src/lib/suppliers/wired.ts', 'src/lib/warehouses/wired.ts'];
 
 /** The import rules. `files` is any set of {file, source}; returns every breach. */
 function importViolations(files: readonly SourceFile[]): Violation[] {
@@ -293,7 +294,9 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
   // (CustomerContactWriter::ARCHIVED_ON_CREATE's result), compared in contactCreate only.
   // Customers C-4a: Edit contact's archived rule, `CONTACT_SAVE_REFUSAL` (CustomerContactWriter::ARCHIVED_ON_UPDATE's
   // result), compared in contactSave only. One constant per writer result (R1c-2 item 7): no shared rule→copy table.
-  'src/lib/api/customers.ts': ['customer.is_archived', 'customer.is_archived', 'customer.is_archived'],
+  // Customers C-4b: Remove contact's archived rule, `CONTACT_REMOVE_REFUSAL` (CustomerContactWriter::ARCHIVED_ON_DELETE's
+  // result), compared in contactDelete only.
+  'src/lib/api/customers.ts': ['customer.is_archived', 'customer.is_archived', 'customer.is_archived', 'customer.is_archived'],
   'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived', 'purchase_order_line.is_archived', 'purchase_order_line.is_not_over_received', 'stock_level.on_hand_fits'],
 };
 
@@ -714,8 +717,8 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
 const CUSTOMERS_API = 'src/lib/api/customers';
 const CUSTOMERS_WIRED = 'src/lib/customers/wired.ts';
 // The map is a deliberate edit per commit (customers-plan-c4c5.md Revision 1 R1-1 P-1 (ii)): C-2a's Save; C-4a adds the
-// two contact actions.
-const CUSTOMER_REFUSAL_ACTIONS: Readonly<Record<string, string>> = { CUSTOMER_SAVE_REFUSAL: 'customerSave', CONTACT_ADD_REFUSAL: 'contactCreate', CONTACT_SAVE_REFUSAL: 'contactSave' };
+// two contact actions; C-4b adds Remove contact.
+const CUSTOMER_REFUSAL_ACTIONS: Readonly<Record<string, string>> = { CUSTOMER_SAVE_REFUSAL: 'customerSave', CONTACT_ADD_REFUSAL: 'contactCreate', CONTACT_SAVE_REFUSAL: 'contactSave', CONTACT_REMOVE_REFUSAL: 'contactDelete' };
 const REFUSAL_NAME = /_REFUSAL$/;
 const DECLARATION_FORM = 'each action is a top-level `export function`, as every shipped `wired.ts` is (customers-plan-c4c5.md R1-0 F-1)';
 
@@ -858,8 +861,9 @@ describe('architecture — the customers refusal constants: importers and action
       { file: 'src/lib/customers/results.ts', source: "import type { CUSTOMER_SAVE_REFUSAL } from '../api/customers.ts';" },
       { file: 'src/components/customers/D.tsx', source: "const m = import('@/lib/api/customers');" },
       { file: 'src/components/customers/E.tsx', source: "type R = import('@/lib/api/customers').CUSTOMER_SAVE_REFUSAL;" },
-      // Customers C-4a: the map now holds CONTACT_ADD_REFUSAL, so the unmapped-name case uses C-4b's CONTACT_REMOVE_REFUSAL.
-      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL, CONTACT_REMOVE_REFUSAL } from '../api/customers';\nexport function contactCreate() { return CUSTOMER_SAVE_REFUSAL.archived; }\nexport function customerSave() { return CONTACT_REMOVE_REFUSAL.archived; }\nfunction customerSave2() { return 1; }\nconst helper = () => CUSTOMER_SAVE_REFUSAL;\ntype T = typeof CUSTOMER_SAVE_REFUSAL;" },
+      // Customers C-4a: the map now holds CONTACT_ADD_REFUSAL, so the unmapped-name case used C-4b's CONTACT_REMOVE_REFUSAL;
+      // C-4b maps that one, so the case uses C-5's ADDRESS_ADD_REFUSAL (C-4a progress D-1; C-5 moves it again).
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL, ADDRESS_ADD_REFUSAL } from '../api/customers';\nexport function contactCreate() { return CUSTOMER_SAVE_REFUSAL.archived; }\nexport function customerSave() { return ADDRESS_ADD_REFUSAL.archived; }\nfunction customerSave2() { return 1; }\nconst helper = () => CUSTOMER_SAVE_REFUSAL;\ntype T = typeof CUSTOMER_SAVE_REFUSAL;" },
       { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nfunction customerSave() { return CUSTOMER_SAVE_REFUSAL; }" },
       // Commit RED M-2: wired.ts may not launder a constant (alias, export *, namespace, a re-export, a dynamic load), and a
       // component may not take one from wired.ts.
@@ -884,7 +888,7 @@ describe('architecture — the customers refusal constants: importers and action
       { file: 'src/components/customers/D.tsx', detail: `a dynamic import() of ${CUSTOMERS_API}` },
       { file: 'src/components/customers/E.tsx', detail: `an inline import('${CUSTOMERS_API}').CUSTOMER_SAVE_REFUSAL type` },
       { file: CUSTOMERS_WIRED, detail: 'CUSTOMER_SAVE_REFUSAL is referenced in contactCreate, not in its mapped export function customerSave' },
-      { file: CUSTOMERS_WIRED, detail: 'CONTACT_REMOVE_REFUSAL has no mapped action: the map is a deliberate edit' },
+      { file: CUSTOMERS_WIRED, detail: 'ADDRESS_ADD_REFUSAL has no mapped action: the map is a deliberate edit' },
       { file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
       { file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
       { file: CUSTOMERS_WIRED, detail: 'CUSTOMER_SAVE_REFUSAL is referenced in customerSave, which is not exported' },
@@ -906,6 +910,141 @@ describe('architecture — the customers refusal constants: importers and action
       { file: `${CUSTOMERS_API}.ts`, source: "export const CUSTOMER_SAVE_REFUSAL = { archived: 'customer.is_archived' } as const;\nconst x = CUSTOMER_SAVE_REFUSAL;" },
     ];
     expect(customerRefusalViolations(planted, CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Customers C-4b (customers-plan-c4c5.md Revision 1 R1-1 P-2, as fixed by customers-plan-c4b-c5-final-red.md M-1; ARCH
+// customers-c4c5-arch.md §4): the `CUSTOMER_P1_ACTIONS` pin. `src/lib/customers/wired.ts` joins PROBLEMS_IMPORTERS for
+// Remove's P1 alone (K-1 (a′)), so D-1's protection moves from the file to the function: nothing in `customerSave`,
+// `contactCreate` or `contactSave` may tell P1 apart. Its own function and its own describe block, never merged into P-1
+// (final RED §3: P-1's green control below is this pin's planted red, which pins the split between the two).
+// (1) Domain: the names `wired.ts` imports from `src/lib/api/problems` by a named import under their own name (`p1Names`,
+//     P-1's `homeNames` pattern), not the text `PLATFORM_REFUSAL`, so a later second export of `problems.ts` is covered too.
+// (2) In `wired.ts`, each is a violation with its own detail: a renamed import from it; a default or namespace import of it;
+//     `export … from` it, `import()`, `require()`, `import =`; a re-export of a `p1Names` member.
+// (3) Every `p1Names` reference other than its import specifier sits in an exported top-level function declaration whose
+//     name is in `CUSTOMER_P1_ACTIONS` (P-1's message order, with the list in place of the map).
+// (4) Anti-vacuity per action: on the real tree each listed action references a `p1Names` member at least once (so C-5's
+//     `addressDelete` entry forces its comparison to exist, I-10b's order).
+// Reuses `topLevelFunctionOf`, `DECLARATION_FORM` and `moduleOf`. Reads only `wired.ts`: which FILE may import
+// `lib/api/problems` is PROBLEMS_IMPORTERS' (`importViolations`).
+// The list is a deliberate edit per commit: C-4b `['contactDelete']`; C-5 `+ 'addressDelete'`; C-6 `+ 'customerDelete'`.
+// Not covered (a name scan, like P-1): a value laundered through a module-level binding or returned from a listed action
+// and compared elsewhere; `wired.ts` has no module-level `let`/`var` today (review check), and T5f is `customerSave`'s
+// behavioural backstop.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const PROBLEMS_API = 'src/lib/api/problems';
+const CUSTOMER_P1_ACTIONS: readonly string[] = ['contactDelete'];
+const isProblemsApi = (file: string, spec: string) => moduleOf(file, spec) === PROBLEMS_API;
+
+/** P-2: every breach of the `CUSTOMER_P1_ACTIONS` pin in `wired.ts`, plus, per listed action, the references made inside it. */
+function customerP1Violations(files: readonly SourceFile[], actions: readonly string[]): { violations: Violation[]; references: Record<string, number> } {
+  const violations: Violation[] = [];
+  const references: Record<string, number> = Object.fromEntries(actions.map((a) => [a, 0]));
+  for (const sf of files) {
+    if (sf.file !== CUSTOMERS_WIRED) continue;
+    const tree = parse(sf);
+    const breach = (detail: string) => violations.push({ file: sf.file, detail });
+    const p1Names = new Set<string>();
+    const visitImports = (node: ts.Node) => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && isProblemsApi(sf.file, node.moduleSpecifier.text)) {
+        const clause = node.importClause;
+        if (clause) {
+          if (clause.name) breach(`a default import of ${PROBLEMS_API}`);
+          const bindings = clause.namedBindings;
+          if (bindings && ts.isNamespaceImport(bindings)) breach(`a namespace import of ${PROBLEMS_API}`);
+          if (bindings && ts.isNamedImports(bindings)) {
+            for (const el of bindings.elements) {
+              const imported = (el.propertyName ?? el.name).text;
+              if (el.propertyName) breach(`renames ${imported}: import it by its own name`);
+              else p1Names.add(imported);
+            }
+          }
+        }
+      } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) && isProblemsApi(sf.file, node.moduleSpecifier.text)) {
+        breach(`re-exports from ${PROBLEMS_API}`);
+      } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && ts.isStringLiteral(node.moduleReference.expression) && isProblemsApi(sf.file, node.moduleReference.expression.text)) {
+        breach(`an import = require of ${PROBLEMS_API}`);
+      } else if (ts.isCallExpression(node) && node.arguments.length > 0 && ts.isStringLiteralLike(node.arguments[0]!) && isProblemsApi(sf.file, node.arguments[0]!.text)) {
+        const isImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+        const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+        if (isImport || isRequire) breach(`a dynamic ${isImport ? 'import()' : 'require()'} of ${PROBLEMS_API}`);
+      }
+      ts.forEachChild(node, visitImports);
+    };
+    visitImports(tree);
+    const visitRefs = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && p1Names.has(node.text) && !(node.parent && ts.isImportSpecifier(node.parent))) {
+        const name = node.text;
+        const at = topLevelFunctionOf(node);
+        if (node.parent && ts.isExportSpecifier(node.parent)) breach(`re-exports ${name}`);
+        else if (!at.declaration) breach(`${name} is referenced outside a function declaration: ${DECLARATION_FORM}`);
+        else if (!at.exported) breach(`${name} is referenced in ${at.name ?? 'an anonymous function'}, which is not exported`);
+        else if (at.name === null || !actions.includes(at.name)) breach(`${name} is referenced in ${at.name ?? 'an anonymous function'}, which is not in CUSTOMER_P1_ACTIONS`);
+        else references[at.name] = (references[at.name] ?? 0) + 1;
+      }
+      ts.forEachChild(node, visitRefs);
+    };
+    visitRefs(tree);
+  }
+  return { violations, references };
+}
+
+describe('architecture — the customers platform rule: only the listed Remove actions compare P1 (customers C-4b, P-2)', () => {
+  it('the real tree has no breach, and each listed action compares P1 (not vacuous)', () => {
+    const got = customerP1Violations(walk('src'), CUSTOMER_P1_ACTIONS);
+    expect(got.violations).toEqual([]);
+    for (const action of CUSTOMER_P1_ACTIONS) expect(got.references[action], `${action} references a lib/api/problems name`).toBeGreaterThan(0);
+  });
+
+  it('planted green: P1 compared inside the listed Remove action, after its import specifier', () => {
+    const planted: SourceFile[] = [
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport function contactDelete() { return async (r: { rule: string }) => r.rule === PLATFORM_REFUSAL.contention; }" },
+    ];
+    expect(customerP1Violations(planted, CUSTOMER_P1_ACTIONS)).toEqual({ violations: [], references: { contactDelete: 1 } });
+  });
+
+  it('planted: each laundering and placement breach goes red with its own message, P-1\'s green control included', () => {
+    const planted: SourceFile[] = [
+      // (a) the alias, T5f's supplier ternary inside customerSave.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL as P1 } from '../api/problems';\nexport function customerSave() { return async (r: { rule: string }) => (r.rule === P1.contention ? 1 : 2); }" },
+      // (b) a namespace import, then element access by a string.
+      { file: CUSTOMERS_WIRED, source: "import * as problems from '../api/problems';\nexport function contactCreate() { return problems['PLATFORM_REFUSAL'].contention; }" },
+      // (c) export * from it.
+      { file: CUSTOMERS_WIRED, source: "export * from '../api/problems';" },
+      // A named re-export.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport { PLATFORM_REFUSAL };" },
+      // The arrow-form contactDelete.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport const contactDelete = () => async (r: { rule: string }) => r.rule === PLATFORM_REFUSAL.contention;" },
+      // A top-level const.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nconst P = PLATFORM_REFUSAL;\nexport function contactDelete() { return P; }" },
+      // P-1's own green control, verbatim: green under P-1, red here (the split between the two checks).
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport function customerSave() { return PLATFORM_REFUSAL.contention; }" },
+      // An unexported function of the listed name; a default import; the dynamic and require forms.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nfunction contactDelete() { return PLATFORM_REFUSAL; }" },
+      { file: CUSTOMERS_WIRED, source: "import problems from '../api/problems';" },
+      { file: CUSTOMERS_WIRED, source: "export function contactDelete() { return import('../api/problems'); }" },
+      { file: CUSTOMERS_WIRED, source: "export function contactDelete() { return require('../api/problems.ts'); }" },
+      { file: CUSTOMERS_WIRED, source: "import m = require('../api/problems');" },
+    ];
+    expect(customerP1Violations(planted, CUSTOMER_P1_ACTIONS).violations).toEqual([
+      { file: CUSTOMERS_WIRED, detail: 'renames PLATFORM_REFUSAL: import it by its own name' },
+      { file: CUSTOMERS_WIRED, detail: `a namespace import of ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `re-exports from ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: 're-exports PLATFORM_REFUSAL' },
+      { file: CUSTOMERS_WIRED, detail: `PLATFORM_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
+      { file: CUSTOMERS_WIRED, detail: `PLATFORM_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
+      { file: CUSTOMERS_WIRED, detail: 'PLATFORM_REFUSAL is referenced in customerSave, which is not in CUSTOMER_P1_ACTIONS' },
+      { file: CUSTOMERS_WIRED, detail: 'PLATFORM_REFUSAL is referenced in contactDelete, which is not exported' },
+      { file: CUSTOMERS_WIRED, detail: `a default import of ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `a dynamic import() of ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `a dynamic require() of ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `an import = require of ${PROBLEMS_API}` },
+    ]);
+    // The same P-1 control is no breach of P-1 (it stays green there, unedited): no double count and no gap.
+    expect(customerRefusalViolations([planted[6]!], CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([]);
   });
 });
 

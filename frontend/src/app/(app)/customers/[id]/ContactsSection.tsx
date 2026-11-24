@@ -4,16 +4,18 @@ import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from '
 import { flushSync } from 'react-dom';
 import { AddContactForm } from '@/components/customers/AddContactForm';
 import { ContactForm } from '@/components/customers/ContactForm';
+import { DeleteDialog } from '@/components/records/DeleteDialog';
 import { RegionError } from '@/components/states/PageStates';
 import { Button } from '@/components/ui/Button';
-import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
-import { ADD_CONTACT, CONTACTS_SECTION, EDIT_CONTACT } from '@/copy/customers';
+import { COULD_NOT_REACH, NOT_REMOVED, WENT_WRONG } from '@/copy/headings';
+import { ADD_CONTACT, CONTACTS_SECTION, CUSTOMER_FORBIDDEN, EDIT_CONTACT, REMOVE_CONTACT } from '@/copy/customers';
 import type { CustomerContact } from '@/lib/api/customers';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode } from '@/lib/bff/surface';
 import { loadContacts, type ContactsLoad } from '@/lib/customers/load';
-import { contactCreate, contactSave } from '@/lib/customers/wired';
+import { contactCreate, contactDelete, contactSave } from '@/lib/customers/wired';
+import type { DeleteResult } from '@/lib/results';
 import { focusWasLost } from '../../ArchivableList';
 import { useApiCaller } from '../../BffProvider';
 import listStyles from '../../Lists.module.css';
@@ -30,6 +32,8 @@ export interface ContactsSectionProps {
   canAdd: boolean;
   /** Holds UpdateCustomerContact's codes (from the contract): each row's **Edit** on a live customer, in an Actions column. */
   canEdit: boolean;
+  /** Holds DeleteCustomerContact's codes (from the contract): each row's **Remove** on a live customer, in the Actions column (C-4b). */
+  canRemove: boolean;
   /**
    * The page's counted writer for its one status region (the section has none of its own): it writes and returns the
    * write's number, whoever makes it (K-9: one counter for the whole page).
@@ -79,16 +83,29 @@ const isStale = (k: Reread['kind']) => k === 'unreachable' || k === 'server-erro
  * the dialog's answer says the page's customer may be stale, the page re-reads it (`onParentStale`).
  *
  * Edit contact (C-4a): the row's **Edit** (accessible name `editFor(name)`, unquoted) in an Actions column shown only when
- * the viewer may edit on a live customer. It opens `ContactForm`, rendered on its open state alone (M-4). On close (FE-D1,
+ * the viewer may edit (from C-4b: or remove) on a live customer. It opens `ContactForm`, rendered on its open state alone (M-4). On close (FE-D1,
  * F-12): commit the close, put focus back on the row's Edit (else the heading), then, after a 200, speak `afterComposed`
  * (the 200's name; `primaryNowClause` only when `is_primary: true` was sent AND the 200 is primary, `primaryNoLongerClause`
  * when `is_primary: false` was sent), then re-read — the answered row is never committed (F-6). A re-read that removed the
  * row moves focus to the heading when it was lost. The list-stale form goes through `replaceIfCurrent` only.
  *
+ * Remove contact (C-4b, customers-plan-c4c5.md Revision 1 R1-3 I-12b as fixed by customers-plan-c4b-c5-final-red.md): the
+ * row's **Remove** (accessible name `removeFor(name)`, unquoted), in the Actions column, shown when the viewer may Edit OR
+ * Remove on a live customer. It opens the shared Delete dialog (`DeleteDialog`, the catalogue's Remove shape) with
+ * `REMOVE_CONTACT`'s copy, the heading **Not removed**, `CUSTOMER_FORBIDDEN` around `DeleteCustomerContact`'s permission on
+ * a 403, Close only after an interrupted press; rendered on its open state alone, never on `mayRemove` (M-4). A
+ * Remove whose customer re-read was archived, or whose rule was `customer.is_archived`, shows its client sentence as the
+ * dialog's refusal (Close only), and the dialog's going has the page re-read the customer (`onParentStale`, a caller-side
+ * flag read and cleared on every close, R1a-1). On close (FE-D1, F-12): commit the close, move focus — after a 204 the
+ * Contacts heading, otherwise the row's Remove, else the heading — then, after a 204, drop the row under a FRESH stamp
+ * (F-6: the 204 is the server's word, and a Remove moves no primary mark onto another row) and speak `after`, then
+ * re-read. A re-read that removed the row moves focus to the heading when it was lost; the list-stale form goes through
+ * `replaceIfCurrent` only. The region is emptied as the press is sent (FE-R9), so a second identical sentence is spoken.
+ *
  * The stamp rule (the catalogue's): every read of this section takes a number when it is sent; an answer older than the
  * reading on screen is dropped, so an earlier read answered late (a Retry in flight under a write) never undoes a later one.
  */
-export function ContactsSection({ customerId, initial, customerArchived, customerCode, canAdd, canEdit, announce, replaceIfCurrent, onParentStale }: ContactsSectionProps) {
+export function ContactsSection({ customerId, initial, customerArchived, customerCode, canAdd, canEdit, canRemove, announce, replaceIfCurrent, onParentStale }: ContactsSectionProps) {
   const caller = useApiCaller();
   const headingId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -97,12 +114,17 @@ export function ContactsSection({ customerId, initial, customerArchived, custome
   const [focusGen, setFocusGen] = useState(0);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<CustomerContact | null>(null);
+  const [removing, setRemoving] = useState<CustomerContact | null>(null);
+  // Remove: whether the open dialog's answer says the page's customer may be stale (read and cleared on every close).
+  const removeParentStale = useRef(false);
   // The button that opened the dialog, so the close can put focus back on it before anything is spoken (FE-D1).
   const opener = useRef<HTMLElement | null>(null);
   const create = useMemo(() => contactCreate(caller, customerId), [caller, customerId]);
   const save = useMemo(() => contactSave(caller, customerId), [caller, customerId]);
+  const remove = useMemo(() => contactDelete(caller, customerId), [caller, customerId]);
   const mayAdd = canAdd && !customerArchived;
   const mayEdit = canEdit && !customerArchived;
+  const mayRemove = canRemove && !customerArchived;
   // Whether a successful load has been on screen: the server's first read counts (first paint is not announced).
   const everLoaded = useRef(initial.kind === 'ok');
   // The sentence a successful Retry speaks, written by the layout effect after the focus move (FE-D1), never before it.
@@ -196,11 +218,56 @@ export function ContactsSection({ customerId, initial, customerArchived, custome
     if (saved !== null && said !== null && isStale(r.kind)) replaceIfCurrent(said, EDIT_CONTACT.afterComposed(saved.name, { primary, stale: true }));
   };
 
+  /** One Remove press: an archived answer is shown as the shared dialog's refusal (Close only) and remembered for the close. */
+  const runRemove = async (c: CustomerContact): Promise<DeleteResult> => {
+    const r = await remove(c.id);
+    switch (r.kind) {
+      case 'refused-archived':
+        removeParentStale.current = true;
+        return { kind: 'refused', rule: r.rule, message: REMOVE_CONTACT.archived };
+      case 'archived-then-restored':
+        removeParentStale.current = true;
+        return { kind: 'refused', rule: r.rule, message: REMOVE_CONTACT.archivedThenRestored };
+      case 'archived-at-remove':
+        removeParentStale.current = true;
+        return { kind: 'refused', rule: r.rule, message: REMOVE_CONTACT.archivedAtRemove };
+      default:
+        return r;
+    }
+  };
+
+  const closeRemove = async (removed: CustomerContact, { deleted, reread: again }: { deleted: boolean; reread: boolean }) => {
+    // FE-D1: commit the close, put focus where it goes, then speak, then re-read. After a 204 the row (and its Remove)
+    // goes, so the Contacts heading; otherwise the row's Remove, else — when it is gone — the heading.
+    flushSync(() => setRemoving(null));
+    const back = opener.current;
+    opener.current = null;
+    (deleted ? heading.current : back !== null && back.isConnected ? back : heading.current)?.focus();
+    const parentStale = removeParentStale.current;
+    removeParentStale.current = false;
+    let said: number | null = null;
+    if (deleted) {
+      // The 204 is the server's word that the contact is gone: drop the row under a FRESH stamp, so a re-read in flight
+      // from before this Remove, answered after it, cannot bring it back.
+      committedAsOf.current = ++stamps.current;
+      flushSync(() => setLoad((cur) => (cur.value.kind === 'ok' ? { gen: cur.gen + 1, value: { ...cur.value, contacts: cur.value.contacts.filter((x) => x.id !== removed.id) } } : cur)));
+      said = announce(REMOVE_CONTACT.after(removed.name));
+    }
+    if (parentStale) onParentStale();
+    if (!again) return;
+    const r = await reread(false);
+    // fe-r8-location-red L-1: what follows reads only this re-read's own answer, with nothing awaited between `reread()`
+    // and the correction.
+    // The row (and its Remove, where focus went back) left with this answer (removed elsewhere, a 404): the heading.
+    if (r.kind === 'ok' && !r.contacts.some((x) => x.id === removed.id) && focusWasLost()) heading.current?.focus();
+    if (said !== null && isStale(r.kind)) replaceIfCurrent(said, REMOVE_CONTACT.afterListStale(removed.name));
+  };
+
   const addButton = (size?: 'sm') => (
     <Button
       size={size}
       onClick={(ev) => {
-        if (adding || editing !== null) return;
+        if (adding || editing !== null || removing !== null) return;
         opener.current = ev.currentTarget;
         setAdding(true);
       }}
@@ -234,7 +301,7 @@ export function ContactsSection({ customerId, initial, customerArchived, custome
               <th scope="col">{CONTACTS_SECTION.email}</th>
               <th scope="col">{CONTACTS_SECTION.phone}</th>
               <th scope="col">{CONTACTS_SECTION.primary}</th>
-              {mayEdit ? <th scope="col">{CONTACTS_SECTION.actions}</th> : null}
+              {mayEdit || mayRemove ? <th scope="col">{CONTACTS_SECTION.actions}</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -244,19 +311,35 @@ export function ContactsSection({ customerId, initial, customerArchived, custome
                 <td>{c.email ?? CONTACTS_SECTION.none}</td>
                 <td>{c.phone ?? CONTACTS_SECTION.none}</td>
                 <td>{c.is_primary ? CONTACTS_SECTION.primaryYes : CONTACTS_SECTION.primaryNo}</td>
-                {mayEdit ? (
+                {mayEdit || mayRemove ? (
                   <td>
-                    <Button
-                      size="sm"
-                      aria-label={CONTACTS_SECTION.editFor(c.name)}
-                      onClick={(ev) => {
-                        if (adding || editing !== null) return;
-                        opener.current = ev.currentTarget;
-                        setEditing(c);
-                      }}
-                    >
-                      {CONTACTS_SECTION.edit}
-                    </Button>
+                    {mayEdit ? (
+                      <Button
+                        size="sm"
+                        aria-label={CONTACTS_SECTION.editFor(c.name)}
+                        onClick={(ev) => {
+                          if (adding || editing !== null || removing !== null) return;
+                          opener.current = ev.currentTarget;
+                          setEditing(c);
+                        }}
+                      >
+                        {CONTACTS_SECTION.edit}
+                      </Button>
+                    ) : null}
+                    {mayRemove ? (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        aria-label={CONTACTS_SECTION.removeFor(c.name)}
+                        onClick={(ev) => {
+                          if (adding || editing !== null || removing !== null) return;
+                          opener.current = ev.currentTarget;
+                          setRemoving(c);
+                        }}
+                      >
+                        {CONTACTS_SECTION.remove}
+                      </Button>
+                    ) : null}
                   </td>
                 ) : null}
               </tr>
@@ -266,6 +349,29 @@ export function ContactsSection({ customerId, initial, customerArchived, custome
       )}
       {/* Rendered on its open state alone (never `&& mayAdd`): it stays open when the page turns archived (M-4). */}
       {editing !== null ? <ContactForm key={editing.id} contact={editing} save={save} editCode={gateCode('UpdateCustomerContact')} onClose={(o) => void closeEdit(editing, o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}
+      {/* Rendered on its open state alone (never `&& mayRemove`): it stays open when the page turns archived (M-4). */}
+      {removing !== null ? (
+        <DeleteDialog
+          key={removing.id}
+          copy={{
+            title: REMOVE_CONTACT.title(removing.name),
+            body: REMOVE_CONTACT.body(removing.is_primary),
+            confirm: REMOVE_CONTACT.confirm,
+            cancel: REMOVE_CONTACT.cancel,
+            close: REMOVE_CONTACT.close,
+            interrupted: REMOVE_CONTACT.interrupted(removing.name),
+            forbidden: CUSTOMER_FORBIDDEN,
+            refusedHeading: NOT_REMOVED,
+          }}
+          run={() => runRemove(removing)}
+          deleteCode={gateCode('DeleteCustomerContact')}
+          onClose={(o) => void closeRemove(removing, o)}
+          fallbackFocusRef={heading}
+          onDeleteStarted={() => announce('')}
+          // copy row 47 (D-14): an interrupted Remove leaves Close only.
+          finalWhenInterrupted
+        />
+      ) : null}
       {adding ? <AddContactForm customerCode={customerCode} create={create} createCode={gateCode('CreateCustomerContact')} onClose={(o) => void closeAdd(o)} fallbackFocusRef={heading} onAddStarted={() => announce('')} /> : null}
     </section>
   );

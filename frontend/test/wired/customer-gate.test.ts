@@ -79,13 +79,15 @@ describe('/customers/[id] — gated on GetCustomer; the editor only for UpdateCu
   ] as const)('%s, handed the customer, canEdit and its two sections\' first reads and nothing else', async (_, codes, canEdit) => {
     const el = await render([...codes]);
     expect(el.type).toBe(CustomerPage);
-    // Customers C-4a (customers-plan-c4c5.md Revision 1 R1-0 F-8): `canAddContact` and `canEditContact` join, in the fixed order.
-    expect(Object.keys(el.props as object)).toEqual(['customer', 'canEdit', 'canAddContact', 'canEditContact', 'contacts', 'addresses']);
+    // Customers C-4a (customers-plan-c4c5.md Revision 1 R1-0 F-8): `canAddContact` and `canEditContact` join, in the fixed order;
+    // C-4b inserts `canRemoveContact` after them.
+    expect(Object.keys(el.props as object)).toEqual(['customer', 'canEdit', 'canAddContact', 'canEditContact', 'canRemoveContact', 'contacts', 'addresses']);
     const props = el.props as Record<string, unknown>;
     expect(props.canEdit).toBe(canEdit);
     // Every contact write needs customer.edit today, as UpdateCustomer does.
     expect(props.canAddContact).toBe(canEdit);
     expect(props.canEditContact).toBe(canEdit);
+    expect(props.canRemoveContact).toBe(canEdit);
     expect(props.customer).toEqual(CUSTOMER);
     expect(props.contacts).toBe(fixed.contacts);
     expect(props.addresses).toBe(fixed.addresses);
@@ -103,13 +105,15 @@ describe('/customers/[id] — gated on GetCustomer; the editor only for UpdateCu
   it.each([
     ['CreateCustomerContact', 'canAddContact'],
     ['UpdateCustomerContact', 'canEditContact'],
+    // Customers C-4b test 20b: Remove from DeleteCustomerContact's own gate.
+    ['DeleteCustomerContact', 'canRemoveContact'],
   ] as const)('test 20a — withholding %s turns off %s alone (each from its own gate, never UpdateCustomer\'s)', async (op, prop) => {
     gate.withheld = [op];
     try {
       const el = await render(['customer.view', 'customer.edit']);
       const props = el.props as Record<string, unknown>;
       expect(props.canEdit).toBe(true);
-      for (const p of ['canAddContact', 'canEditContact']) expect(props[p], p).toBe(p !== prop);
+      for (const p of ['canAddContact', 'canEditContact', 'canRemoveContact']) expect(props[p], p).toBe(p !== prop);
     } finally {
       gate.withheld = [];
     }

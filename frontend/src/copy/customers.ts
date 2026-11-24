@@ -11,11 +11,12 @@
 // - `customers-c2a-ux-copy.md` Revision 1 — FINAL, as corrected by `customers-c2a-ux-copy-final-red.md` (the editor's keys,
 //   `CUSTOMER_FORBIDDEN`).
 // - `customers-c4c5-ux-copy.md` Revision 1a > Revision 1 > Revision 0 (contacts added and changed, C-4a: the
-//   `CONTACTS_SECTION` additions, `ADD_CONTACT`, `EDIT_CONTACT`).
+//   `CONTACTS_SECTION` additions, `ADD_CONTACT`, `EDIT_CONTACT`; and removed, C-4b: `remove`, `removeFor`,
+//   `REMOVE_CONTACT`).
 // Each sentence holds for the web app in this commit (`STATES.md:161`). C-2a edits Code, Country, Currency and Payment terms
 // only. There is no create, rename, restore or delete of a customer on any web surface, so no entry here offers one;
-// `archivedThenRestored` reports a restore made elsewhere as a fact. Contacts can be added and changed (C-4a); every refusal
-// that names a restore is replaced by a client sentence while no web surface can restore (copy D-1). Server refusals are
+// `archivedThenRestored` reports a restore made elsewhere as a fact. Contacts can be added and changed (C-4a), and removed
+// (C-4b); every refusal that names a restore is replaced by a client sentence while no web surface can restore (copy D-1). Server refusals are
 // never stored here.
 
 /** `{n} days` / `1 day` / `0 days` (the supplier list's "payment terms cell", UX S-1). */
@@ -169,8 +170,8 @@ export const CUSTOMER_FORBIDDEN = {
  * The customer page's Contacts section (`customers-c1-ux-copy.md` Revision 1 — FINAL §2, R1-9; from C-4a
  * `customers-c4c5-ux-copy.md` §2.1 + R1-1 + R1-2). The email and phone words live ONLY in this group, under the
  * **Contacts** heading, so they read as the contact's, never the customer's (customers-plan.md §4, G-36): the dialogs' field
- * words are top-level `field…` members here, never in a dialog group (copy R1-1). C-4a offers Add and Edit; Remove (and
- * `remove` / `removeFor`) waits for C-4b, so no sentence here names it.
+ * words are top-level `field…` members here, never in a dialog group (copy R1-1). C-4a offers Add and Edit; C-4b adds the
+ * row's Remove (`remove`, `removeFor`).
  */
 export const CONTACTS_SECTION = {
   heading: 'Contacts',
@@ -195,11 +196,14 @@ export const CONTACTS_SECTION = {
   denied: "You don't have access to this customer's contacts.",
   /** The section header's action and the empty state's, for an Add holder on a live customer (copy row 1). */
   add: 'Add contact',
-  /** The column after Primary, only when the viewer may Edit on a live customer (copy row 2). */
+  /** The column after Primary, only when the viewer may Edit or Remove on a live customer (copy row 2). */
   actions: 'Actions',
   /** The row action, and its accessible name `editFor(name)` with the served name unquoted (copy rows 3–4). */
   edit: 'Edit',
   editFor: (name: string) => `Edit ${name}`,
+  /** The row action (danger), and its accessible name `removeFor(name)` with the served name unquoted (copy rows 5–6). */
+  remove: 'Remove',
+  removeFor: (name: string) => `Remove ${name}`,
   /** Above the table on an archived customer's page, for everyone; no actions (copy row 8, D-5). */
   archivedParent: "Contacts can't be added, changed or removed while the customer is archived.",
   /** The Add and Edit dialogs' field words (copy R1-1 rows 9–15). */
@@ -222,6 +226,7 @@ const CONTACT_PRIMARY_NO_LONGER = "It's no longer the primary contact.";
 const LIST_STALE = "We couldn't load the list again, so it may be out of date.";
 const CONTACT_ADDED = (name: string) => `“${name}” was added to the contacts.`;
 const CONTACT_SAVED = (name: string) => `“${name}” was saved.`;
+const CONTACT_REMOVED = (name: string) => `“${name}” was removed from the contacts.`;
 
 /**
  * Add contact's dialog (copy §2.3 + R1-1 + R1-2 + R1a-3 row 24; refusal heading `NOT_ADDED`). `{name}` in a sentence is in
@@ -283,6 +288,37 @@ export const EDIT_CONTACT = {
   archivedThenRestored: 'Nothing was saved, because this customer was archived at that moment. It has since been restored, so you can press Save again.',
   /** Refused `customer.is_archived`, re-read failed: the edits and Save stay (D-3). */
   archivedAtSave: "Nothing was saved, because this customer was archived at that moment. We couldn't check whether it still is.",
+} as const;
+
+/**
+ * A contact row's Remove: the shared Delete dialog, danger (copy §2.5 rows 40–50 + R1-2 row 49; refusal heading
+ * `NOT_REMOVED`). `{name}` = the served name at open, in curly quotes in a sentence. The 403 sentence is
+ * `CUSTOMER_FORBIDDEN` (no new text).
+ */
+export const REMOVE_CONTACT = {
+  title: (name: string) => `Remove “${name}” from this customer's contacts?`,
+  /** `primary` = the served row's `is_primary` at open: removing the primary leaves none, nothing is promoted (T-C10). */
+  body: (primary: boolean) =>
+    primary
+      ? "The contact is deleted for good, not archived, so it can't be restored. It's the primary contact, so this customer will have no primary contact until another one is marked."
+      : "The contact is deleted for good, not archived, so it can't be restored.",
+  confirm: 'Remove',
+  /** Initial focus (the shared Delete dialog). */
+  cancel: 'Cancel',
+  /** After a refusal, a 404, or an interrupted press (D-14). */
+  close: 'Close',
+  /** Polite status after the 204; focus to the Contacts heading. */
+  after: CONTACT_REMOVED,
+  /** Replaces `after` only through `replaceIfCurrent`, when the section's re-read failed. */
+  afterListStale: (name: string) => `${CONTACT_REMOVED(name)} ${LIST_STALE}`,
+  /** Under `COULD_NOT_REACH` / `WENT_WRONG`, Close only (`finalWhenInterrupted`: a repeat after a removal answers 404). */
+  interrupted: (name: string) => `We can't tell whether “${name}” was removed. Close this and check the contacts.`,
+  /** INTERIM until C-2b: any refusal whose customer re-read is archived; Close only. */
+  archived: "This customer is archived, so its contacts can't be removed.",
+  /** Refused `customer.is_archived`, re-read live: Close only (D-2; copy R1-2 row 49). */
+  archivedThenRestored: 'Nothing was removed, because this customer was archived at that moment. It has since been restored, so you can close this and remove the contact.',
+  /** Refused `customer.is_archived`, re-read failed: Close only. */
+  archivedAtRemove: "Nothing was removed, because this customer was archived at that moment. We couldn't check whether it still is.",
 } as const;
 
 /**

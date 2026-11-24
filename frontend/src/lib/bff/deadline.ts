@@ -59,6 +59,11 @@ export const ACTION_DEADLINES_MS = {
   /** Save a customer contact (Customers C-4a): the request + the GetCustomer re-read after a refusal, as for `contactCreate`. */
   contactSave: 30_000,
   /**
+   * Remove a customer contact (Customers C-4b): the request + the GetCustomer re-read after a refusal (to see whether the
+   * customer was archived meanwhile). The section re-reads its contacts after the dialog closes, under `reread`.
+   */
+  contactDelete: 30_000,
+  /**
    * Save a supplier catalogue entry: the request + the GetSupplier re-read after a refusal (to see whether the supplier
    * was archived meanwhile). The section re-reads its catalogue after the dialog closes, under its own deadline.
    */
