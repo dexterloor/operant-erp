@@ -12,11 +12,12 @@
 //   `CUSTOMER_FORBIDDEN`).
 // - `customers-c4c5-ux-copy.md` Revision 1a > Revision 1 > Revision 0 (contacts added and changed, C-4a: the
 //   `CONTACTS_SECTION` additions, `ADD_CONTACT`, `EDIT_CONTACT`; and removed, C-4b: `remove`, `removeFor`,
-//   `REMOVE_CONTACT`); addresses added and changed, C-5a: the `ADDRESSES_SECTION` additions, `ADD_ADDRESS`, `EDIT_ADDRESS`.
+//   `REMOVE_CONTACT`); addresses added and changed, C-5a: the `ADDRESSES_SECTION` additions, `ADD_ADDRESS`, `EDIT_ADDRESS`;
+//   and removed, C-5b: `remove`, `removeFor`, `REMOVE_ADDRESS`.
 // Each sentence holds for the web app in this commit (`STATES.md:161`). C-2a edits Code, Country, Currency and Payment terms
 // only. There is no create, rename, restore or delete of a customer on any web surface, so no entry here offers one;
 // `archivedThenRestored` reports a restore made elsewhere as a fact. Contacts can be added and changed (C-4a), and removed
-// (C-4b); addresses can be added and changed (C-5a); every refusal that names a restore is replaced by a client sentence while no web surface can restore (copy D-1). Server refusals are
+// (C-4b); addresses can be added and changed (C-5a), and removed (C-5b); every refusal that names a restore is replaced by a client sentence while no web surface can restore (copy D-1). Server refusals are
 // never stored here.
 
 /** `{n} days` / `1 day` / `0 days` (the supplier list's "payment terms cell", UX S-1). */
@@ -333,7 +334,7 @@ const addressNoun = (kind: string): string => (kind === 'shipping' ? 'shipping a
 /**
  * The customer page's Addresses section (`customers-c1-ux-copy.md` Revision 1 — FINAL §3, R1-9; from C-5a
  * `customers-c4c5-ux-copy.md` §3.1 + R1-1 + R1-2). The dialogs' field words are top-level `field…` members here, never in
- * a dialog group (copy R1-1). C-5a offers Add and Edit.
+ * a dialog group (copy R1-1). C-5a offers Add and Edit; C-5b adds the row's Remove (`remove`, `removeFor`).
  */
 export const ADDRESSES_SECTION = {
   heading: 'Addresses',
@@ -356,11 +357,14 @@ export const ADDRESSES_SECTION = {
   denied: "You don't have access to this customer's addresses.",
   /** The section header's action and the empty state's, for an Add holder on a live customer (copy row 51). */
   add: 'Add address',
-  /** The column after Country, only when the viewer may Edit on a live customer (copy row 52). */
+  /** The column after Country, only when the viewer may Edit or Remove on a live customer (copy row 52). */
   actions: 'Actions',
   /** The row action, and its accessible name `editFor(kind, line)` with the served line unquoted (copy rows 53–54). */
   edit: 'Edit',
   editFor: (kind: string, line: string) => `Edit ${addressNoun(kind)} ${line}`,
+  /** The row action (danger), and its accessible name `removeFor(kind, line)` with the served line unquoted (copy rows 55–56). */
+  remove: 'Remove',
+  removeFor: (kind: string, line: string) => `Remove ${addressNoun(kind)} ${line}`,
   addressNoun,
   /** Above the table on an archived customer's page, for everyone; no actions (copy row 59, D-5). */
   archivedParent: "Addresses can't be added, changed or removed while the customer is archived.",
@@ -388,6 +392,7 @@ export const ADDRESSES_SECTION = {
 /** The composed sentences (copy R1-1): module-private, exposed only as each dialog group's members. */
 const ADDRESS_ADDED = (kind: string, line: string) => `The ${addressNoun(kind)} “${line}” was added.`;
 const ADDRESS_SAVED = (kind: string, line: string) => `The ${addressNoun(kind)} “${line}” was saved.`;
+const ADDRESS_REMOVED = (kind: string, line: string) => `The ${addressNoun(kind)} “${line}” was removed.`;
 
 /**
  * Add address's dialog (copy §3.2 + R1-1 + R1-2 rows 77, 79; refusal heading `NOT_ADDED`). `{line}` in a sentence is in
@@ -438,4 +443,31 @@ export const EDIT_ADDRESS = {
   archivedThenRestored: 'Nothing was saved, because this customer was archived at that moment. It has since been restored, so you can press Save again.',
   /** Refused `customer.is_archived`, re-read failed: the edits and Save stay. */
   archivedAtSave: "Nothing was saved, because this customer was archived at that moment. We couldn't check whether it still is.",
+} as const;
+
+/**
+ * An address row's Remove: the shared Delete dialog, danger (copy §3.4 rows 92–100 + R1-2 row 99; refusal heading
+ * `NOT_REMOVED`). `{kind}` and `{line}` = the served row at open; the line in curly quotes in a sentence (copy D-8). The
+ * 403 sentence is `CUSTOMER_FORBIDDEN` (no new text).
+ */
+export const REMOVE_ADDRESS = {
+  title: (kind: string, line: string) => `Remove the ${addressNoun(kind)} “${line}”?`,
+  body: "The address is deleted for good, not archived, so it can't be restored. Removing it changes no order that already uses it, drafts included.",
+  confirm: 'Remove',
+  /** Initial focus (the shared Delete dialog). */
+  cancel: 'Cancel',
+  /** After a refusal, a 404, or an interrupted press (D-14). */
+  close: 'Close',
+  /** Polite status after the 204; focus to the Addresses heading. */
+  after: ADDRESS_REMOVED,
+  /** Replaces `after` only through `replaceIfCurrent`, when the section's re-read failed. */
+  afterListStale: (kind: string, line: string) => `${ADDRESS_REMOVED(kind, line)} ${LIST_STALE}`,
+  /** Under `COULD_NOT_REACH` / `WENT_WRONG`, Close only (`finalWhenInterrupted`: a repeat after a removal answers 404). */
+  interrupted: (kind: string, line: string) => `We can't tell whether the ${addressNoun(kind)} “${line}” was removed. Close this and check the addresses.`,
+  /** INTERIM until C-2b: any refusal whose customer re-read is archived; Close only. */
+  archived: "This customer is archived, so its addresses can't be removed.",
+  /** Refused `customer.is_archived`, re-read live: Close only (D-2; copy R1-2 row 99). */
+  archivedThenRestored: 'Nothing was removed, because this customer was archived at that moment. It has since been restored, so you can close this and remove the address.',
+  /** Refused `customer.is_archived`, re-read failed: Close only. */
+  archivedAtRemove: "Nothing was removed, because this customer was archived at that moment. We couldn't check whether it still is.",
 } as const;

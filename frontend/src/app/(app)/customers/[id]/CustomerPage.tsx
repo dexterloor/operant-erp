@@ -39,6 +39,8 @@ export interface CustomerPageProps {
   canAddAddress?: boolean;
   /** Holds UpdateCustomerAddress's codes (from the contract): each address row's **Edit** on a live customer (C-5a). */
   canEditAddress?: boolean;
+  /** Holds DeleteCustomerAddress's codes (from the contract): each address row's **Remove** on a live customer (C-5b). */
+  canRemoveAddress?: boolean;
   /** `ListCustomerContacts` on first render, or null when the viewer does not hold its codes: then absent, not fetched (A-20). */
   contacts?: ContactsLoad | null;
   /** `ListCustomerAddresses` on first render, or null when the viewer does not hold its codes: then absent, not fetched (A-20). */
@@ -58,7 +60,7 @@ type Cause = 'unreachable' | 'server-error';
  * ST-9 banner, its heading focused — never the server's R3 (copy Revision 1a D-6) — unless a newer live reading was
  * committed first (FE-R7). A failed re-read → the region error (focus on its heading), Retry re-reads; 403 → ST-4b; 404 →
  * ST-5. The four `customer` columns nothing writes (G-36) are not served and are never shown. Below the fields: the
- * Contacts section (Add and Edit contact from C-4a, Remove from C-4b), then the Addresses section (`customers-c1-ux-copy.md` R1-5 L-4; Add and Edit address from C-5a), each
+ * Contacts section (Add and Edit contact from C-4a, Remove from C-4b), then the Addresses section (`customers-c1-ux-copy.md` R1-5 L-4; Add and Edit address from C-5a, Remove from C-5b), each
  * for a holder of its read's codes. The page owns the one status region, in the DOM from first render and empty; every
  * write to it goes through `announce`, which counts it (the page write counter, R1-5; ARCH K-9: one counter for the whole
  * page, both sections included), and a late correction is written through `replaceIfCurrent` only while the write it
@@ -66,7 +68,7 @@ type Cause = 'unreachable' | 'server-error';
  * or address write whose answer says the customer may be stale has the page re-read it (`onParentStale`, stamped, through `commit` /
  * `failed`; it moves no focus); a re-read that commits an archived customer refreshes the router cache (ARCH K9-2).
  */
-export function CustomerPage({ customer: initial, canEdit = false, canAddContact = false, canEditContact = false, canRemoveContact = false, canAddAddress = false, canEditAddress = false, contacts = null, addresses = null }: CustomerPageProps) {
+export function CustomerPage({ customer: initial, canEdit = false, canAddContact = false, canEditContact = false, canRemoveContact = false, canAddAddress = false, canEditAddress = false, canRemoveAddress = false, contacts = null, addresses = null }: CustomerPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -255,6 +257,7 @@ export function CustomerPage({ customer: initial, canEdit = false, canAddContact
           customerCode={customer.code}
           canAdd={canAddAddress}
           canEdit={canEditAddress}
+          canRemove={canRemoveAddress}
           announce={announce}
           replaceIfCurrent={replaceIfCurrent}
           onParentStale={() => void onParentStale()}

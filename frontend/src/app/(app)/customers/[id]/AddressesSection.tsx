@@ -4,16 +4,18 @@ import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from '
 import { flushSync } from 'react-dom';
 import { AddAddressForm } from '@/components/customers/AddAddressForm';
 import { AddressForm } from '@/components/customers/AddressForm';
+import { DeleteDialog } from '@/components/records/DeleteDialog';
 import { RegionError } from '@/components/states/PageStates';
 import { Button } from '@/components/ui/Button';
-import { COULD_NOT_REACH, WENT_WRONG } from '@/copy/headings';
-import { ADD_ADDRESS, ADDRESSES_SECTION, EDIT_ADDRESS, addressKindLabel } from '@/copy/customers';
+import { COULD_NOT_REACH, NOT_REMOVED, WENT_WRONG } from '@/copy/headings';
+import { ADD_ADDRESS, ADDRESSES_SECTION, CUSTOMER_FORBIDDEN, EDIT_ADDRESS, REMOVE_ADDRESS, addressKindLabel } from '@/copy/customers';
 import type { CustomerAddress } from '@/lib/api/customers';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode, wireEnum } from '@/lib/bff/surface';
 import { loadAddresses, type AddressesLoad } from '@/lib/customers/load';
-import { addressCreate, addressSave } from '@/lib/customers/wired';
+import { addressCreate, addressDelete, addressSave } from '@/lib/customers/wired';
+import type { DeleteResult } from '@/lib/results';
 import { focusWasLost } from '../../ArchivableList';
 import { useApiCaller } from '../../BffProvider';
 import listStyles from '../../Lists.module.css';
@@ -33,6 +35,8 @@ export interface AddressesSectionProps {
   canAdd: boolean;
   /** Holds UpdateCustomerAddress's codes (from the contract): each row's **Edit** on a live customer, in an Actions column. */
   canEdit: boolean;
+  /** Holds DeleteCustomerAddress's codes (from the contract): each row's **Remove** on a live customer, in the Actions column (C-5b). */
+  canRemove: boolean;
   /**
    * The page's counted writer for its one status region (the section has none of its own): it writes and returns the
    * write's number, whoever makes it (K-9: one counter for the whole page, shared with the Contacts section).
@@ -74,16 +78,29 @@ const isStale = (k: Reread['kind']) => k === 'unreachable' || k === 'server-erro
  * When the dialog's answer says the page's customer may be stale, the page re-reads it (`onParentStale`).
  *
  * Edit address (C-5a): the row's **Edit** (accessible name `editFor(kind, line)`, unquoted) in an Actions column shown
- * only when the viewer may edit on a live customer. It opens `AddressForm`, rendered on its open state alone (M-4). On
+ * only when the viewer may edit (from C-5b: or remove) on a live customer. It opens `AddressForm`, rendered on its open state alone (M-4). On
  * close: commit the close, put focus back on the row's Edit (else the heading), then, after a 200, speak
  * `EDIT_ADDRESS.afterComposed` (the 200's kind and line), then re-read — the answered row is never committed (F-6). A
  * re-read that removed the row moves focus to the heading when it was lost. The list-stale form goes through
  * `replaceIfCurrent` only.
  *
+ * Remove address (C-5b, customers-plan-c4c5.md Revision 0 J-4, J-9 as fixed by customers-plan-c4b-c5-final-red.md; the
+ * `ContactsSection` Remove shape): the row's **Remove** (accessible name `removeFor(kind, line)`, unquoted), in the Actions
+ * column, shown when the viewer may Edit OR Remove on a live customer. It opens the shared Delete dialog with
+ * `REMOVE_ADDRESS`'s copy, the heading **Not removed**, `CUSTOMER_FORBIDDEN` around `DeleteCustomerAddress`'s permission
+ * on a 403, Close only after an interrupted press; rendered on its open state alone, never on `mayRemove` (M-4). A Remove
+ * whose customer re-read was archived, or whose rule was `customer.is_archived`, shows its client sentence as the dialog's
+ * refusal (Close only), and the dialog's going has the page re-read the customer (`onParentStale`, a flag read and
+ * cleared on every close, R1a-1). On close (FE-D1, F-12): commit the close, move focus — after a 204 the Addresses
+ * heading, otherwise the row's Remove, else the heading — then, after a 204, drop the row under a FRESH stamp (F-6: the
+ * 204 is the server's word) and speak `after`, then re-read. A re-read that removed the row moves focus to the heading when
+ * it was lost; the list-stale form goes through `replaceIfCurrent` only. The region is emptied as the press is sent
+ * (FE-R9), so a second identical sentence is spoken.
+ *
  * The stamp rule (the catalogue's): every read of this section takes a number when it is sent; an answer older than the
  * reading on screen is dropped, so an earlier read answered late (a Retry in flight under a write) never undoes a later one.
  */
-export function AddressesSection({ customerId, initial, customerArchived, customerCode, canAdd, canEdit, announce, replaceIfCurrent, onParentStale }: AddressesSectionProps) {
+export function AddressesSection({ customerId, initial, customerArchived, customerCode, canAdd, canEdit, canRemove, announce, replaceIfCurrent, onParentStale }: AddressesSectionProps) {
   const caller = useApiCaller();
   const headingId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -92,12 +109,17 @@ export function AddressesSection({ customerId, initial, customerArchived, custom
   const [focusGen, setFocusGen] = useState(0);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<CustomerAddress | null>(null);
+  const [removing, setRemoving] = useState<CustomerAddress | null>(null);
+  // Remove: whether the open dialog's answer says the page's customer may be stale (read and cleared on every close).
+  const removeParentStale = useRef(false);
   // The button that opened the dialog, so the close can put focus back on it before anything is spoken (FE-D1).
   const opener = useRef<HTMLElement | null>(null);
   const create = useMemo(() => addressCreate(caller, customerId), [caller, customerId]);
   const save = useMemo(() => addressSave(caller, customerId), [caller, customerId]);
+  const remove = useMemo(() => addressDelete(caller, customerId), [caller, customerId]);
   const mayAdd = canAdd && !customerArchived;
   const mayEdit = canEdit && !customerArchived;
+  const mayRemove = canRemove && !customerArchived;
   const everLoaded = useRef(initial.kind === 'ok');
   const pendingCount = useRef<string | null>(null);
   const stamps = useRef(0);
@@ -182,11 +204,56 @@ export function AddressesSection({ customerId, initial, customerArchived, custom
     if (saved !== null && said !== null && isStale(r.kind)) replaceIfCurrent(said, EDIT_ADDRESS.afterComposed(saved.kind, saved.line, { stale: true }));
   };
 
+  /** One Remove press: an archived answer is shown as the shared dialog's refusal (Close only) and remembered for the close. */
+  const runRemove = async (a: CustomerAddress): Promise<DeleteResult> => {
+    const r = await remove(a.id);
+    switch (r.kind) {
+      case 'refused-archived':
+        removeParentStale.current = true;
+        return { kind: 'refused', rule: r.rule, message: REMOVE_ADDRESS.archived };
+      case 'archived-then-restored':
+        removeParentStale.current = true;
+        return { kind: 'refused', rule: r.rule, message: REMOVE_ADDRESS.archivedThenRestored };
+      case 'archived-at-remove':
+        removeParentStale.current = true;
+        return { kind: 'refused', rule: r.rule, message: REMOVE_ADDRESS.archivedAtRemove };
+      default:
+        return r;
+    }
+  };
+
+  const closeRemove = async (removed: CustomerAddress, { deleted, reread: again }: { deleted: boolean; reread: boolean }) => {
+    // FE-D1: commit the close, put focus where it goes, then speak, then re-read. After a 204 the row (and its Remove)
+    // goes, so the Addresses heading; otherwise the row's Remove, else — when it is gone — the heading.
+    flushSync(() => setRemoving(null));
+    const back = opener.current;
+    opener.current = null;
+    (deleted ? heading.current : back !== null && back.isConnected ? back : heading.current)?.focus();
+    const parentStale = removeParentStale.current;
+    removeParentStale.current = false;
+    let said: number | null = null;
+    if (deleted) {
+      // The 204 is the server's word that the address is gone: drop the row under a FRESH stamp, so a re-read in flight
+      // from before this Remove, answered after it, cannot bring it back.
+      committedAsOf.current = ++stamps.current;
+      flushSync(() => setLoad((cur) => (cur.value.kind === 'ok' ? { gen: cur.gen + 1, value: { ...cur.value, addresses: cur.value.addresses.filter((x) => x.id !== removed.id) } } : cur)));
+      said = announce(REMOVE_ADDRESS.after(removed.kind, removed.line));
+    }
+    if (parentStale) onParentStale();
+    if (!again) return;
+    const r = await reread(false);
+    // fe-r8-location-red L-1: what follows reads only this re-read's own answer, with nothing awaited between `reread()`
+    // and the correction.
+    // The row (and its Remove, where focus went back) left with this answer (removed elsewhere, a 404): the heading.
+    if (r.kind === 'ok' && !r.addresses.some((x) => x.id === removed.id) && focusWasLost()) heading.current?.focus();
+    if (said !== null && isStale(r.kind)) replaceIfCurrent(said, REMOVE_ADDRESS.afterListStale(removed.kind, removed.line));
+  };
+
   const addButton = (size?: 'sm') => (
     <Button
       size={size}
       onClick={(ev) => {
-        if (adding || editing !== null) return;
+        if (adding || editing !== null || removing !== null) return;
         opener.current = ev.currentTarget;
         setAdding(true);
       }}
@@ -221,7 +288,7 @@ export function AddressesSection({ customerId, initial, customerArchived, custom
               <th scope="col">{ADDRESSES_SECTION.city}</th>
               <th scope="col">{ADDRESSES_SECTION.postalCode}</th>
               <th scope="col">{ADDRESSES_SECTION.country}</th>
-              {mayEdit ? <th scope="col">{ADDRESSES_SECTION.actions}</th> : null}
+              {mayEdit || mayRemove ? <th scope="col">{ADDRESSES_SECTION.actions}</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -232,19 +299,35 @@ export function AddressesSection({ customerId, initial, customerArchived, custom
                 <td>{a.city}</td>
                 <td>{a.postal_code}</td>
                 <td>{a.country_code}</td>
-                {mayEdit ? (
+                {mayEdit || mayRemove ? (
                   <td>
-                    <Button
-                      size="sm"
-                      aria-label={ADDRESSES_SECTION.editFor(a.kind, a.line)}
-                      onClick={(ev) => {
-                        if (adding || editing !== null) return;
-                        opener.current = ev.currentTarget;
-                        setEditing(a);
-                      }}
-                    >
-                      {ADDRESSES_SECTION.edit}
-                    </Button>
+                    {mayEdit ? (
+                      <Button
+                        size="sm"
+                        aria-label={ADDRESSES_SECTION.editFor(a.kind, a.line)}
+                        onClick={(ev) => {
+                          if (adding || editing !== null || removing !== null) return;
+                          opener.current = ev.currentTarget;
+                          setEditing(a);
+                        }}
+                      >
+                        {ADDRESSES_SECTION.edit}
+                      </Button>
+                    ) : null}
+                    {mayRemove ? (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        aria-label={ADDRESSES_SECTION.removeFor(a.kind, a.line)}
+                        onClick={(ev) => {
+                          if (adding || editing !== null || removing !== null) return;
+                          opener.current = ev.currentTarget;
+                          setRemoving(a);
+                        }}
+                      >
+                        {ADDRESSES_SECTION.remove}
+                      </Button>
+                    ) : null}
                   </td>
                 ) : null}
               </tr>
@@ -254,6 +337,29 @@ export function AddressesSection({ customerId, initial, customerArchived, custom
       )}
       {/* Rendered on its open state alone (never `&& mayEdit`): it stays open when the page turns archived (M-4). */}
       {editing !== null ? <AddressForm key={editing.id} address={editing} kinds={wireEnum(UPDATE_INPUT, 'kind')} save={save} editCode={gateCode('UpdateCustomerAddress')} onClose={(o) => void closeEdit(editing, o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}
+      {/* Rendered on its open state alone (never `&& mayRemove`): it stays open when the page turns archived (M-4). */}
+      {removing !== null ? (
+        <DeleteDialog
+          key={removing.id}
+          copy={{
+            title: REMOVE_ADDRESS.title(removing.kind, removing.line),
+            body: REMOVE_ADDRESS.body,
+            confirm: REMOVE_ADDRESS.confirm,
+            cancel: REMOVE_ADDRESS.cancel,
+            close: REMOVE_ADDRESS.close,
+            interrupted: REMOVE_ADDRESS.interrupted(removing.kind, removing.line),
+            forbidden: CUSTOMER_FORBIDDEN,
+            refusedHeading: NOT_REMOVED,
+          }}
+          run={() => runRemove(removing)}
+          deleteCode={gateCode('DeleteCustomerAddress')}
+          onClose={(o) => void closeRemove(removing, o)}
+          fallbackFocusRef={heading}
+          onDeleteStarted={() => announce('')}
+          // copy row 97 (D-14): an interrupted Remove leaves Close only.
+          finalWhenInterrupted
+        />
+      ) : null}
       {/* Rendered on its open state alone (never `&& mayAdd`): it stays open when the page turns archived (M-4). */}
       {adding ? <AddAddressForm customerCode={customerCode} kinds={wireEnum(CREATE_INPUT, 'kind')} create={create} createCode={gateCode('CreateCustomerAddress')} onClose={(o) => void closeAdd(o)} fallbackFocusRef={heading} onAddStarted={() => announce('')} /> : null}
     </section>

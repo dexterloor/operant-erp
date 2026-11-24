@@ -11,7 +11,8 @@
 // branches on (`CONTACT_ADD_REFUSAL`, `CONTACT_SAVE_REFUSAL`). Customers C-4b adds Remove contact's refusal code
 // (`CONTACT_REMOVE_REFUSAL`); `DeleteCustomerContact` has no body to mirror. Customers C-5a adds the address write bodies
 // (`CreateCustomerAddressInput`, `UpdateCustomerAddressInput`) and the two address refusal codes the family branches on
-// (`ADDRESS_ADD_REFUSAL`, `ADDRESS_SAVE_REFUSAL`).
+// (`ADDRESS_ADD_REFUSAL`, `ADDRESS_SAVE_REFUSAL`). Customers C-5b adds Remove address's refusal code
+// (`ADDRESS_REMOVE_REFUSAL`); `DeleteCustomerAddress` has no body to mirror.
 
 /** `GetCustomer` / `ListCustomers` item. */
 export interface Customer {
@@ -177,5 +178,16 @@ export const ADDRESS_ADD_REFUSAL = {
  * inside `addressSave` in `lib/customers/wired.ts` (P-1).
  */
 export const ADDRESS_SAVE_REFUSAL = {
+  archived: 'customer.is_archived',
+} as const;
+
+/**
+ * The one `DeleteCustomerAddress` refusal code Remove address branches on (customers-plan-c4c5.md Revision 0 J-6; the
+ * `CONTACT_REMOVE_REFUSAL` shape). Any refusal re-reads the customer inside the action; an archived re-read shows the
+ * interim `REMOVE_ADDRESS.archived` whatever the rule; when the rule is this one, a live re-read shows
+ * `REMOVE_ADDRESS.archivedThenRestored` and a failed one `archivedAtRemove`, each Close only. At C-2b only the interim
+ * `archived` branch goes (copy D-1). Compared only inside `addressDelete` in `lib/customers/wired.ts` (P-1).
+ */
+export const ADDRESS_REMOVE_REFUSAL = {
   archived: 'customer.is_archived',
 } as const;

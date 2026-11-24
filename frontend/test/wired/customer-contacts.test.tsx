@@ -1312,6 +1312,29 @@ describe('/customers/[id] — who sees Remove, and Remove\'s late corrections (C
     expect(dialog().contains(document.activeElement)).toBe(true);
   });
 
+  // C-5b commit RED M-1, the Contacts twin (a shipped C-4b guard left unpinned): the F-6 fresh stamp in closeRemove.
+  it('test 19b — F-6: an Add re-read sent before Remove and answered after its 204 cannot bring the removed row back', async () => {
+    const addRead = held();
+    const removeRead = held();
+    routes({ add: [created()], list: [addRead.reply, removeRead.reply], remove: [new Response(null, { status: 204 })] });
+    const u = userEvent.setup();
+    show({ canRemoveContact: true, contacts: okContacts([R1, R2]) });
+    await openAdd(u);
+    await typeName(u, 'Ann Lee');
+    await submitAdd(u);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await openRemove(u, 'Contact 2');
+    await pressRemove(u);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(rowsOf(contactsSection()).map((r) => r[0])).not.toContain('Contact 2'));
+    await act(async () => addRead.release(json(200, page([R1, R2, contact(9, { name: 'Ann Lee', email: null, phone: null })]))));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(rowsOf(contactsSection()).map((r) => r[0])).not.toContain('Contact 2');
+    await act(async () => removeRead.release(json(500, {})));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(rowsOf(contactsSection()).map((r) => r[0])).not.toContain('Contact 2');
+  });
+
   it('test 6b — L-6 positive half: a failed section re-read after Remove replaces after(name) with afterListStale once', async () => {
     const reread = held();
     routes({ remove: [new Response(null, { status: 204 })], list: [reread.reply] });

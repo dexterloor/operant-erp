@@ -15,6 +15,7 @@
   "CreateSupplier",
   "CreateSupplierProduct",
   "CreateWarehouse",
+  "DeleteCustomerAddress",
   "DeleteCustomerContact",
   "DeleteItem",
   "DeletePurchaseOrder",

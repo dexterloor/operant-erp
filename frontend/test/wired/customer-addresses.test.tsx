@@ -71,10 +71,12 @@ const ARCHIVED_BANNER = () => `This customer was archived on ${formatDate(AT, TZ
 const archivedBanner = () => screen.getByText(/This customer was archived on/);
 
 // Routed fetch: each request takes the next reply queued for its route, whatever the order the page sends them in.
-type Route = 'add' | 'save' | 'list' | 'customer' | 'customerSave' | 'contacts';
+type Route = 'add' | 'save' | 'remove' | 'list' | 'customer' | 'customerSave' | 'contacts';
 const routeOf = (method: string, url: string): Route => {
   if (/\/addresses$/.test(url)) return method === 'POST' ? 'add' : 'list';
   if (/\/addresses\/[0-9a-f-]{36}$/.test(url) && method === 'PATCH') return 'save';
+  // Customers C-5b: Remove address.
+  if (/\/addresses\/[0-9a-f-]{36}$/.test(url) && method === 'DELETE') return 'remove';
   if (/\/contacts$/.test(url) && method === 'GET') return 'contacts';
   if (new RegExp(`/customers/${CID}$`).test(url)) return method === 'PATCH' ? 'customerSave' : 'customer';
   throw new Error(`unrouted ${method} ${url}`);
@@ -100,8 +102,8 @@ const of = (calls: (Recorded & { route: Route })[], r: Route) => calls.filter((c
 
 const A1 = address(1, 'shipping', '1 High St');
 const A2 = address(2, 'billing', '2 Low Rd');
-const show = ({ customer = LIVE, canEdit = false, canAdd = true, canEditAddress = false, contacts = NO_CONTACTS, addresses = okAddresses([A1, A2]) }: { customer?: Customer; canEdit?: boolean; canAdd?: boolean; canEditAddress?: boolean; contacts?: ContactsLoad | null; addresses?: AddressesLoad | null } = {}) =>
-  renderWired(<CustomerPage customer={customer} canEdit={canEdit} canAddAddress={canAdd} canEditAddress={canEditAddress} contacts={contacts} addresses={addresses} />);
+const show = ({ customer = LIVE, canEdit = false, canAdd = true, canEditAddress = false, canRemoveAddress = false, contacts = NO_CONTACTS, addresses = okAddresses([A1, A2]) }: { customer?: Customer; canEdit?: boolean; canAdd?: boolean; canEditAddress?: boolean; canRemoveAddress?: boolean; contacts?: ContactsLoad | null; addresses?: AddressesLoad | null } = {}) =>
+  renderWired(<CustomerPage customer={customer} canEdit={canEdit} canAddAddress={canAdd} canEditAddress={canEditAddress} canRemoveAddress={canRemoveAddress} contacts={contacts} addresses={addresses} />);
 const pageRegion = () => document.querySelector<HTMLElement>('section > [role="status"]')!;
 const addressesSection = () => screen.getByRole('region', { name: 'Addresses' });
 const addressesHeading = () => within(addressesSection()).getByRole('heading', { level: 2, name: 'Addresses' });
@@ -687,6 +689,8 @@ describe('/customers/[id] — Edit address (C-5a chunk 2)', () => {
     focus.stop();
     expect(focus.get(), "focus is on the row's Edit when the sentence is written").toBe(rowEdit('Edit billing address 1 High Street'));
     expect(focus.textAtFocus(), "the sentence is not yet written when the row's Edit takes focus (FE-D1 order)").not.toBe(spoken);
+    // C-5a commit RED L-1 (added by C-5b): the focus listener fired at all.
+    expect(focus.textAtFocus()).not.toBeNull();
   });
 
   it('A3 — M-3 (Edit): a 200 whose section re-read fails: the table is exactly the pre-write table; saved · LIST_STALE', async () => {
@@ -946,6 +950,346 @@ describe('/customers/[id] — who sees Edit address, and Edit\'s late correction
     await act(async () => reread.release(json(500, {})));
     await new Promise((r) => setTimeout(r, 20));
     expect(t.texts).not.toContain(`${SAVED('shipping address', '1 High St')} ${LIST_STALE}`);
+    expect(pageRegion().textContent).toBe('No contacts for this customer yet.');
+    t.stop();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Customers C-5b (customers-plan-c4c5.md Revision 1 R1-4, Remove part, as fixed by customers-plan-c4b-c5-final-red.md
+// M-2, M-3, M-4 (c), L-1, L-3, L-4, L-5, L-7 (c), L-11 and cut by its §4; copy customers-c4c5-ux-copy.md Revision 1a >
+// Revision 1 > Revision 0 §3.4): Remove address, through the shared Delete dialog. The same rules as above: exact full
+// texts, `within(dialog())`, the writer's constant byte for byte, focus read at the moment the sentence is written.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** S-10, `CustomerAddressWriter::ARCHIVED_ON_DELETE` (`CustomerAddressWriter.php:100`). Never rendered in C-5b (copy D-1). */
+const S10 = "This customer is archived, so its addresses can't be removed until it's restored.";
+const REMOVE_TITLE = (noun: string, line: string) => `Remove the ${noun} “${line}”?`;
+const REMOVE_BODY = "The address is deleted for good, not archived, so it can't be restored. Removing it changes no order that already uses it, drafts included.";
+const REMOVED = (noun: string, line: string) => `The ${noun} “${line}” was removed.`;
+const REMOVE_INTERRUPTED = (noun: string, line: string) => `We can't tell whether the ${noun} “${line}” was removed. Close this and check the addresses.`;
+const REMOVE_ARCHIVED = "This customer is archived, so its addresses can't be removed.";
+const REMOVE_THEN_RESTORED = 'Nothing was removed, because this customer was archived at that moment. It has since been restored, so you can close this and remove the address.';
+const REMOVE_AT_REMOVE = "Nothing was removed, because this customer was archived at that moment. We couldn't check whether it still is.";
+const notRemoved = () => bannersOf('Not removed');
+const rowRemove = (name: string) => within(addressesSection()).getByRole('button', { name });
+const REMOVE_A2 = 'Remove billing address 2 Low Rd';
+const openRemove = async (u: U, name = REMOVE_A2) => {
+  await u.click(rowRemove(name));
+  return dialog();
+};
+const pressRemove = (u: U) => u.click(inDialog().getByRole('button', { name: 'Remove' }));
+const showRemove = (over: Parameters<typeof show>[0] = {}) => show({ canAdd: false, canRemoveAddress: true, ...over });
+const gone = () => new Response(null, { status: 204 });
+/** Close only: Close is there, and neither Remove nor Cancel is. */
+const closeOnly = () => {
+  expect(inDialog().getByRole('button', { name: 'Close' })).toBeInTheDocument();
+  expect(inDialog().queryAllByRole('button', { name: 'Remove' })).toEqual([]);
+  expect(inDialog().queryAllByRole('button', { name: 'Cancel' })).toEqual([]);
+};
+
+describe('/customers/[id] — Remove address (C-5b)', () => {
+  it('C5b A10 / A7 — the Remove request: DELETE on the address, no body, no Idempotency-Key; the title names the address, the body is both sentences', async () => {
+    const calls = routes({ remove: [gone()], list: [json(200, page([A1]))] });
+    const u = userEvent.setup();
+    showRemove();
+    await openRemove(u);
+    expect(inDialog().getByRole('heading', { name: REMOVE_TITLE('billing address', '2 Low Rd') })).toBeInTheDocument();
+    expect(dialog()).toHaveAccessibleDescription(REMOVE_BODY);
+    await pressRemove(u);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const removes = of(calls, 'remove');
+    expect(removes).toHaveLength(1);
+    expect(removes[0]!.url).toMatch(new RegExp(`/bff/api/customers/${CID}/addresses/${A2.id}$`));
+    expect(removes[0]!.body).toBeNull();
+    expect(removes[0]!.headers.get('idempotency-key')).toBeNull();
+  });
+
+  it('C5b A12 — M-3: after a 204 the row is dropped at once, after() is spoken with focus on the heading, before the held re-read; a failed re-read then gives afterListStale and the row stays gone', async () => {
+    const list = held();
+    const calls = routes({ remove: [gone()], list: [list.reply] });
+    const u = userEvent.setup();
+    showRemove();
+    const spoken = REMOVED('billing address', '2 Low Rd');
+    const focus = focusWhenWritten(spoken, addressesHeading());
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(of(calls, 'list')).toHaveLength(1));
+    expect(rowsOf(addressesSection()).map((r) => r[1])).toEqual(['1 High St']);
+    expect(pageRegion().textContent).toBe(spoken);
+    focus.stop();
+    expect(focus.get(), 'focus is on the heading when the sentence is written (FE-D1)').toBe(addressesHeading());
+    expect(focus.textAtFocus(), 'the sentence is not yet written when the heading takes focus (FE-D1 order)').not.toBe(spoken);
+    expect(focus.textAtFocus()).not.toBeNull();
+    await act(async () => list.release(json(500, {})));
+    await waitFor(() => expect(pageRegion().textContent).toBe(`${spoken} ${LIST_STALE}`));
+    expect(rowsOf(addressesSection()).map((r) => r[1])).toEqual(['1 High St']);
+  });
+
+  it('C5b A12 — L-3: two addresses of one kind and line removed in turn: the region is emptied between the two identical sentences, so the second is spoken', async () => {
+    const T1 = address(1, 'shipping', '9 Twin Rd');
+    const T2 = address(2, 'shipping', '9 Twin Rd');
+    routes({ remove: [gone(), gone()], list: [json(200, page([T2])), json(200, page([]))] });
+    const u = userEvent.setup();
+    showRemove({ addresses: okAddresses([T1, T2]) });
+    const t = textsOf(pageRegion());
+    await u.click(within(addressesSection()).getAllByRole('button', { name: 'Remove shipping address 9 Twin Rd' })[0]!);
+    await pressRemove(u);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(rowsOf(addressesSection())).toHaveLength(1));
+    await u.click(rowRemove('Remove shipping address 9 Twin Rd'));
+    await pressRemove(u);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(t.texts).toEqual(['', REMOVED('shipping address', '9 Twin Rd'), '', REMOVED('shipping address', '9 Twin Rd')]));
+    t.stop();
+  });
+
+  it('C5b A11 — L-4: Remove → 404: Not removed + notFoundInline, Close only, no customer re-read; after Close focus is on the row\'s Remove, and when the held section re-read drops the row, on the heading', async () => {
+    const list = held();
+    const calls = routes({ remove: [problem(404, 'not-found')], list: [list.reply] });
+    const u = userEvent.setup();
+    showRemove();
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(notRemoved()).toEqual([[NOT_FOUND_INLINE]]));
+    closeOnly();
+    expect(of(calls, 'customer')).toEqual([]);
+    await u.click(inDialog().getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(of(calls, 'list')).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.activeElement).toBe(rowRemove(REMOVE_A2));
+    await act(async () => list.release(json(200, page([A1]))));
+    await waitFor(() => expect(rowsOf(addressesSection())).toHaveLength(1));
+    expect(document.activeElement).toBe(addressesHeading());
+    expect(of(calls, 'customer')).toEqual([]);
+  });
+
+  it('C5b A16 — an interrupted Remove: WENT_WRONG + interrupted(kind, line), Close only; Close re-reads the section', async () => {
+    const calls = routes({ remove: [json(500, {})], list: [json(200, page([A1, A2]))] });
+    const u = userEvent.setup();
+    showRemove();
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(bannersOf('Something went wrong on our side.')).toEqual([[REMOVE_INTERRUPTED('billing address', '2 Low Rd')]]));
+    closeOnly();
+    await u.click(inDialog().getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(of(calls, 'list')).toHaveLength(1));
+    expect(of(calls, 'customer')).toEqual([]);
+  });
+
+  it('C5b A5 — L-7 (c): each row\'s Remove is named "Remove {noun} {line}", unquoted, and reads Remove; an unknown kind reads "address"', () => {
+    routes({});
+    showRemove({ addresses: okAddresses([A1, A2, address(3, 'dock', '3 Dock Rd')]) });
+    expect(rowRemove('Remove shipping address 1 High St').textContent).toBe('Remove');
+    expect(rowRemove(REMOVE_A2).textContent).toBe('Remove');
+    expect(rowRemove('Remove address 3 Dock Rd').textContent).toBe('Remove');
+  });
+
+  it('C5b A17 — S-16 with a live re-read is shown as sent and Remove stays; with a failed re-read too', async () => {
+    for (const again of [json(200, LIVE), json(500, {})]) {
+      const calls = routes({ remove: [refused('transaction.contention', P1)], customer: [again] });
+      const u = userEvent.setup();
+      const v = showRemove();
+      await openRemove(u);
+      await pressRemove(u);
+      await waitFor(() => expect(notRemoved()).toEqual([[P1]]));
+      expect(inDialog().getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+      expect(inDialog().getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+      expect(of(calls, 'customer')).toHaveLength(1);
+      v.unmount();
+    }
+  });
+
+  it('C5b A17 — M-2: a 403 on Remove: Not removed + the permission sentence (its label in <em>), Remove stays, no customer re-read', async () => {
+    const calls = routes({ remove: [problem(403, 'permission-denied')] });
+    const u = userEvent.setup();
+    showRemove();
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(notRemoved()).toEqual([[FORBIDDEN]]));
+    expect(inDialog().getByText('Edit customers, their addresses and contacts', { selector: 'em' })).toBeInTheDocument();
+    expect(inDialog().getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+    expect(inDialog().getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(of(calls, 'customer')).toEqual([]);
+  });
+});
+
+describe('/customers/[id] — Remove address: the R12 branch (C-5b, A15 Remove column)', () => {
+  it('C5b A15 — customer.is_archived + archived re-read: the interim sentence, Close only, S-10 nowhere; Close → the page re-reads: ST-9 banner, no Remove, router refreshed once', async () => {
+    const calls = routes({ remove: [refused('customer.is_archived', S10)], customer: [json(200, ARCHIVED), json(200, ARCHIVED)], list: [json(200, page([A1, A2]))] });
+    const u = userEvent.setup();
+    showRemove();
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(notRemoved()).toEqual([[REMOVE_ARCHIVED]]));
+    expect(document.body.textContent).not.toContain(S10);
+    expect(document.body.textContent).not.toContain("until it's restored");
+    closeOnly();
+    expect(of(calls, 'customer')).toHaveLength(1);
+    await u.click(inDialog().getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(archivedBanner().textContent).toBe(ARCHIVED_BANNER()));
+    expect(of(calls, 'customer')).toHaveLength(2);
+    expect(within(addressesSection()).queryAllByRole('button', { name: /^Remove/ })).toEqual([]);
+    expect(within(addressesSection()).getByText(ARCHIVED_PARENT, { selector: 'p' })).toBeInTheDocument();
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('C5b A15 — customer.is_archived + live re-read: archivedThenRestored, Close only (L-1), S-10 nowhere; Close → the page re-reads the customer', async () => {
+    const calls = routes({ remove: [refused('customer.is_archived', S10)], customer: [json(200, LIVE), json(200, LIVE)], list: [json(200, page([A1, A2]))] });
+    const u = userEvent.setup();
+    showRemove();
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(notRemoved()).toEqual([[REMOVE_THEN_RESTORED]]));
+    expect(document.body.textContent).not.toContain(S10);
+    closeOnly();
+    await u.click(inDialog().getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(of(calls, 'customer')).toHaveLength(2));
+    expect(nav.refresh).not.toHaveBeenCalled();
+  });
+
+  it('C5b A15 — customer.is_archived + failed re-read: archivedAtRemove, Close only (L-1); Escape → the page re-reads (archived now): ST-9 banner, no Remove', async () => {
+    const calls = routes({ remove: [refused('customer.is_archived', S10)], customer: [json(500, {}), json(200, ARCHIVED)], list: [json(200, page([A1, A2]))] });
+    const u = userEvent.setup();
+    showRemove();
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(notRemoved()).toEqual([[REMOVE_AT_REMOVE]]));
+    expect(document.body.textContent).not.toContain(S10);
+    closeOnly();
+    await u.keyboard('{Escape}');
+    await waitFor(() => expect(archivedBanner().textContent).toBe(ARCHIVED_BANNER()));
+    expect(of(calls, 'customer')).toHaveLength(2);
+    expect(within(addressesSection()).queryAllByRole('button', { name: /^Remove/ })).toEqual([]);
+  });
+
+  it('C5b A15 — S-16 + archived re-read: the interim sentence (never "try again"), Close only; Close → ST-9 banner, no Remove', async () => {
+    const calls = routes({ remove: [refused('transaction.contention', P1)], customer: [json(200, ARCHIVED), json(200, ARCHIVED)], list: [json(200, page([A1, A2]))] });
+    const u = userEvent.setup();
+    showRemove();
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(notRemoved()).toEqual([[REMOVE_ARCHIVED]]));
+    expect(document.body.textContent).not.toContain(P1);
+    closeOnly();
+    await u.click(inDialog().getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(archivedBanner().textContent).toBe(ARCHIVED_BANNER()));
+    expect(of(calls, 'customer')).toHaveLength(2);
+    expect(within(addressesSection()).queryAllByRole('button', { name: /^Remove/ })).toEqual([]);
+  });
+
+  it('C5b A15 — L-11: after a customer.is_archived + live re-read Remove is closed (one page re-read), a later Remove dialog\'s Cancel re-reads nothing', async () => {
+    const calls = routes({ remove: [refused('customer.is_archived', S10)], customer: [json(200, LIVE), json(200, LIVE), json(200, LIVE)], list: [json(200, page([A1, A2]))] });
+    const u = userEvent.setup();
+    showRemove();
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(notRemoved()).toEqual([[REMOVE_THEN_RESTORED]]));
+    await u.click(inDialog().getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(of(calls, 'customer')).toHaveLength(2));
+    await waitFor(() => expect(of(calls, 'list')).toHaveLength(1));
+    await openRemove(u, 'Remove shipping address 1 High St');
+    await u.click(inDialog().getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await new Promise((r) => setTimeout(r, 30));
+    expect(of(calls, 'customer')).toHaveLength(2);
+    expect(of(calls, 'list')).toHaveLength(1);
+  });
+});
+
+describe('/customers/[id] — who sees Remove address, and Remove\'s late corrections (C-5b)', () => {
+  it('C5b A14 — canRemoveAddress: an Actions column with Remove per row; archived with the prop: no Remove, no Actions column', () => {
+    routes({});
+    const v = showRemove();
+    expect(within(addressesSection()).getByRole('columnheader', { name: 'Actions' })).toBeInTheDocument();
+    expect(rowRemove(REMOVE_A2)).toBeInTheDocument();
+    v.unmount();
+    showRemove({ customer: ARCHIVED });
+    expect(within(addressesSection()).queryAllByRole('button', { name: /^Remove/ })).toEqual([]);
+    expect(within(addressesSection()).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Kind', 'Address', 'City', 'Postal code', 'Country']);
+  });
+
+  it('C5b A14 — L-5: canRemoveAddress alone: the Actions column with Remove and no Edit', () => {
+    routes({});
+    showRemove();
+    expect(within(addressesSection()).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Kind', 'Address', 'City', 'Postal code', 'Country', 'Actions']);
+    expect(rowRemove(REMOVE_A2)).toBeInTheDocument();
+    expect(within(addressesSection()).queryAllByRole('button', { name: /^Edit/ })).toEqual([]);
+  });
+
+  it('C5b A14 — M-4 (c), the L-5 press order: change Code, press Save (held), open an address\'s Remove; Save answers customer.is_archived with an archived re-read: the dialog is still open, focus inside it', async () => {
+    const save = held();
+    routes({ customerSave: [save.reply], customer: [json(200, ARCHIVED)] });
+    const u = userEvent.setup();
+    showRemove({ canEdit: true });
+    const code = screen.getByRole('textbox', { name: 'Code' });
+    await u.clear(code);
+    await u.type(code, 'NORTH2');
+    await u.click(screen.getByRole('button', { name: 'Save' }));
+    await openRemove(u);
+    await act(async () => save.release(refused('customer.is_archived', "This customer is archived, so it can't be changed until it's restored.")));
+    await waitFor(() => expect(archivedBanner().textContent).toBe(ARCHIVED_BANNER()));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(inDialog().getByRole('heading', { name: REMOVE_TITLE('billing address', '2 Low Rd') })).toBeInTheDocument();
+    expect(dialog().contains(document.activeElement)).toBe(true);
+  });
+
+  // Commit RED M-1: the F-6 fresh-stamp guard in closeRemove (the supplier-catalogue-remove.test.tsx:225 precedent).
+  it('C5b A18 — F-6: an Add re-read sent before Remove and answered after its 204 cannot bring the removed row back', async () => {
+    const addRead = held();
+    const removeRead = held();
+    const NEW = address(9, 'shipping', '12 Mill Lane', { city: 'Leeds', postal_code: 'LS1 4AB' });
+    routes({ add: [created()], list: [addRead.reply, removeRead.reply], remove: [gone()] });
+    const u = userEvent.setup();
+    show({ canRemoveAddress: true });
+    await openAdd(u);
+    await fill(u);
+    await submitAdd(u);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(rowsOf(addressesSection()).map((r) => r[1])).not.toContain('2 Low Rd'));
+    await act(async () => addRead.release(json(200, page([A1, A2, NEW]))));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(rowsOf(addressesSection()).map((r) => r[1])).not.toContain('2 Low Rd');
+    await act(async () => removeRead.release(json(500, {})));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(rowsOf(addressesSection()).map((r) => r[1])).not.toContain('2 Low Rd');
+  });
+
+  it('C5b A13 — positive half: a failed section re-read after Remove replaces after() with afterListStale once', async () => {
+    const reread = held();
+    routes({ remove: [gone()], list: [reread.reply] });
+    const u = userEvent.setup();
+    showRemove();
+    const t = textsOf(pageRegion());
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(pageRegion().textContent).toBe(REMOVED('billing address', '2 Low Rd')));
+    await act(async () => reread.release(json(503, {})));
+    await waitFor(() => expect(pageRegion().textContent).toBe(`${REMOVED('billing address', '2 Low Rd')} ${LIST_STALE}`));
+    expect(t.texts.filter((x) => x !== '')).toEqual([REMOVED('billing address', '2 Low Rd'), `${REMOVED('billing address', '2 Low Rd')} ${LIST_STALE}`]);
+    t.stop();
+  });
+
+  it('C5b A13 — K9-1 mirror for Remove: the Contacts Retry writes the region between the 204 and its failed re-read: afterListStale is never written', async () => {
+    const reread = held();
+    routes({ remove: [gone()], list: [reread.reply], contacts: [json(200, page([]))] });
+    const u = userEvent.setup();
+    showRemove({ contacts: { kind: 'server-error' } });
+    const t = textsOf(pageRegion());
+    await openRemove(u);
+    await pressRemove(u);
+    await waitFor(() => expect(pageRegion().textContent).toBe(REMOVED('billing address', '2 Low Rd')));
+    const contacts = screen.getByRole('region', { name: 'Contacts' });
+    await u.click(within(contacts).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(pageRegion().textContent).toBe('No contacts for this customer yet.'));
+    await act(async () => reread.release(json(500, {})));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.texts).not.toContain(`${REMOVED('billing address', '2 Low Rd')} ${LIST_STALE}`);
     expect(pageRegion().textContent).toBe('No contacts for this customer yet.');
     t.stop();
   });
