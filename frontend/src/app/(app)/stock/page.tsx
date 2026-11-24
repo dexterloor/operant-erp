@@ -84,6 +84,8 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   }
   if (addressed.kind === 'item') {
     const s = await itemScope(ended, addressed.itemId, viewerMay('GetItem', codes));
+    // The title names the item only when the page will show its rows: never on the withheld page (commit RED L-2).
+    if (s.facts === null || s.facts.kind !== 'ok') return heading;
     const sku = s.item !== null && s.item.kind === 'ok' ? s.item.item.sku : s.stock.kind === 'ok' ? s.stock.rows[0]?.inventory_item.sku : undefined;
     if (sku !== undefined) return { title: STOCK_LEVELS.titleItem(sku) };
   }

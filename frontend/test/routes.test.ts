@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { ROLES } from '@/components/preview/fixtures/roles';
 import { describe, expect, it } from 'vitest';
 import { NAVIGATION } from '@/lib/navigation';
 import { ACCOUNT_PAGE_HREFS, BUILT_PAGE_HREFS, CHILD_PAGE_HREFS, DECLARED_ROUTES, startDestination } from '@/lib/routes';
@@ -125,7 +126,8 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
     // Purchase orders PO-1 moved this pin deliberately: /purchase-orders joins BUILT_PAGE_HREFS (its own test is below).
     // Goods receipts GR-1 moved it again: /goods-receipts joins (its own test is below).
     // Stock ST-1 moved it again: /stock-movements joins (its own test is below). Stock ST-2 moved it again: /stock joins.
-    expect(BUILT_PAGE_HREFS).toEqual(['/purchase-orders', '/goods-receipts', '/suppliers', '/items', '/stock', '/stock-movements', '/warehouses', '/admin/users', '/admin/roles']);
+    // Customers C-1 moved it again: /customers joins (its own test is below).
+    expect(BUILT_PAGE_HREFS).toEqual(['/purchase-orders', '/goods-receipts', '/suppliers', '/items', '/stock', '/stock-movements', '/warehouses', '/customers', '/admin/users', '/admin/roles']);
     expect(startDestination(['supplier.view', 'inventory_item.view', 'warehouse.view', 'app_user.view'])).toBe('/suppliers');
     expect(startDestination(['supplier.view'])).toBe('/suppliers');
     expect(startDestination(['inventory_item.view', 'warehouse.view'])).toBe('/items');
@@ -158,6 +160,18 @@ describe('T-ST (i) — "/" never sends a viewer to a page whose gate they lack',
     expect(startDestination(['purchase_order.view', 'goods_receipt.view', 'supplier.view'])).toBe('/purchase-orders');
     expect(startDestination(['supplier.view', 'inventory_item.view'])).toBe('/suppliers');
     expect(startDestination(['goods_receipt.view', 'supplier.view'], ['/suppliers', '/items', '/goods-receipts'])).toBe('/goods-receipts');
+  });
+  // Customers C-1 test 13 (customers-plan.md Revision 1 — FINAL R1-4, R1-6, owner notice N-9; RED L-3;
+  // customers-c1-commit-red.md L-1): over the EIGHT built-in roles' real code sets (the preview fixture `ROLES`,
+  // `is_system`), the start page is the same with /customers built as without it; only a composed customer.view-only seat
+  // starts there. (Customers is the last group's only built entry, after Inventory, and every default customer.view holder
+  // also holds inventory_item.view.)
+  it.each(ROLES.filter((r) => r.is_system).map((r) => [r.name, r.permission_codes] as const))('customers C-1: %s’s start page does not move', (_, codes) => {
+    expect(startDestination([...codes])).toBe(startDestination([...codes], BUILT_PAGE_HREFS.filter((h) => h !== '/customers')));
+  });
+  it('customers C-1: eight built-in roles are checked; a customer.view-only seat starts at /customers', () => {
+    expect(ROLES.filter((r) => r.is_system)).toHaveLength(8);
+    expect(startDestination(['customer.view'])).toBe('/customers');
   });
   // Stock ST-1 (stock-plan.md §1.4, owner notice 1; RED L-1 of the next-family RED): Stock movements follows Items in
   // Inventory, so every default holder of stock_movement.view (owner, admin, warehouse_operator, viewer — each also holds

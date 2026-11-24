@@ -150,7 +150,9 @@ interface Violation {
 // Suppliers S-1 (suppliers-plan.md Revision 0 §3, PROBLEMS_IMPORTERS row) added lib/suppliers/wired.ts (P1 on Save/Restore).
 // Purchase orders PO-4a (plan Revision 0 §3 PROBLEMS_IMPORTERS row, moved from PO-2 by po-2-progress.md D-2: the first
 // action that must tell P1 apart) added lib/purchasing/wired.ts (P1 on the draft header's Save).
-const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/items/wired.ts', 'src/lib/purchasing/wired.ts', 'src/lib/suppliers/wired.ts', 'src/lib/warehouses/wired.ts'];
+// Customers C-4b (K-1 (a′)): P1 on Remove only, after the customer re-read; pinned to CUSTOMER_P1_ACTIONS (C-4b
+// contactDelete, and at C-5 addressDelete).
+const PROBLEMS_IMPORTERS: readonly string[] = ['src/lib/customers/wired.ts', 'src/lib/items/wired.ts', 'src/lib/purchasing/wired.ts', 'src/lib/suppliers/wired.ts', 'src/lib/warehouses/wired.ts'];
 
 /** The import rules. `files` is any set of {file, source}; returns every breach. */
 function importViolations(files: readonly SourceFile[]): Violation[] {
@@ -200,6 +202,10 @@ const LITERAL_SCAN_DIRS = [
   'src/components/suppliers',
   // Purchase orders PO-1 (Revision 8 R8-2, R8-3 completeness; Revision 10 R10-2): the purchasing family's logic.
   'src/lib/purchasing',
+  // Customers C-1 (customers-plan.md Revision 1 R1-8; R8-3 completeness): the customer family's logic. Customers C-2a: the
+  // family's components (CustomerForm, the page's editor), enrolled with the folder's first file.
+  'src/lib/customers',
+  'src/components/customers',
   // Purchase orders PO-3 (R8-3 completeness): the family's components (NewOrderForm, the create page's form).
   'src/components/purchasing',
   // Stock ST-1 (stock-plan.md §3.1; Revision 11 R11-1): the stock family's logic.
@@ -283,6 +289,21 @@ const REFUSAL_HOMES: Record<string, readonly string[]> = {
   // Purchase orders PO-4b (po-4b-red.md L-4): the line update's archived-line rule, compared in lib/purchasing/wired.ts.
   // Purchase orders GR-2 (plan §2.6 R1 → lines re-read, X-15; final RED M-1, R3 → the client's sentence): the over-receipt
   // and the on-hand-fits rules, compared in lib/purchasing/wired.ts.
+  // Customers C-2a (customers-c2a-ux-copy.md D-6): the Save's archived rule, compared in lib/customers/wired.ts
+  // (`CUSTOMER_SAVE_REFUSAL`, CustomerWriter's result).
+  // Customers C-4a (customers-plan-c4c5.md Revision 0 F-1): Add contact's archived rule, `CONTACT_ADD_REFUSAL`
+  // (CustomerContactWriter::ARCHIVED_ON_CREATE's result), compared in contactCreate only.
+  // Customers C-4a: Edit contact's archived rule, `CONTACT_SAVE_REFUSAL` (CustomerContactWriter::ARCHIVED_ON_UPDATE's
+  // result), compared in contactSave only. One constant per writer result (R1c-2 item 7): no shared rule→copy table.
+  // Customers C-4b: Remove contact's archived rule, `CONTACT_REMOVE_REFUSAL` (CustomerContactWriter::ARCHIVED_ON_DELETE's
+  // result), compared in contactDelete only.
+  // Customers C-5a (customers-plan-c4c5.md Revision 0 J-6): Add address's archived rule, `ADDRESS_ADD_REFUSAL`
+  // (CustomerAddressWriter::ARCHIVED_ON_CREATE's result), compared in addressCreate only.
+  // Customers C-5a: Edit address's archived rule, `ADDRESS_SAVE_REFUSAL` (CustomerAddressWriter::ARCHIVED_ON_UPDATE's
+  // result), compared in addressSave only.
+  // Customers C-5b: Remove address's archived rule, `ADDRESS_REMOVE_REFUSAL` (CustomerAddressWriter::ARCHIVED_ON_DELETE's
+  // result), compared in addressDelete only.
+  'src/lib/api/customers.ts': ['customer.is_archived', 'customer.is_archived', 'customer.is_archived', 'customer.is_archived', 'customer.is_archived', 'customer.is_archived', 'customer.is_archived'],
   'src/lib/api/purchasing.ts': ['purchase_order.is_editable_only_while_draft', 'purchase_order_line.supplier_lists_the_item', 'purchase_order.status_transition_is_legal', 'purchase_order.approver_is_not_the_creator', 'purchase_order_line.is_not_archived', 'purchase_order_line.is_archived', 'purchase_order_line.is_not_over_received', 'stock_level.on_hand_fits'],
 };
 
@@ -339,10 +360,11 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Revision 7 step 4.1 added: copy/warehouses.ts.
   // Items I-1 (Revision 8 R8-2) added: copy/items.ts.
   // Suppliers S-1 (Revision 8 R8-2) added: copy/suppliers.ts.
+  // Customers C-1 (Revision 8 R8-2) added: copy/customers.ts.
   // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: copy/purchasing.ts.
   // delete-swap-arch-red.md H-1 added: copy/units.ts (the unit vocabulary, moved out of copy/items.ts).
   // Stock ST-1 (Revision 11 R11-1) added: copy/stock.ts.
-  'src/copy': 14,
+  'src/copy': 15,
   // c10 commit B removed: lib/auth/unwired.ts (change password is wired).
   // Revision 7 step 3 (A-19 item 4) added: lib/forms/fieldErrors.ts.
   // Revision 7 step 4.1 added: lib/api/warehouses.ts, lib/warehouses/{load,results,wired}.ts.
@@ -357,7 +379,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders GR-2 H-1 added: lib/bff/heldKey.ts (the held Idempotency-Key of a stock- or money-moving create).
   // Stock ST-1 (Revision 11 R11-1) added: lib/api/stock.ts, lib/stock/{load,source}.ts (no results or wired: nothing is written).
   // Stock ST-2 (stock-st2-plan.md §4) added: lib/stock/{levels,visibility,marker}.ts (G-47's row loader and two helpers).
-  'src/lib': 82,
+  // Customers C-1 added: lib/api/customers.ts, lib/customers/load.ts (no results or wired: C-1 writes nothing).
+  // Customers C-2a added: lib/customers/{results,wired}.ts (the editor's Save).
+  // Customers UX-1 added: lib/customers/addressKinds.ts (the Kind select's order, `orderKinds`).
+  'src/lib': 87,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -383,10 +408,13 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Purchase orders PO-8 added: components/purchasing/PlaceOrderDialog.tsx (Approve's confirm dialog, plan §3).
   // Purchase orders PO-4b added: components/purchasing/EditLineRow.tsx (a live line's edit row, R10-6).
   // Purchase orders GR-2 added: components/purchasing/ReceiveForm.tsx (the receive page's form, plan R1-4: the M-6 map lives here).
-  'src/components': 74,
+  // Customers C-2a added: components/customers/CustomerForm.tsx (the customer page's editor).
+  // Customers C-4a added: components/customers/AddContactForm.tsx (Add contact's dialog) and ContactForm.tsx (Edit contact's).
+  // Customers C-5a added: components/customers/AddAddressForm.tsx (Add address's dialog) and AddressForm.tsx (Edit address's).
+  'src/components': 79,
   // Revision 7 step 4.6 added: lib/api/problems.ts. Items I-1 added: lib/api/items.ts. Suppliers S-1 added: lib/api/suppliers.ts.
-  // Purchase orders PO-1 added: lib/api/purchasing.ts. Stock ST-1 added: lib/api/stock.ts.
-  'src/lib/api': 11,
+  // Purchase orders PO-1 added: lib/api/purchasing.ts. Stock ST-1 added: lib/api/stock.ts. Customers C-1: lib/api/customers.ts.
+  'src/lib/api': 12,
   'src/lib/roles': 11,
   'src/lib/permissions': 5,
   'src/lib/bulk': 3,
@@ -401,6 +429,14 @@ const EXPECTED_COUNTS: Record<string, number> = {
   'src/components/items': 2,
   // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
   'src/lib/suppliers': 3,
+  // Customers C-1 (Revision 8 R8-2) added: the customer loaders. Customers C-2a added: results.ts and wired.ts (Save).
+  // Customers UX-1 added: addressKinds.ts (`orderKinds`).
+  'src/lib/customers': 4,
+  // Customers C-2a added: CustomerForm.tsx (the customer page's editor; Customers.module.css is not counted).
+  // Customers C-4a added: AddContactForm.tsx and ContactForm.tsx (Add and Edit contact's dialogs, customers-plan-c4c5.md
+  // Revision 0 F-7: create and edit split, the AddEntryForm / EntryForm precedent).
+  // Customers C-5a added: components/customers/{AddAddressForm,AddressForm}.tsx (Add and Edit address's dialogs, the same split).
+  'src/components/customers': 5,
   // Purchase orders PO-1 (Revision 8 R8-2; Revision 10 R10-2) added: the purchasing loaders. PO-2 added: results and
   // wired (Restore purchase order, the family's first action).
   'src/lib/purchasing': 3,
@@ -487,7 +523,10 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // app/(app)/stock-movements/[id]/{page,StockMovementPage,not-found}.tsx (its CSS module is not counted: .ts/.tsx only).
   // Stock ST-2 (stock-st2-plan.md §4) added: app/(app)/stock/{page,StockLevelsView,StockPicker,LocationLinks,StockStates}.tsx
   // (Stock.module.css is not counted).
-  'src/app': 98,
+  // Customers C-1 (customers-plan.md Revision 1 R1-5) added: app/(app)/customers/{page,CustomersList,CustomerStates}.tsx,
+  // app/(app)/customers/[id]/{page,CustomerPage,not-found,ContactsSection,AddressesSection}.tsx (Customers.module.css is
+  // not counted).
+  'src/app': 106,
 };
 
 describe('architecture — scanned file counts (no vacuous guard)', () => {
@@ -661,6 +700,371 @@ describe('architecture — AST literal backstop (RED H-5 item 4, Revision 2 C-2)
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Customers C-4a0 (customers-plan-c4c5.md Revision 1 R1-1 P-1, as fixed by customers-plan-c4a-final-red.md L-1 and cut by
+// its M-5; ARCH customers-c4c5-arch.md §5.1): the customers family's `*_REFUSAL` constants. A comparison through a constant
+// holds no literal, so REFUSAL_HOMES cannot see one made in the wrong place; this pin can.
+// (i) Importer clause. In `src`, outside `src/lib/api/customers.ts`, an import from it may not bring in a name matching
+//     /_REFUSAL$/ (the imported name, `propertyName ?? name`, so `import { CUSTOMER_SAVE_REFUSAL as R }` is red too). Only
+//     `src/lib/customers/wired.ts` is exempt, and only for named imports by the constant's own name. A namespace import, a
+//     default import, an `export … from`, an `import x = require(…)`, a `require(…)` or an `import(…)` of the module is a
+//     violation everywhere, `wired.ts` included, and so is a renamed refusal import in `wired.ts` (commit RED M-2). An inline
+//     `import('…').X` type is checked by its name like a named import. A `type`-only import of a non-refusal name stays
+//     legal. Outside `wired.ts`, importing a `*_REFUSAL` name from `wired.ts` is a violation too. The specifier is matched
+//     with any of .ts/.tsx/.js/.jsx/.mjs/.cjs and a trailing /index stripped (commit RED L-5).
+// (ii) Action clause. In `src/lib/customers/wired.ts`, each refusal constant imported from the home, other than at its
+//     import specifier, is referenced only inside its mapped top-level `export function`; a reference in a type position
+//     (`typeof X`) counts as a reference, and a local re-export is a violation. A constant imported from the home with no
+//     entry in the map is a violation. A `*_REFUSAL` name from another module (`PLATFORM_REFUSAL`) is not read here: it is
+//     P-2's (commit RED M-3). The map is a deliberate edit per commit:
+//     C-4a0 holds C-2a's one entry; C-4a adds `CONTACT_ADD_REFUSAL → contactCreate`, `CONTACT_SAVE_REFUSAL → contactSave`;
+//     C-4b `CONTACT_REMOVE_REFUSAL → contactDelete`; C-5a `ADDRESS_ADD_REFUSAL → addressCreate`, `ADDRESS_SAVE_REFUSAL →
+//     addressSave`; C-5b `ADDRESS_REMOVE_REFUSAL → addressDelete`.
+// (iii) Declaration form. A reference whose top-level ancestor is not a `FunctionDeclaration` is reported with its own
+//     message. `topLevelFunctionOf` is the one enclosing-function helper; C-4b's `CUSTOMER_P1_ACTIONS` pin (P-2) reuses it.
+// Scope (ARCH §5.1 stated limit): the customers home only. Roles' and purchasing's refusal constants are not pinned here.
+// The home itself is not read: it owns the constants, so a constant re-exported there under another name, or a comparing
+// helper exported from it, is not seen (a stated limit, commit RED §4).
+// ---------------------------------------------------------------------------------------------------------------------
+
+const CUSTOMERS_API = 'src/lib/api/customers';
+const CUSTOMERS_WIRED = 'src/lib/customers/wired.ts';
+// The map is a deliberate edit per commit (customers-plan-c4c5.md Revision 1 R1-1 P-1 (ii)): C-2a's Save; C-4a adds the
+// two contact actions; C-4b adds Remove contact; C-5a adds the two address actions.
+const CUSTOMER_REFUSAL_ACTIONS: Readonly<Record<string, string>> = { CUSTOMER_SAVE_REFUSAL: 'customerSave', CONTACT_ADD_REFUSAL: 'contactCreate', CONTACT_SAVE_REFUSAL: 'contactSave', CONTACT_REMOVE_REFUSAL: 'contactDelete', ADDRESS_ADD_REFUSAL: 'addressCreate', ADDRESS_SAVE_REFUSAL: 'addressSave', ADDRESS_REMOVE_REFUSAL: 'addressDelete' };
+const REFUSAL_NAME = /_REFUSAL$/;
+const DECLARATION_FORM = 'each action is a top-level `export function`, as every shipped `wired.ts` is (customers-plan-c4c5.md R1-0 F-1)';
+
+/** The node's top-level statement, and the name of that statement when it is an exported function declaration. */
+function topLevelFunctionOf(node: ts.Node): { declaration: boolean; exported: boolean; name: string | null } {
+  let top: ts.Node = node;
+  while (top.parent && !ts.isSourceFile(top.parent)) top = top.parent;
+  if (!ts.isFunctionDeclaration(top)) return { declaration: false, exported: false, name: null };
+  const exported = (ts.getModifiers(top) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+  return { declaration: true, exported, name: top.name?.text ?? null };
+}
+
+const moduleOf = (file: string, spec: string) => targetOf(file, spec).replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, '').replace(/\/index$/, '');
+const isCustomersApi = (file: string, spec: string) => moduleOf(file, spec) === CUSTOMERS_API;
+const isCustomersWired = (file: string, spec: string) => moduleOf(file, spec) === CUSTOMERS_WIRED.replace(/\.ts$/, '');
+
+/**
+ * P-1: every breach of the customers refusal pin, plus what the check saw (for anti-vacuity): the files importing the home,
+ * and, per map key, the references made inside its own action. The action clause reads only the refusal names `wired.ts`
+ * imports from the home by their own name (commit RED M-3), so a platform constant such as `PLATFORM_REFUSAL`, owned by
+ * the `CUSTOMER_P1_ACTIONS` pin (P-2), is not this check's to refuse.
+ */
+function customerRefusalViolations(files: readonly SourceFile[], map: Readonly<Record<string, string>>): { violations: Violation[]; importers: string[]; references: Record<string, number> } {
+  const violations: Violation[] = [];
+  const importers = new Set<string>();
+  const references: Record<string, number> = Object.fromEntries(Object.keys(map).map((k) => [k, 0]));
+  for (const sf of files) {
+    if (!under(sf.file, 'src') || sf.file === `${CUSTOMERS_API}.ts`) continue;
+    const tree = parse(sf);
+    const breach = (detail: string) => violations.push({ file: sf.file, detail });
+    const isWired = sf.file === CUSTOMERS_WIRED;
+    // The refusal names wired.ts imports from the home, each by its own name.
+    const homeNames = new Set<string>();
+    const visitImports = (node: ts.Node) => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && isCustomersApi(sf.file, node.moduleSpecifier.text)) {
+        importers.add(sf.file);
+        const clause = node.importClause;
+        if (clause) {
+          if (clause.name) breach(`a default import of ${CUSTOMERS_API}`);
+          const bindings = clause.namedBindings;
+          if (bindings && ts.isNamespaceImport(bindings)) breach(`a namespace import of ${CUSTOMERS_API}`);
+          if (bindings && ts.isNamedImports(bindings)) {
+            for (const el of bindings.elements) {
+              const imported = (el.propertyName ?? el.name).text;
+              if (!REFUSAL_NAME.test(imported)) continue;
+              if (!isWired) breach(`imports ${imported} from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may`);
+              else if (el.propertyName) breach(`renames ${imported}: import it by its own name`);
+              else homeNames.add(imported);
+            }
+          }
+        }
+      } else if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && !isWired && isCustomersWired(sf.file, node.moduleSpecifier.text)) {
+        const bindings = node.importClause?.namedBindings;
+        if (bindings && ts.isNamedImports(bindings)) {
+          for (const el of bindings.elements) {
+            const imported = (el.propertyName ?? el.name).text;
+            if (REFUSAL_NAME.test(imported)) breach(`imports ${imported} from ${CUSTOMERS_WIRED.replace(/\.ts$/, '')}: only ${CUSTOMERS_WIRED} may hold it`);
+          }
+        }
+      } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) && isCustomersApi(sf.file, node.moduleSpecifier.text)) {
+        importers.add(sf.file);
+        breach(`re-exports from ${CUSTOMERS_API}`);
+      } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && ts.isStringLiteral(node.moduleReference.expression) && isCustomersApi(sf.file, node.moduleReference.expression.text)) {
+        importers.add(sf.file);
+        breach(`an import = require of ${CUSTOMERS_API}`);
+      } else if (ts.isCallExpression(node) && node.arguments.length > 0 && ts.isStringLiteralLike(node.arguments[0]!) && isCustomersApi(sf.file, node.arguments[0]!.text)) {
+        const isImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+        const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+        if (isImport || isRequire) {
+          importers.add(sf.file);
+          breach(`a dynamic ${isImport ? 'import()' : 'require()'} of ${CUSTOMERS_API}`);
+        }
+      } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal) && isCustomersApi(sf.file, node.argument.literal.text)) {
+        importers.add(sf.file);
+        const q = node.qualifier;
+        const first = q === undefined ? null : ts.isIdentifier(q) ? q.text : (() => {
+          let e: ts.EntityName = q;
+          while (ts.isQualifiedName(e)) e = e.left;
+          return e.text;
+        })();
+        if (!isWired && (first === null || REFUSAL_NAME.test(first))) breach(`an inline import('${CUSTOMERS_API}')${first === null ? '' : `.${first}`} type`);
+      }
+      ts.forEachChild(node, visitImports);
+    };
+    visitImports(tree);
+    if (!isWired) continue;
+    const visitRefs = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && homeNames.has(node.text) && !(node.parent && ts.isImportSpecifier(node.parent))) {
+        const name = node.text;
+        const mapped = map[name];
+        const at = topLevelFunctionOf(node);
+        if (node.parent && ts.isExportSpecifier(node.parent)) breach(`re-exports ${name}`);
+        else if (mapped === undefined) breach(`${name} has no mapped action: the map is a deliberate edit`);
+        else if (!at.declaration) breach(`${name} is referenced outside a function declaration: ${DECLARATION_FORM}`);
+        else if (at.name === mapped && !at.exported) breach(`${name} is referenced in ${at.name}, which is not exported`);
+        else if (at.name !== mapped) breach(`${name} is referenced in ${at.name ?? 'an anonymous function'}, not in its mapped export function ${mapped}`);
+        else references[name] = (references[name] ?? 0) + 1;
+      }
+      ts.forEachChild(node, visitRefs);
+    };
+    visitRefs(tree);
+  }
+  return { violations, importers: [...importers].sort(), references };
+}
+
+describe('architecture — the customers refusal constants: importers and actions (customers C-4a0, P-1)', () => {
+  it('the real tree has no breach, and the check sees the real importers and the real reference (not vacuous)', () => {
+    const got = customerRefusalViolations(walk('src'), CUSTOMER_REFUSAL_ACTIONS);
+    expect(got.violations).toEqual([]);
+    expect(got.importers).toEqual(expect.arrayContaining([CUSTOMERS_WIRED, 'src/app/(app)/customers/[id]/CustomerPage.tsx', 'src/components/customers/CustomerForm.tsx']));
+    for (const [constant, action] of Object.entries(CUSTOMER_REFUSAL_ACTIONS)) expect(got.references[constant], `${constant} is referenced inside ${action}`).toBeGreaterThan(0);
+  });
+
+  it('green controls: a type import of a non-refusal name, the import specifier, and typeof inside the mapped action', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/app/(app)/customers/[id]/CustomerPage.tsx', source: "import type { Customer } from '@/lib/api/customers';" },
+      { file: 'src/components/customers/X.tsx', source: "type C = import('@/lib/api/customers').Customer;" },
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nexport function customerSave() { type R = typeof CUSTOMER_SAVE_REFUSAL; return async (r: { rule: string }) => r.rule === CUSTOMER_SAVE_REFUSAL.archived; }" },
+      // Commit RED M-3: a platform constant in wired.ts is P-2's (CUSTOMER_P1_ACTIONS), not this pin's, so C-4b's
+      // PLATFORM_REFUSAL inside its listed action is no breach here.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport function customerSave() { return PLATFORM_REFUSAL.contention; }" },
+    ];
+    expect(customerRefusalViolations(planted, CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([]);
+  });
+
+  it('planted: the arrow-form action is reported with the declaration-form message (iii)', () => {
+    const planted: SourceFile[] = [
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nexport const customerSave = (w: unknown) => async (r: { rule: string }) => r.rule === CUSTOMER_SAVE_REFUSAL.archived;" },
+    ];
+    expect(customerRefusalViolations(planted, CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([{ file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` }]);
+  });
+
+  it('planted: each importer and action breach goes red with its own message', () => {
+    const planted: SourceFile[] = [
+      { file: 'src/components/customers/CustomerForm.tsx', source: "import { CUSTOMER_SAVE_REFUSAL } from '@/lib/api/customers';" },
+      { file: 'src/components/customers/A.tsx', source: "import { CUSTOMER_SAVE_REFUSAL as R } from '@/lib/api/customers';" },
+      { file: 'src/components/customers/B.tsx', source: "import * as api from '@/lib/api/customers';" },
+      { file: 'src/components/customers/C.tsx', source: "import api from '@/lib/api/customers';" },
+      { file: 'src/lib/customers/load.ts', source: "export * from '../api/customers';" },
+      { file: 'src/lib/customers/results.ts', source: "import type { CUSTOMER_SAVE_REFUSAL } from '../api/customers.ts';" },
+      { file: 'src/components/customers/D.tsx', source: "const m = import('@/lib/api/customers');" },
+      { file: 'src/components/customers/E.tsx', source: "type R = import('@/lib/api/customers').CUSTOMER_SAVE_REFUSAL;" },
+      // Customers C-4a: the map now holds CONTACT_ADD_REFUSAL, so the unmapped-name case used C-4b's CONTACT_REMOVE_REFUSAL;
+      // C-4b maps that one, so the case used C-5's ADDRESS_ADD_REFUSAL (C-4a progress D-1); C-5a maps that one, so the
+      // case used C-5b's ADDRESS_REMOVE_REFUSAL (C-4b progress Owed); C-5b maps that one, so the case uses a name no commit
+      // has built, CUSTOMER_DELETE_REFUSAL (C-6's Delete customer may take it; it moves again then).
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL, CUSTOMER_DELETE_REFUSAL } from '../api/customers';\nexport function contactCreate() { return CUSTOMER_SAVE_REFUSAL.archived; }\nexport function customerSave() { return CUSTOMER_DELETE_REFUSAL.archived; }\nfunction customerSave2() { return 1; }\nconst helper = () => CUSTOMER_SAVE_REFUSAL;\ntype T = typeof CUSTOMER_SAVE_REFUSAL;" },
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nfunction customerSave() { return CUSTOMER_SAVE_REFUSAL; }" },
+      // Commit RED M-2: wired.ts may not launder a constant (alias, export *, namespace, a re-export, a dynamic load), and a
+      // component may not take one from wired.ts.
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL as SAVE } from '../api/customers';\nexport function contactCreate() { return SAVE.archived; }" },
+      { file: CUSTOMERS_WIRED, source: "export * from '../api/customers';" },
+      { file: CUSTOMERS_WIRED, source: "import * as api from '../api/customers';\nexport function contactCreate() { return api['CUSTOMER_SAVE_REFUSAL'].archived; }" },
+      { file: CUSTOMERS_WIRED, source: "import { CUSTOMER_SAVE_REFUSAL } from '../api/customers';\nexport { CUSTOMER_SAVE_REFUSAL };" },
+      { file: CUSTOMERS_WIRED, source: "export function customerSave() { return import('../api/customers'); }" },
+      { file: 'src/components/customers/H.tsx', source: "import { CUSTOMER_SAVE_REFUSAL } from '@/lib/customers/wired';" },
+      // Commit RED L-4 and L-5: require(), import = require and a .js specifier.
+      { file: 'src/components/customers/F.tsx', source: "const m = require('@/lib/api/customers');" },
+      { file: 'src/components/customers/G.tsx', source: "import m = require('@/lib/api/customers');" },
+      { file: 'src/components/customers/I.tsx', source: "import { CUSTOMER_SAVE_REFUSAL } from '@/lib/api/customers.js';" },
+    ];
+    expect(customerRefusalViolations(planted, CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([
+      { file: 'src/components/customers/CustomerForm.tsx', detail: `imports CUSTOMER_SAVE_REFUSAL from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may` },
+      { file: 'src/components/customers/A.tsx', detail: `imports CUSTOMER_SAVE_REFUSAL from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may` },
+      { file: 'src/components/customers/B.tsx', detail: `a namespace import of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/C.tsx', detail: `a default import of ${CUSTOMERS_API}` },
+      { file: 'src/lib/customers/load.ts', detail: `re-exports from ${CUSTOMERS_API}` },
+      { file: 'src/lib/customers/results.ts', detail: `imports CUSTOMER_SAVE_REFUSAL from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may` },
+      { file: 'src/components/customers/D.tsx', detail: `a dynamic import() of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/E.tsx', detail: `an inline import('${CUSTOMERS_API}').CUSTOMER_SAVE_REFUSAL type` },
+      { file: CUSTOMERS_WIRED, detail: 'CUSTOMER_SAVE_REFUSAL is referenced in contactCreate, not in its mapped export function customerSave' },
+      { file: CUSTOMERS_WIRED, detail: 'CUSTOMER_DELETE_REFUSAL has no mapped action: the map is a deliberate edit' },
+      { file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
+      { file: CUSTOMERS_WIRED, detail: `CUSTOMER_SAVE_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
+      { file: CUSTOMERS_WIRED, detail: 'CUSTOMER_SAVE_REFUSAL is referenced in customerSave, which is not exported' },
+      { file: CUSTOMERS_WIRED, detail: 'renames CUSTOMER_SAVE_REFUSAL: import it by its own name' },
+      { file: CUSTOMERS_WIRED, detail: `re-exports from ${CUSTOMERS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `a namespace import of ${CUSTOMERS_API}` },
+      { file: CUSTOMERS_WIRED, detail: 're-exports CUSTOMER_SAVE_REFUSAL' },
+      { file: CUSTOMERS_WIRED, detail: `a dynamic import() of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/H.tsx', detail: `imports CUSTOMER_SAVE_REFUSAL from src/lib/customers/wired: only ${CUSTOMERS_WIRED} may hold it` },
+      { file: 'src/components/customers/F.tsx', detail: `a dynamic require() of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/G.tsx', detail: `an import = require of ${CUSTOMERS_API}` },
+      { file: 'src/components/customers/I.tsx', detail: `imports CUSTOMER_SAVE_REFUSAL from ${CUSTOMERS_API}: only ${CUSTOMERS_WIRED} may` },
+    ]);
+  });
+
+  it('documents its scope: a test file and the home itself are not read', () => {
+    const planted: SourceFile[] = [
+      { file: 'test/wired/x.test.tsx', source: "import { CUSTOMER_SAVE_REFUSAL } from '@/lib/api/customers';" },
+      { file: `${CUSTOMERS_API}.ts`, source: "export const CUSTOMER_SAVE_REFUSAL = { archived: 'customer.is_archived' } as const;\nconst x = CUSTOMER_SAVE_REFUSAL;" },
+    ];
+    expect(customerRefusalViolations(planted, CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Customers C-4b (customers-plan-c4c5.md Revision 1 R1-1 P-2, as fixed by customers-plan-c4b-c5-final-red.md M-1; ARCH
+// customers-c4c5-arch.md §4): the `CUSTOMER_P1_ACTIONS` pin. `src/lib/customers/wired.ts` joins PROBLEMS_IMPORTERS for
+// Remove's P1 alone (K-1 (a′)), so D-1's protection moves from the file to the function: nothing in `customerSave`,
+// `contactCreate` or `contactSave` may tell P1 apart. Its own function and its own describe block, never merged into P-1
+// (final RED §3: P-1's green control below is this pin's planted red, which pins the split between the two).
+// (1) Domain: the names `wired.ts` imports from `src/lib/api/problems` by a named import under their own name (`p1Names`,
+//     P-1's `homeNames` pattern), not the text `PLATFORM_REFUSAL`, so a later second export of `problems.ts` is covered too.
+// (2) In `wired.ts`, each is a violation with its own detail: a renamed import from it; a default or namespace import of it;
+//     `export … from` it, `import()`, `require()`, `import =`; a re-export of a `p1Names` member.
+// (3) Every `p1Names` reference other than its import specifier sits in an exported top-level function declaration whose
+//     name is in `CUSTOMER_P1_ACTIONS` (P-1's message order, with the list in place of the map).
+// (4) Anti-vacuity per action: on the real tree each listed action references a `p1Names` member at least once (so C-5's
+//     `addressDelete` entry forces its comparison to exist, I-10b's order).
+// Reuses `topLevelFunctionOf`, `DECLARATION_FORM` and `moduleOf`. Reads only `wired.ts`: which FILE may import
+// `lib/api/problems` is PROBLEMS_IMPORTERS' (`importViolations`).
+// The list is a deliberate edit per commit: C-4b `['contactDelete']`; C-5b `+ 'addressDelete'`; C-6 `+ 'customerDelete'`.
+// Not covered (a name scan, like P-1): a value laundered through any module-level binding (a `const` object filled in a
+// listed action and read elsewhere passes too, C-4b commit RED-2 N-2) or returned from a listed action and compared
+// elsewhere; `wired.ts` holds no module-level `let`, `var` or mutable `const` today (review check), and T5f is
+// `customerSave`'s behavioural backstop.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const PROBLEMS_API = 'src/lib/api/problems';
+const CUSTOMER_P1_ACTIONS: readonly string[] = ['contactDelete', 'addressDelete'];
+const isProblemsApi = (file: string, spec: string) => moduleOf(file, spec) === PROBLEMS_API;
+
+/** P-2: every breach of the `CUSTOMER_P1_ACTIONS` pin in `wired.ts`, plus, per listed action, the references made inside it. */
+function customerP1Violations(files: readonly SourceFile[], actions: readonly string[]): { violations: Violation[]; references: Record<string, number> } {
+  const violations: Violation[] = [];
+  const references: Record<string, number> = Object.fromEntries(actions.map((a) => [a, 0]));
+  for (const sf of files) {
+    if (sf.file !== CUSTOMERS_WIRED) continue;
+    const tree = parse(sf);
+    const breach = (detail: string) => violations.push({ file: sf.file, detail });
+    const p1Names = new Set<string>();
+    const visitImports = (node: ts.Node) => {
+      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && isProblemsApi(sf.file, node.moduleSpecifier.text)) {
+        const clause = node.importClause;
+        if (clause) {
+          if (clause.name) breach(`a default import of ${PROBLEMS_API}`);
+          const bindings = clause.namedBindings;
+          if (bindings && ts.isNamespaceImport(bindings)) breach(`a namespace import of ${PROBLEMS_API}`);
+          if (bindings && ts.isNamedImports(bindings)) {
+            for (const el of bindings.elements) {
+              const imported = (el.propertyName ?? el.name).text;
+              if (el.propertyName) breach(`renames ${imported}: import it by its own name`);
+              else p1Names.add(imported);
+            }
+          }
+        }
+      } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) && isProblemsApi(sf.file, node.moduleSpecifier.text)) {
+        breach(`re-exports from ${PROBLEMS_API}`);
+      } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && ts.isStringLiteral(node.moduleReference.expression) && isProblemsApi(sf.file, node.moduleReference.expression.text)) {
+        breach(`an import = require of ${PROBLEMS_API}`);
+      } else if (ts.isCallExpression(node) && node.arguments.length > 0 && ts.isStringLiteralLike(node.arguments[0]!) && isProblemsApi(sf.file, node.arguments[0]!.text)) {
+        const isImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+        const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+        if (isImport || isRequire) breach(`a dynamic ${isImport ? 'import()' : 'require()'} of ${PROBLEMS_API}`);
+      }
+      ts.forEachChild(node, visitImports);
+    };
+    visitImports(tree);
+    const visitRefs = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && p1Names.has(node.text) && !(node.parent && ts.isImportSpecifier(node.parent))) {
+        const name = node.text;
+        const at = topLevelFunctionOf(node);
+        if (node.parent && ts.isExportSpecifier(node.parent)) breach(`re-exports ${name}`);
+        else if (!at.declaration) breach(`${name} is referenced outside a function declaration: ${DECLARATION_FORM}`);
+        else if (!at.exported) breach(`${name} is referenced in ${at.name ?? 'an anonymous function'}, which is not exported`);
+        else if (at.name === null || !actions.includes(at.name)) breach(`${name} is referenced in ${at.name ?? 'an anonymous function'}, which is not in CUSTOMER_P1_ACTIONS`);
+        else references[at.name] = (references[at.name] ?? 0) + 1;
+      }
+      ts.forEachChild(node, visitRefs);
+    };
+    visitRefs(tree);
+  }
+  return { violations, references };
+}
+
+describe('architecture — the customers platform rule: only the listed Remove actions compare P1 (customers C-4b, P-2)', () => {
+  it('the real tree has no breach, and each listed action compares P1 (not vacuous)', () => {
+    const got = customerP1Violations(walk('src'), CUSTOMER_P1_ACTIONS);
+    expect(got.violations).toEqual([]);
+    for (const action of CUSTOMER_P1_ACTIONS) expect(got.references[action], `${action} references a lib/api/problems name`).toBeGreaterThan(0);
+  });
+
+  it('planted green: P1 compared inside the listed Remove action, after its import specifier', () => {
+    const planted: SourceFile[] = [
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport function contactDelete() { return async (r: { rule: string }) => r.rule === PLATFORM_REFUSAL.contention; }" },
+    ];
+    // Customers C-5b: the list gains addressDelete, which this planted file does not hold (0 references, no violation).
+    expect(customerP1Violations(planted, CUSTOMER_P1_ACTIONS)).toEqual({ violations: [], references: { contactDelete: 1, addressDelete: 0 } });
+  });
+
+  it('planted: each laundering and placement breach goes red with its own message, P-1\'s green control included', () => {
+    const planted: SourceFile[] = [
+      // (a) the alias, T5f's supplier ternary inside customerSave.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL as P1 } from '../api/problems';\nexport function customerSave() { return async (r: { rule: string }) => (r.rule === P1.contention ? 1 : 2); }" },
+      // (b) a namespace import, then element access by a string.
+      { file: CUSTOMERS_WIRED, source: "import * as problems from '../api/problems';\nexport function contactCreate() { return problems['PLATFORM_REFUSAL'].contention; }" },
+      // (c) export * from it.
+      { file: CUSTOMERS_WIRED, source: "export * from '../api/problems';" },
+      // A named re-export.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport { PLATFORM_REFUSAL };" },
+      // The arrow-form contactDelete.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport const contactDelete = () => async (r: { rule: string }) => r.rule === PLATFORM_REFUSAL.contention;" },
+      // A top-level const.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nconst P = PLATFORM_REFUSAL;\nexport function contactDelete() { return P; }" },
+      // P-1's own green control, verbatim: green under P-1, red here (the split between the two checks).
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nexport function customerSave() { return PLATFORM_REFUSAL.contention; }" },
+      // An unexported function of the listed name; a default import; the dynamic and require forms.
+      { file: CUSTOMERS_WIRED, source: "import { PLATFORM_REFUSAL } from '../api/problems';\nfunction contactDelete() { return PLATFORM_REFUSAL; }" },
+      { file: CUSTOMERS_WIRED, source: "import problems from '../api/problems';" },
+      { file: CUSTOMERS_WIRED, source: "export function contactDelete() { return import('../api/problems'); }" },
+      { file: CUSTOMERS_WIRED, source: "export function contactDelete() { return require('../api/problems.ts'); }" },
+      { file: CUSTOMERS_WIRED, source: "import m = require('../api/problems');" },
+    ];
+    expect(customerP1Violations(planted, CUSTOMER_P1_ACTIONS).violations).toEqual([
+      { file: CUSTOMERS_WIRED, detail: 'renames PLATFORM_REFUSAL: import it by its own name' },
+      { file: CUSTOMERS_WIRED, detail: `a namespace import of ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `re-exports from ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: 're-exports PLATFORM_REFUSAL' },
+      { file: CUSTOMERS_WIRED, detail: `PLATFORM_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
+      { file: CUSTOMERS_WIRED, detail: `PLATFORM_REFUSAL is referenced outside a function declaration: ${DECLARATION_FORM}` },
+      { file: CUSTOMERS_WIRED, detail: 'PLATFORM_REFUSAL is referenced in customerSave, which is not in CUSTOMER_P1_ACTIONS' },
+      { file: CUSTOMERS_WIRED, detail: 'PLATFORM_REFUSAL is referenced in contactDelete, which is not exported' },
+      { file: CUSTOMERS_WIRED, detail: `a default import of ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `a dynamic import() of ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `a dynamic require() of ${PROBLEMS_API}` },
+      { file: CUSTOMERS_WIRED, detail: `an import = require of ${PROBLEMS_API}` },
+    ]);
+    // The same P-1 control is no breach of P-1 (it stays green there, unedited): no double count and no gap.
+    expect(customerRefusalViolations([planted[6]!], CUSTOMER_REFUSAL_ACTIONS).violations).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
 // RED H-5 items 6–7 (step 5): no clock in expiry, no identity comparison for Withdraw. Static backstop over the picker
 // dirs; the behavioural checks render below.
 // ---------------------------------------------------------------------------------------------------------------------
@@ -735,6 +1139,8 @@ const NETWORK_SCAN_DIRS = [
   'src/components/suppliers',
   // Purchase orders PO-3 (Revision 8 R8-3 completeness): the create page's form, props-only (its reads are the page's).
   'src/components/purchasing',
+  // Customers C-2a (Revision 8 R8-3 completeness): the customer page's editor, props-only.
+  'src/components/customers',
   'src/components/auth',
   'src/components/shell',
   'src/components/states',
@@ -940,6 +1346,8 @@ const BULK_LITERAL_DIRS = [
   'src/lib/suppliers',
   // Purchase orders PO-1 (purchase-orders-plan.md §1.5, G-3): `purchase_order` is a bulk key.
   'src/lib/purchasing',
+  // Customers C-1 (customers-plan.md Revision 1 R1-8): the customer family's logic, scanned like every family's.
+  'src/lib/customers',
   // Stock ST-1 (stock-plan.md §3.1, G-3): `inventory_item` and `storage_location` are bulk keys; the movement reads name neither.
   'src/lib/stock',
   'src/lib/api',
@@ -1451,6 +1859,16 @@ describe('architecture — G-F2: every form posts, to its own page (b3b-followup
       'src/components/auth/ForgotPasswordForm.tsx',
       'src/components/auth/ResetPasswordForm.tsx',
       'src/components/auth/SignInCard.tsx',
+      // Customers C-5a (G-F2 row; customers-plan-c4c5.md Revision 0 J-8): Add address's dialog.
+      'src/components/customers/AddAddressForm.tsx',
+      // Customers C-4a (G-F2 row; customers-plan-c4c5.md Revision 0 I-11): Add contact's dialog.
+      'src/components/customers/AddContactForm.tsx',
+      // Customers C-5a (G-F2 row): Edit address's dialog.
+      'src/components/customers/AddressForm.tsx',
+      // Customers C-4a (G-F2 row): Edit contact's dialog.
+      'src/components/customers/ContactForm.tsx',
+      // Customers C-2a (G-F2 row; customers-plan.md Revision 1 R1-8): the customer page's editor.
+      'src/components/customers/CustomerForm.tsx',
       // Items I-1 (G-F2 row): the item page's editor.
       // Items I-2 (G-F2 row): the create page's form.
       'src/components/items/ItemCreateForm.tsx',
@@ -1934,7 +2352,9 @@ describe('architecture — R8-3: components/records is props-only and names no f
 // Goods receipts GR-1: the receipt route dir joins (a receipt line's quantity is a served decimal).
 // Stock ST-1 (stock-plan.md §3.1; Revision 11 R11-5): the stock logic and the movement route dir (a movement's quantity is a
 // served signed decimal).
-const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/components/purchasing', 'src/app/(app)/purchase-orders', 'src/app/(app)/goods-receipts', 'src/lib/stock', 'src/app/(app)/stock-movements', 'src/app/(app)/stock'] as const;
+// Customers C-2a (customers-plan.md Revision 0 §6.2, Revision 1c R1c-4): the three customer dirs, from the first commit that
+// converts a typed day count (terms go through `wholeNumberOrText`, which is outside the scan — the suppliers L-8 shape).
+const QUANTITY_SCAN_DIRS = ['src/lib/items', 'src/components/items', 'src/app/(app)/items', 'src/lib/suppliers', 'src/components/suppliers', 'src/app/(app)/suppliers', 'src/lib/purchasing', 'src/components/purchasing', 'src/app/(app)/purchase-orders', 'src/app/(app)/goods-receipts', 'src/lib/stock', 'src/app/(app)/stock-movements', 'src/app/(app)/stock', 'src/lib/customers', 'src/components/customers', 'src/app/(app)/customers'] as const;
 const QUANTITY_SCAN_FILES = ['src/lib/format/quantity.ts', 'src/lib/format/money.ts'] as const;
 // Suppliers S-3 RED L-7: widened to the money names (`amount`, `unit_cost`, `unitCost`) now that `money.ts` is scanned.
 const QUANTITY_NAME = /quantity|reorder_point|safety_stock|reorderPoint|safetyStock|served|amount|unit_cost|unitCost/i;
@@ -1995,8 +2415,10 @@ describe('architecture — items I-1: no quantity goes through a number (QR-2 ba
     // receipt route dir joins with its 6 files. GR-2: the order route dir gains [id]/receive/{page,ReceivePage}.tsx → 12; the
     // receive form (a quantity typed and sent as text) and the zero rule (`isNotReceived`, results.ts) are in the control.
     // Stock ST-1: lib/stock (counted by EXPECTED_COUNTS) and the movement route dir with its 6 files. Stock ST-2: the
-    // stock-on-hand route dir with its 5 files (plan §7.1-2).
-    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 12 + 6 + EXPECTED_COUNTS['src/lib/stock']! + 6 + 5);
+    // stock-on-hand route dir with its 5 files (plan §7.1-2). Customers C-2a: lib/customers and components/customers
+    // (counted by EXPECTED_COUNTS) and the customer route dir with its 8 files. Customers C-5a: two address dialogs (counted
+    // by EXPECTED_COUNTS['src/components/customers']).
+    expect(files.length).toBe(EXPECTED_COUNTS['src/lib/items']! + EXPECTED_COUNTS['src/components/items']! + 8 + 1 + EXPECTED_COUNTS['src/lib/suppliers']! + EXPECTED_COUNTS['src/components/suppliers']! + 9 + 1 + EXPECTED_COUNTS['src/lib/purchasing']! + EXPECTED_COUNTS['src/components/purchasing']! + 12 + 6 + EXPECTED_COUNTS['src/lib/stock']! + 6 + 5 + EXPECTED_COUNTS['src/lib/customers']! + EXPECTED_COUNTS['src/components/customers']! + 8);
     expect(quantityNumberViolations(files)).toEqual([]);
   });
 
@@ -2226,6 +2648,8 @@ const COPY_GROUPS: Readonly<Record<string, readonly string[]>> = {
   account: ['password'], admin: ['people', 'roles', 'sod', 'bulk'],
   // Stock ST-1 (Revision 11 R11-1).
   stock: ['stock'],
+  // Customers C-1 (customers-plan.md Revision 1 R1-8, RED L-1).
+  customers: ['customers'],
 };
 const GROUP_OF_FOLDER: Readonly<Record<string, string>> = {
   items: 'items', warehouses: 'warehouses', suppliers: 'suppliers', 'purchase-orders': 'purchasing', 'goods-receipts': 'purchasing',
@@ -2233,6 +2657,9 @@ const GROUP_OF_FOLDER: Readonly<Record<string, string>> = {
   // there is no `components/stock` (plan D-5).
   'stock-movements': 'stock',
   stock: 'stock',
+  // Customers C-1: the route folder. Customers C-2a: components/customers (the editor's form) joins.
+  customers: 'customers',
+  'components/customers': 'customers',
   account: 'account', 'admin/users': 'admin', 'admin/roles': 'admin',
   'components/items': 'items', 'components/warehouses': 'warehouses', 'components/suppliers': 'suppliers',
   'components/purchasing': 'purchasing', 'components/auth': 'account', 'components/people': 'admin', 'components/roles': 'admin',
@@ -2429,7 +2856,7 @@ const REAL_GUARD_LISTS: GuardLists = {
 describe('architecture — guard enrolment is complete (items-red.md M-2, items I-0a)', () => {
   it('every folder under src/components and src/lib is in each applicable guard list, or exempt with a reason', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
-    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items', 'src/components/suppliers', 'src/lib/suppliers']));
+    expect(folders).toEqual(expect.arrayContaining(['src/components/records', 'src/components/warehouses', 'src/lib/warehouses', 'src/components/items', 'src/lib/items', 'src/components/suppliers', 'src/lib/suppliers', 'src/lib/customers', 'src/components/customers']));
     expect(folders.length).toBeGreaterThan(15);
     expect(enrolmentGaps(folders, REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([]);
   });
@@ -2437,28 +2864,28 @@ describe('architecture — guard enrolment is complete (items-red.md M-2, items 
   it('planted controls: an unlisted new folder, a dropped enrolment and a stale exemption all go red', () => {
     const folders = guardedFolders(ALL_SRC_ENTRIES);
     // A new folder nobody enrolled. It was the items family's folders until I-1 enrolled them, then the suppliers family's
-    // until S-1 enrolled those; now a family that does not exist yet (customers), so the control still names folders
-    // absent from every list.
-    expect(enrolmentGaps([...folders, 'src/components/customers', 'src/lib/customers'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
-      'literal: src/components/customers is in no list and has no exemption',
-      'literal: src/lib/customers is in no list and has no exemption',
-      'network: src/components/customers is in no list and has no exemption',
-      'bulk: src/lib/customers is in no list and has no exemption',
-      'counts: src/components/customers is in no list and has no exemption',
-      'counts: src/lib/customers is in no list and has no exemption',
+    // until S-1 enrolled those, then the customers family's until C-1 enrolled lib/customers; now the next planned family
+    // (sales, not built yet — customers-plan.md Revision 1 R1-8), so the control still names folders absent from every list.
+    expect(enrolmentGaps([...folders, 'src/components/sales', 'src/lib/sales'], REAL_GUARD_LISTS, GUARD_EXEMPT)).toEqual([
+      'literal: src/components/sales is in no list and has no exemption',
+      'literal: src/lib/sales is in no list and has no exemption',
+      'network: src/components/sales is in no list and has no exemption',
+      'bulk: src/lib/sales is in no list and has no exemption',
+      'counts: src/components/sales is in no list and has no exemption',
+      'counts: src/lib/sales is in no list and has no exemption',
     ]);
     // records/ dropped from one list (the move silently unscanning the dialogs, M-2's last bullet).
     const dropped: GuardLists = { ...REAL_GUARD_LISTS, network: NETWORK_SCAN_DIRS.filter((d) => d !== RECORDS_DIR) };
     expect(enrolmentGaps(folders, dropped, GUARD_EXEMPT)).toEqual(['network: src/components/records is in no list and has no exemption']);
     // An exemption with no reason (an empty or near-empty string) is a gap, not an exemption (RED L-1).
-    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/customers': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/customers': '  tbd  ' } };
-    expect(enrolmentGaps([...folders, 'src/components/customers', 'src/lib/customers'], REAL_GUARD_LISTS, unreasoned)).toEqual([
-      "literal: src/components/customers's exemption has no reason",
-      'literal: src/lib/customers is in no list and has no exemption',
-      'network: src/components/customers is in no list and has no exemption',
-      "bulk: src/lib/customers's exemption has no reason",
-      'counts: src/components/customers is in no list and has no exemption',
-      'counts: src/lib/customers is in no list and has no exemption',
+    const unreasoned = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/sales': '' }, bulk: { ...GUARD_EXEMPT.bulk, 'src/lib/sales': '  tbd  ' } };
+    expect(enrolmentGaps([...folders, 'src/components/sales', 'src/lib/sales'], REAL_GUARD_LISTS, unreasoned)).toEqual([
+      "literal: src/components/sales's exemption has no reason",
+      'literal: src/lib/sales is in no list and has no exemption',
+      'network: src/components/sales is in no list and has no exemption',
+      "bulk: src/lib/sales's exemption has no reason",
+      'counts: src/components/sales is in no list and has no exemption',
+      'counts: src/lib/sales is in no list and has no exemption',
     ]);
     // An exemption left behind after enrolment, and one naming a folder that does not exist.
     const stale = { ...GUARD_EXEMPT, literal: { ...GUARD_EXEMPT.literal, 'src/components/records': 'x', 'src/lib/nowhere': 'y' } };

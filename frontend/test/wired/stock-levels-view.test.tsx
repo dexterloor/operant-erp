@@ -285,6 +285,9 @@ describe('/stock — rule R-F: focus and the announcement after a marker Retry',
     expect(document.activeElement).toBe(h1);
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
     // The announcement is written after the focus move.
+    // Commit RED L-3, recorded (no call-level test added): moving the `announce` statement above the `focus()` call is
+    // equivalent at the DOM (mutant RF-announce-reordered, GREEN): `announce` is a state update after an await and outside
+    // flushSync, so React commits it after the synchronous focus in either order. RF-announce-in-commit is the counted plant.
     expect(atFocus).toEqual(['']);
   });
 

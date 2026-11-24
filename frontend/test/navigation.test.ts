@@ -2,6 +2,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NAVIGATION, activeHref, deriveNavigation } from '@/lib/navigation';
+import { BUILT_PAGE_HREFS } from '@/lib/routes';
+import { ROLES } from '@/components/preview/fixtures/roles';
 
 const all = NAVIGATION.flatMap((g) => g.items.map((i) => i.permission));
 const labels = (codes: Iterable<string>) => deriveNavigation([...codes]).map((g) => [g.label, g.items.map((i) => i.label)]);
@@ -72,5 +74,24 @@ describe('sidebar derivation from permission codes (L-5)', () => {
         const cells = (row as string).split('|').map((c) => c.trim());
         expect(cells[5], i.operation).toBe(`\`${i.permission}\``);
       }
+  });
+});
+
+// Customers C-1 tests 12 and 13 (customers-plan.md Revision 1 — FINAL R1-4, R1-6, owner notice N-9; RED L-3;
+// customers-c1-commit-red.md L-1): over the EIGHT built-in roles' real code sets (the preview fixture `ROLES`, `is_system`),
+// with /customers built the Sales group appears for the first time, holding exactly Customers, for owner, admin, sales_rep
+// and viewer; the other four (buyer, purchasing_manager, warehouse_operator, finance — no customer.view) get no Sales group.
+describe('customers C-1 — the Sales group appears, holding only Customers, for the default customer.view holders', () => {
+  const built = (codes: string[]) => deriveNavigation(codes, NAVIGATION, BUILT_PAGE_HREFS).map((g) => [g.label, g.items.map((i) => i.href)]);
+  const SALES_HOLDERS = ['admin', 'owner', 'sales_rep', 'viewer'];
+  const DEFAULT_ROLES = ROLES.filter((r) => r.is_system);
+  it('there are eight built-in roles, four of them customer.view holders', () => {
+    expect(DEFAULT_ROLES.map((r) => r.name).sort()).toEqual(['admin', 'buyer', 'finance', 'owner', 'purchasing_manager', 'sales_rep', 'viewer', 'warehouse_operator']);
+    expect(DEFAULT_ROLES.filter((r) => r.permission_codes.includes('customer.view')).map((r) => r.name).sort()).toEqual(SALES_HOLDERS);
+  });
+  it.each(DEFAULT_ROLES.map((r) => [r.name, r.permission_codes] as const))('%s', (name, codes) => {
+    const sales = built([...codes]).find(([label]) => label === 'Sales');
+    if (SALES_HOLDERS.includes(name)) expect(sales).toEqual(['Sales', ['/customers']]);
+    else expect(sales).toBeUndefined();
   });
 });

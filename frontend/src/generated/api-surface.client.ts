@@ -73,6 +73,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  CreateCustomerAddress: {
+    method: 'POST',
+    template: '/api/v1/customers/{id}/addresses',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
+  CreateCustomerContact: {
+    method: 'POST',
+    template: '/api/v1/customers/{id}/contacts',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
   CreateGoodsReceipt: {
     method: 'POST',
     template: '/api/v1/purchase-orders/{id}/goods-receipts',
@@ -163,6 +183,26 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['warehouse.create'],
     },
   },
+  DeleteCustomerAddress: {
+    method: 'DELETE',
+    template: '/api/v1/customers/{id}/addresses/{addressId}',
+    pathParams: ['id', 'addressId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
+  DeleteCustomerContact: {
+    method: 'DELETE',
+    template: '/api/v1/customers/{id}/contacts/{contactId}',
+    pathParams: ['id', 'contactId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
   DeleteItem: {
     method: 'DELETE',
     template: '/api/v1/items/{id}',
@@ -243,6 +283,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['warehouse.delete'],
     },
   },
+  GetCustomer: {
+    method: 'GET',
+    template: '/api/v1/customers/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.view'],
+    },
+  },
   GetGoodsReceipt: {
     method: 'GET',
     template: '/api/v1/goods-receipts/{id}',
@@ -321,6 +371,36 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
     permission: {
       kind: 'all_of',
       codes: ['warehouse.view'],
+    },
+  },
+  ListCustomerAddresses: {
+    method: 'GET',
+    template: '/api/v1/customers/{id}/addresses',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.view'],
+    },
+  },
+  ListCustomerContacts: {
+    method: 'GET',
+    template: '/api/v1/customers/{id}/contacts',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.view'],
+    },
+  },
+  ListCustomers: {
+    method: 'GET',
+    template: '/api/v1/customers',
+    pathParams: [],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.view'],
     },
   },
   ListGoodsReceipts: {
@@ -573,6 +653,36 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  UpdateCustomer: {
+    method: 'PATCH',
+    template: '/api/v1/customers/{id}',
+    pathParams: ['id'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
+  UpdateCustomerAddress: {
+    method: 'PATCH',
+    template: '/api/v1/customers/{id}/addresses/{addressId}',
+    pathParams: ['id', 'addressId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
+  UpdateCustomerContact: {
+    method: 'PATCH',
+    template: '/api/v1/customers/{id}/contacts/{contactId}',
+    pathParams: ['id', 'contactId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
   UpdateItem: {
     method: 'PATCH',
     template: '/api/v1/items/{id}',
@@ -708,6 +818,14 @@ export const BULK_MAX_IDS: number = 50;
 export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   ActorReference: ['display_name', 'id'],
   Collection: ['items', 'next_cursor', 'previous_cursor', 'tenant_has_rows'],
+  Customer: ['archived_at', 'code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days'],
+  'Customer.UpdateCustomerInput.jsonMergePatch': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
+  CustomerAddress: ['city', 'country_code', 'id', 'kind', 'line', 'postal_code'],
+  'CustomerAddress.CreateCustomerAddressInput': ['city', 'country_code', 'kind', 'line', 'postal_code'],
+  'CustomerAddress.UpdateCustomerAddressInput.jsonMergePatch': ['city', 'country_code', 'kind', 'line', 'postal_code'],
+  CustomerContact: ['email', 'id', 'is_primary', 'name', 'phone'],
+  'CustomerContact.CreateCustomerContactInput': ['email', 'is_primary', 'name', 'phone'],
+  'CustomerContact.UpdateCustomerContactInput.jsonMergePatch': ['email', 'is_primary', 'name', 'phone'],
   GoodsReceipt: ['id', 'lines', 'purchase_order', 'receipt_number', 'received_at', 'received_by'],
   'GoodsReceipt.CreateGoodsReceiptInput': ['lines', 'received_at'],
   'GoodsReceipt.CreateGoodsReceiptInput.lines[]': ['purchase_order_line_id', 'quantity', 'storage_location_id'],
@@ -764,6 +882,12 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
 
 /** Each served `enum` of a mirrored schema's property, in served order (Revision 7 A-21). */
 export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  'CustomerAddress.CreateCustomerAddressInput': {
+    kind: ['billing', 'shipping'],
+  },
+  'CustomerAddress.UpdateCustomerAddressInput.jsonMergePatch': {
+    kind: ['billing', 'shipping'],
+  },
   'GoodsReceipt.lines[]': {
     unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },

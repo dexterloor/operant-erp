@@ -1,0 +1,25 @@
+/* The customer page's editor (the supplier page's look, tokens only; customers-plan.md Revision 1 R1-5 C-2a). The focus ring is global. */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 32rem;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+/* Name in the editor: plain text under its label, not a disabled input (copy D-1). */
+.fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+
+.fields dd {
+  margin: 0;
+}

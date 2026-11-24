@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Read, ReadAnswer, ReadRequest } from '@/lib/bff/reads';
 import { addressedStock, loadMarkerInputs, loadStockForItem, loadStockForLocation } from '@/lib/stock/levels';
+import { stockRowMarker } from '@/lib/stock/marker';
 
 // Stock ST-2 (stock-st2-plan.md §7.3): the address grammar (UX S-11, L-1, L-2), the stock loaders' guards (a row of
 // another scope is a server error, plan L-10), and the marker reads' order and count (2N + 2 reads, 401/403 out of band,
@@ -103,6 +104,14 @@ describe('loadMarkerInputs', () => {
     expect(calls).toHaveLength(2 * 2 + 2);
     expect(calls.filter(([op]) => op === 'ListWarehouses').map(([, q]) => q.query!.toString()).sort()).toEqual(['', 'archived=true']);
     expect(calls.filter(([op]) => op === 'ListStorageLocations').map(([, q]) => `${q.params!.id}?${q.query!.toString()}`).sort()).toEqual([`${W2}?`, `${W2}?archived=true`, `${W}?`, `${W}?archived=true`].sort());
+  });
+
+  it('commit RED L-1: a warehouse read naming another warehouse supplies neither its archived state nor its code', async () => {
+    const r = await loadMarkerInputs(recorder({ GetWarehouse: ok(wh(W2)), ListStorageLocations: locs([loc(L)]) }).read, { kind: 'location', warehouseId: W });
+    if (r.kind !== 'ok') throw new Error(r.kind);
+    expect(r.inputs.get(W)!.archivedAt.kind).toBe('failed');
+    expect(r.warehouseCodes.has(W)).toBe(false);
+    expect(stockRowMarker({ warehouse: { id: W }, storage_location: { id: L } }, r.inputs).unknown).toBe(true);
   });
 
   it('the location scope reads the warehouse and its two lists (3 reads)', async () => {
