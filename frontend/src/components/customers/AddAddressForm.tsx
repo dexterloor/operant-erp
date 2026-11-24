@@ -19,7 +19,7 @@ import styles from './Customers.module.css';
 export interface AddAddressFormProps {
   /** The page's CURRENT customer's served code (the dialog's title). */
   customerCode: string;
-  /** The served kinds, in served order (`wireEnum('CustomerAddress.CreateCustomerAddressInput', 'kind')`). */
+  /** The served kinds, in the section's order (`orderKinds`) (`wireEnum('CustomerAddress.CreateCustomerAddressInput', 'kind')`). */
   kinds: readonly string[];
   create: CreateAddressAction;
   /** `gateCode('CreateCustomerAddress')`, for the lost-permission sentence's label (B-10). */

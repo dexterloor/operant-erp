@@ -154,13 +154,13 @@ function focusWhenWritten(sentence: string, target?: HTMLElement) {
 }
 
 describe('/customers/[id] — Add address (C-5a chunk 1)', () => {
-  // A1 (L-10, D-1): the served order Billing, Shipping, after the prompt; nothing preselected.
-  it('A1 — Kind is a select over the served enum: Choose a kind, Billing, Shipping, nothing preselected; Add with no kind → "Choose a kind for this address." beside Kind, focus there, no request, on two presses', async () => {
+  // A1 (copy Revision 1b row 61): Shipping, Billing, after the prompt; nothing preselected.
+  it('A1 — Kind is a select over the served enum: Choose a kind, Shipping, Billing, nothing preselected; Add with no kind → "Choose a kind for this address." beside Kind, focus there, no request, on two presses', async () => {
     const calls = routes({});
     const u = userEvent.setup();
     show();
     await openAdd(u);
-    expect(within(kindSelect()).getAllByRole('option').map((o) => o.textContent)).toEqual([KIND_PROMPT, 'Billing', 'Shipping']);
+    expect(within(kindSelect()).getAllByRole('option').map((o) => o.textContent)).toEqual([KIND_PROMPT, 'Shipping', 'Billing']);
     expect(kindSelect()).toHaveValue('');
     await fill(u, { kind: '' });
     await submitAdd(u);
@@ -653,7 +653,7 @@ describe('/customers/[id] — Edit address (C-5a chunk 2)', () => {
     const u = userEvent.setup();
     showEdit({ addresses: okAddresses([DOCK]) });
     await openEdit(u, 'Edit address 1 Dock Rd');
-    expect(within(kindSelect()).getAllByRole('option').map((o) => o.textContent)).toEqual([KIND_PROMPT, 'Billing', 'Shipping']);
+    expect(within(kindSelect()).getAllByRole('option').map((o) => o.textContent)).toEqual([KIND_PROMPT, 'Shipping', 'Billing']);
     expect(kindSelect()).toHaveValue('');
     const save = inDialog().getByRole('button', { name: 'Save' });
     expect(save).toHaveAttribute('aria-disabled', 'true');
@@ -714,6 +714,15 @@ describe('/customers/[id] — Edit address (C-5a chunk 2)', () => {
     expect(text('Country')).toHaveAccessibleDescription(COUNTRY_HINT);
     expect(inDialog().getAllByText(EDIT_HINT, { selector: 'p' }).map((p) => p.textContent)).toEqual([EDIT_HINT]);
     expect(dialog().textContent).not.toContain('Each address below keeps its own country.');
+  });
+
+  it('A4b — Edit, a field changed: Save\'s exact description is editHint (UX-1 B-1)', async () => {
+    routes({});
+    const u = userEvent.setup();
+    showEdit();
+    await openEdit(u);
+    await retype(u, 'Address line', '1 High Street');
+    expect(inDialog().getByRole('button', { name: 'Save' })).toHaveAccessibleDescription(EDIT_HINT);
   });
 
   it('A5 — each row\'s Edit is named "Edit {noun} {line}", unquoted, and reads Edit; an unknown kind reads "address"', () => {

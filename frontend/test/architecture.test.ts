@@ -381,7 +381,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Stock ST-2 (stock-st2-plan.md §4) added: lib/stock/{levels,visibility,marker}.ts (G-47's row loader and two helpers).
   // Customers C-1 added: lib/api/customers.ts, lib/customers/load.ts (no results or wired: C-1 writes nothing).
   // Customers C-2a added: lib/customers/{results,wired}.ts (the editor's Save).
-  'src/lib': 86,
+  // Customers UX-1 added: lib/customers/addressKinds.ts (the Kind select's order, `orderKinds`).
+  'src/lib': 87,
   // b3b-followup C-2 added: components/shell/PageError.tsx. C-9 added: components/shell/RootNotFound.tsx.
   // Restore role added: components/permissions/RoleRestoreActions.tsx.
   // Revision 7 step 3 (A-19 item 1) added: components/ui/TextField.tsx.
@@ -429,7 +430,8 @@ const EXPECTED_COUNTS: Record<string, number> = {
   // Suppliers S-1 (Revision 8 R8-2) added: the supplier loaders, results, Save and Restore; the supplier page's editor.
   'src/lib/suppliers': 3,
   // Customers C-1 (Revision 8 R8-2) added: the customer loaders. Customers C-2a added: results.ts and wired.ts (Save).
-  'src/lib/customers': 3,
+  // Customers UX-1 added: addressKinds.ts (`orderKinds`).
+  'src/lib/customers': 4,
   // Customers C-2a added: CustomerForm.tsx (the customer page's editor; Customers.module.css is not counted).
   // Customers C-4a added: AddContactForm.tsx and ContactForm.tsx (Add and Edit contact's dialogs, customers-plan-c4c5.md
   // Revision 0 F-7: create and edit split, the AddEntryForm / EntryForm precedent).

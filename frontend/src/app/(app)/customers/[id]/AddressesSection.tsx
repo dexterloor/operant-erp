@@ -13,6 +13,7 @@ import type { CustomerAddress } from '@/lib/api/customers';
 import { ACTION_DEADLINES_MS, startDeadline } from '@/lib/bff/deadline';
 import { readOf, type ReadFailure } from '@/lib/bff/reads';
 import { gateCode, wireEnum } from '@/lib/bff/surface';
+import { orderKinds } from '@/lib/customers/addressKinds';
 import { loadAddresses, type AddressesLoad } from '@/lib/customers/load';
 import { addressCreate, addressDelete, addressSave } from '@/lib/customers/wired';
 import type { DeleteResult } from '@/lib/results';
@@ -336,7 +337,7 @@ export function AddressesSection({ customerId, initial, customerArchived, custom
         </table>
       )}
       {/* Rendered on its open state alone (never `&& mayEdit`): it stays open when the page turns archived (M-4). */}
-      {editing !== null ? <AddressForm key={editing.id} address={editing} kinds={wireEnum(UPDATE_INPUT, 'kind')} save={save} editCode={gateCode('UpdateCustomerAddress')} onClose={(o) => void closeEdit(editing, o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}
+      {editing !== null ? <AddressForm key={editing.id} address={editing} kinds={orderKinds(wireEnum(UPDATE_INPUT, 'kind'))} save={save} editCode={gateCode('UpdateCustomerAddress')} onClose={(o) => void closeEdit(editing, o)} fallbackFocusRef={heading} onSaveStarted={() => announce('')} /> : null}
       {/* Rendered on its open state alone (never `&& mayRemove`): it stays open when the page turns archived (M-4). */}
       {removing !== null ? (
         <DeleteDialog
@@ -361,7 +362,7 @@ export function AddressesSection({ customerId, initial, customerArchived, custom
         />
       ) : null}
       {/* Rendered on its open state alone (never `&& mayAdd`): it stays open when the page turns archived (M-4). */}
-      {adding ? <AddAddressForm customerCode={customerCode} kinds={wireEnum(CREATE_INPUT, 'kind')} create={create} createCode={gateCode('CreateCustomerAddress')} onClose={(o) => void closeAdd(o)} fallbackFocusRef={heading} onAddStarted={() => announce('')} /> : null}
+      {adding ? <AddAddressForm customerCode={customerCode} kinds={orderKinds(wireEnum(CREATE_INPUT, 'kind'))} create={create} createCode={gateCode('CreateCustomerAddress')} onClose={(o) => void closeAdd(o)} fallbackFocusRef={heading} onAddStarted={() => announce('')} /> : null}
     </section>
   );
 }

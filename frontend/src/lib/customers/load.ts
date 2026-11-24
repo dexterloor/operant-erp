@@ -1,5 +1,6 @@
 import type { Customer, CustomerAddress, CustomerContact } from '../api/customers';
 import { pageQuery, type PageRequest, type Read, type ReadFailure } from '../bff/reads';
+import { orderKinds } from './addressKinds';
 
 // The customer pages' loaders (the lib/suppliers/load.ts shape): pure, run over the server transport on first render and
 // the browser one for every re-read. `ListCustomers` is PAGED (Revision 8 R8-1): its query is built only by `pageQuery()`
@@ -99,8 +100,7 @@ export async function loadContacts(read: Read, customerId: string, signal?: Abor
  * a page, so R8-1 item 7's ban on re-sorting a page does not reach it (customers-plan.md R1-9 R13-2 note).
  */
 export function orderAddresses(served: readonly CustomerAddress[]): CustomerAddress[] {
-  const kinds = ['shipping', 'billing', ...served.map((a) => a.kind).filter((k, i, all) => k !== 'shipping' && k !== 'billing' && all.indexOf(k) === i)];
-  return kinds.flatMap((k) => served.filter((a) => a.kind === k).reverse());
+  return orderKinds(served.map((a) => a.kind)).flatMap((k) => served.filter((a) => a.kind === k).reverse());
 }
 
 /**

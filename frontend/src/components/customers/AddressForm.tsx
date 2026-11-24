@@ -1,6 +1,6 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
@@ -19,7 +19,7 @@ import styles from './Customers.module.css';
 export interface AddressFormProps {
   /** The row being edited (there is no single-address read: the section's row is the served state). */
   address: CustomerAddress;
-  /** The served kinds, in served order (`wireEnum('CustomerAddress.UpdateCustomerAddressInput.jsonMergePatch', 'kind')`). */
+  /** The served kinds, in the section's order (`orderKinds`) (`wireEnum('CustomerAddress.UpdateCustomerAddressInput.jsonMergePatch', 'kind')`). */
   kinds: readonly string[];
   save: SaveAddressAction;
   /** `gateCode('UpdateCustomerAddress')`, for the lost-permission sentence's label (B-10). */
@@ -76,12 +76,14 @@ function changesOf(initial: Values, values: Values): AddressChange {
  * `customers-c4c5-ux-copy.md` Revision 1a > Revision 1 §3.3; the `ContactForm` dialog shape), props-only. Kind · Address
  * line · City · Postal code · Country, each starting at the row's value. Kind is a select over the served enum with
  * `kindSwitchHint` under it; a served kind outside the enum starts at `kindPrompt` and is not sent unless chosen. Country
- * is upper-cased as typed, with `countryHint`. `editHint` stands beside Save. The body is the changed members only; Save
+ * is upper-cased as typed, with `countryHint`. `editHint` stands beside Save and is Save's description while there is
+ * something to save. The body is the changed members only; Save
  * is `aria-disabled` with *Nothing to save.* while nothing differs. An emptied field — empty, never spaces — shows its
  * sentence, sends nothing and takes focus (the first in field order). Everything else as `ContactForm`, under
  * **Not saved**; `interrupted` names the served row as it was before the press.
  */
 export function AddressForm({ address, kinds, save, editCode, onClose, fallbackFocusRef, onSaveStarted }: AddressFormProps) {
+  const editHintId = useId();
   const initial = valuesOf(address, kinds);
   const known = kinds.includes(address.kind);
   const [values, setValues] = useState<Values>(initial);
@@ -259,11 +261,11 @@ export function AddressForm({ address, kinds, save, editCode, onClose, fallbackF
         <TextField ref={cityRef} id="address-edit-city" name="city" label={ADDRESSES_SECTION.fieldCity} error={fieldErrors.city} value={values.city} onChange={(e) => set('city', e.target.value)} autoComplete="off" />
         <TextField ref={postalRef} id="address-edit-postal-code" name="postal_code" label={ADDRESSES_SECTION.fieldPostalCode} error={fieldErrors.postal_code} value={values.postal_code} onChange={(e) => set('postal_code', e.target.value)} autoComplete="off" spellCheck={false} />
         <TextField ref={countryRef} id="address-edit-country" name="country_code" label={ADDRESSES_SECTION.fieldCountry} hint={ADDRESSES_SECTION.countryHint} error={fieldErrors.country_code} value={values.country_code} onChange={(e) => set('country_code', e.target.value.toUpperCase())} autoComplete="off" spellCheck={false} />
-        <p>{ADDRESSES_SECTION.editHint}</p>
+        <p id={editHintId}>{ADDRESSES_SECTION.editHint}</p>
         <div className={styles.actions}>
           {busy ? null : <Button onClick={close}>{final !== null ? EDIT_ADDRESS.close : EDIT_ADDRESS.cancel}</Button>}
           {final !== null ? null : (
-            <Button type="submit" variant="primary" loading={busy} unavailableReason={nothing ? EDIT_ADDRESS.saveNothing : undefined}>
+            <Button type="submit" variant="primary" loading={busy} unavailableReason={nothing ? EDIT_ADDRESS.saveNothing : undefined} aria-describedby={nothing ? undefined : editHintId}>
               {EDIT_ADDRESS.save}
             </Button>
           )}
