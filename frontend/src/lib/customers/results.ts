@@ -1,7 +1,7 @@
 // Typed results of the customer page's injected actions (Revision 8 R8-2; the `lib/suppliers/results.ts` shape), on the
 // shared kinds in `lib/results.ts`. Framework-free (architecture.test.ts). A thrown action is treated as `unreachable`.
 
-import type { CreateCustomerContactInput, Customer, CustomerContact, UpdateCustomerContactInput, UpdateCustomerInput } from '../api/customers';
+import type { CreateCustomerAddressInput, CreateCustomerContactInput, Customer, CustomerAddress, CustomerContact, UpdateCustomerAddressInput, UpdateCustomerContactInput, UpdateCustomerInput } from '../api/customers';
 import type { Contention, FieldErrors, Forbidden, NotFound, Refused, ServerError, SessionEnded, Unreachable } from '../results';
 
 /**
@@ -134,3 +134,57 @@ export type RemoveContactResult =
 
 /** Remove contact: no body, no Idempotency-Key (a repeat after a removal answers 404). */
 export type RemoveContactAction = (contactId: string) => Promise<RemoveContactResult>;
+
+/**
+ * An address's fields in screen order (the first field with a sentence takes focus, and `fieldErrorsFrom` maps a 422's
+ * pointers onto them): Kind, Address line, City, Postal code, Country (customers-plan-c4c5.md Revision 0 J-7).
+ */
+export const ADDRESS_FIELDS = ['kind', 'line', 'city', 'postal_code', 'country_code'] as const satisfies readonly (keyof CreateCustomerAddressInput & keyof UpdateCustomerAddressInput & string)[];
+export type AddressField = (typeof ADDRESS_FIELDS)[number];
+
+/**
+ * What Add address hands its action: a chosen served kind and the fields as typed (the Country already upper-cased). The
+ * form sends nothing until every field holds something, so the action builds a whole body.
+ */
+export type AddressValues = CreateCustomerAddressInput;
+
+/**
+ * `POST /customers/{id}/addresses`: the Add contact result's shape (copy D-15, R1a-1), `created` carrying the 201 body.
+ * `refused-archived` (any refusal, archived re-read), `archived-then-restored` (refused `customer.is_archived`, live
+ * re-read), `archived-at-add` (the same, failed re-read); `refused` is any other refusal whose re-read is live or failed.
+ */
+export type CreateAddressResult =
+  | { kind: 'created'; address: CustomerAddress }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<AddressField>; formErrors: string[] }
+  | { kind: 'refused-archived' }
+  | { kind: 'archived-then-restored' }
+  | { kind: 'archived-at-add' }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/** Add address: a fresh Idempotency-Key per call (the create does not replay on it). */
+export type CreateAddressAction = (values: AddressValues) => Promise<CreateAddressResult>;
+
+/** The changed members only (Edit's changed-only merge patch); never `null` (every address field is required). */
+export type AddressChange = Partial<Pick<UpdateCustomerAddressInput, AddressField>>;
+
+/** `PATCH /customers/{id}/addresses/{addressId}`: the Add result's shape with `saved` and `archived-at-save`. */
+export type SaveAddressResult =
+  | { kind: 'saved'; address: CustomerAddress }
+  | { kind: 'invalid'; fieldErrors: FieldErrors<AddressField>; formErrors: string[] }
+  | { kind: 'refused-archived' }
+  | { kind: 'archived-then-restored' }
+  | { kind: 'archived-at-save' }
+  | Refused
+  | Forbidden
+  | NotFound
+  | SessionEnded
+  | Unreachable
+  | ServerError;
+
+/** Edit address: no Idempotency-Key (a merge patch). */
+export type SaveAddressAction = (addressId: string, changes: AddressChange) => Promise<SaveAddressResult>;

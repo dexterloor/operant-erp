@@ -73,6 +73,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['role.assign'],
     },
   },
+  CreateCustomerAddress: {
+    method: 'POST',
+    template: '/api/v1/customers/{id}/addresses',
+    pathParams: ['id'],
+    idempotencyKeyRequired: true,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
   CreateCustomerContact: {
     method: 'POST',
     template: '/api/v1/customers/{id}/contacts',
@@ -643,6 +653,16 @@ export const CLIENT_OPERATIONS: Readonly<Record<string, SurfaceOperation>> = {
       codes: ['customer.edit'],
     },
   },
+  UpdateCustomerAddress: {
+    method: 'PATCH',
+    template: '/api/v1/customers/{id}/addresses/{addressId}',
+    pathParams: ['id', 'addressId'],
+    idempotencyKeyRequired: false,
+    permission: {
+      kind: 'all_of',
+      codes: ['customer.edit'],
+    },
+  },
   UpdateCustomerContact: {
     method: 'PATCH',
     template: '/api/v1/customers/{id}/contacts/{contactId}',
@@ -791,6 +811,8 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   Customer: ['archived_at', 'code', 'country_code', 'currency_code', 'id', 'name', 'payment_terms_days'],
   'Customer.UpdateCustomerInput.jsonMergePatch': ['code', 'country_code', 'currency_code', 'name', 'payment_terms_days'],
   CustomerAddress: ['city', 'country_code', 'id', 'kind', 'line', 'postal_code'],
+  'CustomerAddress.CreateCustomerAddressInput': ['city', 'country_code', 'kind', 'line', 'postal_code'],
+  'CustomerAddress.UpdateCustomerAddressInput.jsonMergePatch': ['city', 'country_code', 'kind', 'line', 'postal_code'],
   CustomerContact: ['email', 'id', 'is_primary', 'name', 'phone'],
   'CustomerContact.CreateCustomerContactInput': ['email', 'is_primary', 'name', 'phone'],
   'CustomerContact.UpdateCustomerContactInput.jsonMergePatch': ['email', 'is_primary', 'name', 'phone'],
@@ -850,6 +872,12 @@ export const WIRE_FIELDS: Readonly<Record<string, readonly string[]>> = {
 
 /** Each served `enum` of a mirrored schema's property, in served order (Revision 7 A-21). */
 export const WIRE_ENUMS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  'CustomerAddress.CreateCustomerAddressInput': {
+    kind: ['billing', 'shipping'],
+  },
+  'CustomerAddress.UpdateCustomerAddressInput.jsonMergePatch': {
+    kind: ['billing', 'shipping'],
+  },
   'GoodsReceipt.lines[]': {
     unit_of_measure_code: ['EA', 'BOX', 'KG', 'L', 'M'],
   },

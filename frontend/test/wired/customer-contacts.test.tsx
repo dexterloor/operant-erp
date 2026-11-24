@@ -537,11 +537,11 @@ describe('/customers/[id] — late corrections and late answers (C-4a chunk 1)',
     await waitFor(() => expect(pageRegion().textContent).toBe(ADDED('Ann Lee')));
     const addresses = screen.getByRole('region', { name: 'Addresses' });
     await u.click(within(addresses).getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(pageRegion().textContent).toBe('This customer has no addresses.'));
+    await waitFor(() => expect(pageRegion().textContent).toBe('No addresses yet.'));
     await act(async () => reread.release(json(500, {})));
     await new Promise((r) => setTimeout(r, 20));
     expect(t.texts).not.toContain(`${ADDED('Ann Lee')} ${LIST_STALE}`);
-    expect(pageRegion().textContent).toBe('This customer has no addresses.');
+    expect(pageRegion().textContent).toBe('No addresses yet.');
     t.stop();
   });
 
@@ -963,7 +963,7 @@ describe('/customers/[id] — who sees Edit, and Edit\'s late corrections (C-4a 
     await pressSave(u);
     await waitFor(() => expect(pageRegion().textContent).toBe(SAVED('Contact 2')));
     await u.click(within(screen.getByRole('region', { name: 'Addresses' })).getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(pageRegion().textContent).toBe('This customer has no addresses.'));
+    await waitFor(() => expect(pageRegion().textContent).toBe('No addresses yet.'));
     await act(async () => reread.release(json(500, {})));
     await new Promise((r) => setTimeout(r, 20));
     expect(t.texts).not.toContain(`${SAVED('Contact 2')} ${LIST_STALE}`);
@@ -1066,6 +1066,12 @@ describe('/customers/[id] — Remove contact (C-4b)', () => {
       if (atSpeak === null && pageRegion().textContent === REMOVED('Contact 2')) atSpeak = document.activeElement;
     });
     obs.observe(pageRegion(), { childList: true, characterData: true, subtree: true });
+    // Commit RED-2 N-1 (added by C-5a, the next commit touching this file): the region's text at the moment the heading takes
+    // focus, so a speak-then-focus inversion flushed in one task (mutant X1) goes red too.
+    let textAtFocus: string | null = null;
+    contactsHeading().addEventListener('focus', () => {
+      if (textAtFocus === null) textAtFocus = pageRegion().textContent;
+    });
     await openRemove(u, 'Contact 2');
     await pressRemove(u);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -1076,6 +1082,8 @@ describe('/customers/[id] — Remove contact (C-4b)', () => {
     expect(document.activeElement).toBe(contactsHeading());
     obs.disconnect();
     expect(atSpeak, 'focus is on the heading when the sentence is written (FE-D1)').toBe(contactsHeading());
+    expect(textAtFocus, 'the sentence is not yet written when the heading takes focus (FE-D1 order)').not.toBe(REMOVED('Contact 2'));
+    expect(textAtFocus).not.toBeNull();
     await act(async () => list.release(json(500, {})));
     await waitFor(() => expect(pageRegion().textContent).toBe(`${REMOVED('Contact 2')} ${LIST_STALE}`));
     expect(rowsOf(contactsSection()).map((r) => r[0])).toEqual(['Contact 1']);
@@ -1330,11 +1338,11 @@ describe('/customers/[id] — who sees Remove, and Remove\'s late corrections (C
     await waitFor(() => expect(pageRegion().textContent).toBe(REMOVED('Contact 2')));
     const addresses = screen.getByRole('region', { name: 'Addresses' });
     await u.click(within(addresses).getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(pageRegion().textContent).toBe('This customer has no addresses.'));
+    await waitFor(() => expect(pageRegion().textContent).toBe('No addresses yet.'));
     await act(async () => reread.release(json(500, {})));
     await new Promise((r) => setTimeout(r, 20));
     expect(t.texts).not.toContain(`${REMOVED('Contact 2')} ${LIST_STALE}`);
-    expect(pageRegion().textContent).toBe('This customer has no addresses.');
+    expect(pageRegion().textContent).toBe('No addresses yet.');
     t.stop();
   });
 });

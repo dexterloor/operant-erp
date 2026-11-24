@@ -13,7 +13,7 @@ import { CustomerPage } from './CustomerPage';
 // `/customers/[id]` (customers-plan.md Revision 1 — FINAL R1-5 C-1, C-2a; the /suppliers/[id] shape; Revision 8 R8-2;
 // Revision 7 A-15, A-20). First render: GetCustomer over the server transport, once per request (shared with the title).
 // `canEdit` = UpdateCustomer's codes (C-2a: the editor on a live customer). `canAddContact` = CreateCustomerContact's codes
-// (C-4a: Add contact on a live customer), `canEditContact` = UpdateCustomerContact's codes (C-4a: each row's Edit), `canRemoveContact` = DeleteCustomerContact's codes (C-4b: each row's Remove), each from its own operation (customers-plan-c4c5.md Revision 0 F-8). No Restore or Delete is offered to anyone before
+// (C-4a: Add contact on a live customer), `canEditContact` = UpdateCustomerContact's codes (C-4a: each row's Edit), `canRemoveContact` = DeleteCustomerContact's codes (C-4b: each row's Remove), `canAddAddress` = CreateCustomerAddress's codes (C-5a: Add address), `canEditAddress` = UpdateCustomerAddress's codes (C-5a: each address row's Edit), each from its own operation (customers-plan-c4c5.md Revision 0 F-8). No Restore or Delete is offered to anyone before
 // C-2b / C-6. The Contacts and Addresses sections are each read and rendered
 // only for a viewer holding their read's codes (ListCustomerContacts', ListCustomerAddresses'; A-20): for anyone else the
 // section is absent and not fetched. A 401 on either read → the session-ended notice; any other failure is the section's own
@@ -60,5 +60,5 @@ export default async function Page({ params }: Params) {
     addresses = await loadAddresses(serverRead(session), id);
     if (addresses.kind === 'session-ended') redirect(back);
   }
-  return <CustomerPage customer={first.customer} canEdit={viewerMay('UpdateCustomer', codes)} canAddContact={viewerMay('CreateCustomerContact', codes)} canEditContact={viewerMay('UpdateCustomerContact', codes)} canRemoveContact={viewerMay('DeleteCustomerContact', codes)} contacts={contacts} addresses={addresses} />;
+  return <CustomerPage customer={first.customer} canEdit={viewerMay('UpdateCustomer', codes)} canAddContact={viewerMay('CreateCustomerContact', codes)} canEditContact={viewerMay('UpdateCustomerContact', codes)} canRemoveContact={viewerMay('DeleteCustomerContact', codes)} canAddAddress={viewerMay('CreateCustomerAddress', codes)} canEditAddress={viewerMay('UpdateCustomerAddress', codes)} contacts={contacts} addresses={addresses} />;
 }

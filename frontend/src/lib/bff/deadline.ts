@@ -64,6 +64,14 @@ export const ACTION_DEADLINES_MS = {
    */
   contactDelete: 30_000,
   /**
+   * Add a customer address (Customers C-5a): the request + the GetCustomer re-read after a refusal without field
+   * violations (to see whether the customer was archived meanwhile). The section re-reads its addresses after the dialog
+   * closes, under `reread`.
+   */
+  addressCreate: 30_000,
+  /** Save a customer address (Customers C-5a): the request + the GetCustomer re-read after a refusal, as for `addressCreate`. */
+  addressSave: 30_000,
+  /**
    * Save a supplier catalogue entry: the request + the GetSupplier re-read after a refusal (to see whether the supplier
    * was archived meanwhile). The section re-reads its catalogue after the dialog closes, under its own deadline.
    */

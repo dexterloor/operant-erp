@@ -12,11 +12,11 @@
 //   `CUSTOMER_FORBIDDEN`).
 // - `customers-c4c5-ux-copy.md` Revision 1a > Revision 1 > Revision 0 (contacts added and changed, C-4a: the
 //   `CONTACTS_SECTION` additions, `ADD_CONTACT`, `EDIT_CONTACT`; and removed, C-4b: `remove`, `removeFor`,
-//   `REMOVE_CONTACT`).
+//   `REMOVE_CONTACT`); addresses added and changed, C-5a: the `ADDRESSES_SECTION` additions, `ADD_ADDRESS`, `EDIT_ADDRESS`.
 // Each sentence holds for the web app in this commit (`STATES.md:161`). C-2a edits Code, Country, Currency and Payment terms
 // only. There is no create, rename, restore or delete of a customer on any web surface, so no entry here offers one;
 // `archivedThenRestored` reports a restore made elsewhere as a fact. Contacts can be added and changed (C-4a), and removed
-// (C-4b); every refusal that names a restore is replaced by a client sentence while no web surface can restore (copy D-1). Server refusals are
+// (C-4b); addresses can be added and changed (C-5a); every refusal that names a restore is replaced by a client sentence while no web surface can restore (copy D-1). Server refusals are
 // never stored here.
 
 /** `{n} days` / `1 day` / `0 days` (the supplier list's "payment terms cell", UX S-1). */
@@ -327,7 +327,14 @@ export const REMOVE_CONTACT = {
  */
 export const addressKindLabel = (kind: string): string => (kind === 'shipping' ? 'Shipping' : kind === 'billing' ? 'Billing' : kind);
 
-/** The customer page's read-only Addresses section (`customers-c1-ux-copy.md` Revision 1 — FINAL §3, R1-9). */
+/** `addressNoun(kind)` (copy row 57): lower case, inside sentences and accessible names; any other kind → "address". */
+const addressNoun = (kind: string): string => (kind === 'shipping' ? 'shipping address' : kind === 'billing' ? 'billing address' : 'address');
+
+/**
+ * The customer page's Addresses section (`customers-c1-ux-copy.md` Revision 1 — FINAL §3, R1-9; from C-5a
+ * `customers-c4c5-ux-copy.md` §3.1 + R1-1 + R1-2). The dialogs' field words are top-level `field…` members here, never in
+ * a dialog group (copy R1-1). C-5a offers Add and Edit.
+ */
 export const ADDRESSES_SECTION = {
   heading: 'Addresses',
   /** Columns: Kind · Address · City · Postal code · Country (the cell is the served code as sent). */
@@ -339,10 +346,96 @@ export const ADDRESSES_SECTION = {
   /** Spoken only on the section's first successful load after a failed one (the `CATALOGUE.count` rule). */
   count: (n: number) => (n === 1 ? '1 address for this customer.' : `${n} addresses for this customer.`),
   /**
-   * Not `customers-s1-ux.md` §2.5's "No addresses yet. Add a shipping address to use this customer on an order.": it names
-   * two actions C-1 cannot take (copy §3); its replacement is owed at C-5.
+   * The empty table on a LIVE customer (copy row 58); Add address follows it for those who may add. Not
+   * `customers-s1-ux.md` §2.5's second sentence (copy D-4).
    */
-  empty: 'This customer has no addresses.',
+  empty: 'No addresses yet.',
+  /** The empty table on an ARCHIVED customer, under `archivedParent` (copy R1-2 row 102: C-1's text, kept). */
+  emptyArchived: 'This customer has no addresses.',
   loadFailed: "The addresses couldn't be loaded.",
   denied: "You don't have access to this customer's addresses.",
+  /** The section header's action and the empty state's, for an Add holder on a live customer (copy row 51). */
+  add: 'Add address',
+  /** The column after Country, only when the viewer may Edit on a live customer (copy row 52). */
+  actions: 'Actions',
+  /** The row action, and its accessible name `editFor(kind, line)` with the served line unquoted (copy rows 53–54). */
+  edit: 'Edit',
+  editFor: (kind: string, line: string) => `Edit ${addressNoun(kind)} ${line}`,
+  addressNoun,
+  /** Above the table on an archived customer's page, for everyone; no actions (copy row 59, D-5). */
+  archivedParent: "Addresses can't be added, changed or removed while the customer is archived.",
+  /** The Add and Edit dialogs' field words, hints and required sentences (copy R1-1 rows 60–73). */
+  fieldKind: 'Kind',
+  /** The select's empty first option, no preselection (copy row 61). */
+  kindPrompt: 'Choose a kind',
+  kindRequired: 'Choose a kind for this address.',
+  fieldLine: 'Address line',
+  fieldCity: 'City',
+  fieldPostalCode: 'Postal code',
+  fieldCountry: 'Country',
+  /** Beside Country, Add and Edit (`SUPPLIER_PAGE.countryHint` word for word, copy D-13). */
+  countryHint: 'Two letters, for example GB.',
+  lineRequired: 'Enter an address line.',
+  cityRequired: 'Enter a city.',
+  postalCodeRequired: 'Enter a postal code.',
+  countryRequired: 'Enter a country code.',
+  /** Edit only, beside Save (copy row 72, D-6). */
+  editHint: 'Changing this address changes no order that already uses it, drafts included.',
+  /** Edit only, under Kind (copy row 73). */
+  kindSwitchHint: "Billing addresses can't be chosen as a delivery address on new orders. Orders already using it are not affected.",
+} as const;
+
+/** The composed sentences (copy R1-1): module-private, exposed only as each dialog group's members. */
+const ADDRESS_ADDED = (kind: string, line: string) => `The ${addressNoun(kind)} “${line}” was added.`;
+const ADDRESS_SAVED = (kind: string, line: string) => `The ${addressNoun(kind)} “${line}” was saved.`;
+
+/**
+ * Add address's dialog (copy §3.2 + R1-1 + R1-2 rows 77, 79; refusal heading `NOT_ADDED`). `{line}` in a sentence is in
+ * curly quotes (copy D-8).
+ */
+export const ADD_ADDRESS = {
+  /** `{code}` = the customer's served code. */
+  title: (code: string) => `Add an address to ${code}`,
+  submit: 'Add address',
+  cancel: 'Cancel',
+  /** After an archived re-read, or a 404 (copy R1-2 row 77). */
+  close: 'Close',
+  /** Polite status after the 201; from the 201's kind and line. */
+  after: ADDRESS_ADDED,
+  listStaleClause: LIST_STALE,
+  /** `after` · `listStaleClause` (the section's re-read failed; written only through `replaceIfCurrent`). */
+  afterComposed: (kind: string, line: string, { stale }: { stale: boolean }) => (stale ? `${ADDRESS_ADDED(kind, line)} ${LIST_STALE}` : ADDRESS_ADDED(kind, line)),
+  /** Under `COULD_NOT_REACH` / `WENT_WRONG`; the kind and line as typed. Add stays. */
+  interrupted: (kind: string, line: string) => `We can't tell whether the ${addressNoun(kind)} “${line}” was added. Check this customer's addresses before you try again.`,
+  /** INTERIM until C-2b: any refusal whose customer re-read is archived; Close only. */
+  archived: 'This customer is archived, so no address can be added to it.',
+  /** Refused `customer.is_archived`, re-read live: the typed values and Add stay. */
+  archivedThenRestored: 'Nothing was added, because this customer was archived at that moment. It has since been restored, so you can press Add address again.',
+  /** Refused `customer.is_archived`, re-read failed: the typed values and Add stay. */
+  archivedAtAdd: "Nothing was added, because this customer was archived at that moment. We couldn't check whether it still is.",
+} as const;
+
+/** An address row's Edit dialog (copy §3.3 + R1-1 + R1-2 row 87; refusal heading `NOT_SAVED`). */
+export const EDIT_ADDRESS = {
+  /** From the served row at open. */
+  title: (kind: string, line: string) => `Edit the ${addressNoun(kind)} “${line}”`,
+  save: 'Save',
+  cancel: 'Cancel',
+  /** After an archived re-read or a 404. */
+  close: 'Close',
+  /** Save's `aria-disabled` reason while nothing differs. */
+  saveNothing: 'Nothing to save.',
+  /** Polite status; from the 200, so a changed kind or line is spoken in its new form. */
+  saved: ADDRESS_SAVED,
+  listStaleClause: LIST_STALE,
+  /** `saved` · `listStaleClause` (the section's re-read failed; written only through `replaceIfCurrent`). */
+  afterComposed: (kind: string, line: string, { stale }: { stale: boolean }) => (stale ? `${ADDRESS_SAVED(kind, line)} ${LIST_STALE}` : ADDRESS_SAVED(kind, line)),
+  /** Under `COULD_NOT_REACH` / `WENT_WRONG`; from the served row before the press. Save stays. */
+  interrupted: (kind: string, line: string) => `We can't tell whether your changes to the ${addressNoun(kind)} “${line}” were saved. Close this and check the addresses before you try again.`,
+  /** INTERIM until C-2b: any refusal whose customer re-read is archived; Close only. */
+  archived: "This customer is archived, so its addresses can't be changed.",
+  /** Refused `customer.is_archived`, re-read live (= C-2a K-16 word for word): the edits and Save stay. */
+  archivedThenRestored: 'Nothing was saved, because this customer was archived at that moment. It has since been restored, so you can press Save again.',
+  /** Refused `customer.is_archived`, re-read failed: the edits and Save stay. */
+  archivedAtSave: "Nothing was saved, because this customer was archived at that moment. We couldn't check whether it still is.",
 } as const;

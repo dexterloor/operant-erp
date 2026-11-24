@@ -57,7 +57,7 @@ const ARCHIVED_BANNER = () => `This customer was archived on ${formatDate(AT, TZ
 /** The failure message test 7 prints when Restore renders (customers-plan.md Revision 1c R1c-3 test 7, verbatim). */
 const C2B_RESTORE_MESSAGE =
   'C-2b ships Restore: in the same commit, delete K-15 and its branch, so an archived re-read renders R3 as sent. Keep K-16 (a live re-read), K-17 (a failed re-read) and `CUSTOMER_SAVE_REFUSAL.archived`. R3 would be false or unproven in those two cases (customers-c2a-ux-copy-final-red.md M-2).' +
-  ' and in the same commit delete only the three contact `archived` branches (`ADD_CONTACT`, `EDIT_CONTACT`, `REMOVE_CONTACT`), so an archived re-read renders S-1…S-3 as sent. Keep each `archivedThenRestored` and `archivedAt…` key (customers-c4c5-ux-copy.md D-1).';
+  ' and in the same commit delete only the five contact/address `archived` branches (`ADD_CONTACT`, `EDIT_CONTACT`, `REMOVE_CONTACT`, `ADD_ADDRESS`, `EDIT_ADDRESS`), so an archived re-read renders S-1…S-3 / S-8 / S-9 as sent. Keep each `archivedThenRestored` and `archivedAt…` key (customers-c4c5-ux-copy.md D-1).';
 
 const show = (c: Customer = NORTH, canEdit = true) => renderWired(<CustomerPage customer={c} canEdit={canEdit} />);
 const region = () => document.querySelector<HTMLElement>('section > [role="status"]')!;

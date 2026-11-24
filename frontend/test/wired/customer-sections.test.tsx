@@ -78,12 +78,13 @@ describe('/customers/[id] — the read-only Contacts section (C-1)', () => {
   });
 
   // Customers C-4a (deliberate edit, L-10): the contacts half now shows `archivedParent` for everyone on an archived page.
-  it('an archived customer: the rows are listed as usual; Contacts carries the archived-parent note, Addresses none; no action', () => {
+  // Customers C-5a (deliberate edit, L-10): the addresses half now does too.
+  it('an archived customer: the rows are listed as usual; each section carries its archived-parent note; no action', () => {
     show(okContacts([contact(1, { is_primary: true })]), okAddresses([address(1, 'shipping', '1 High St')]), { ...LIVE, archived_at: '2026-03-04T11:00:00Z' });
     expect(rowsOf(contactsSection())).toHaveLength(1);
     expect(rowsOf(addressesSection())).toHaveLength(1);
     expect(within(contactsSection()).getAllByText(/archived/i, { selector: 'p' }).map((p) => p.textContent)).toEqual(["Contacts can't be added, changed or removed while the customer is archived."]);
-    expect(addressesSection().textContent).not.toMatch(/archived|restore|can't be changed/i);
+    expect(within(addressesSection()).getAllByText(/archived/i, { selector: 'p' }).map((p) => p.textContent)).toEqual(["Addresses can't be added, changed or removed while the customer is archived."]);
     expect(screen.queryAllByRole('button')).toEqual([]);
   });
 
@@ -190,9 +191,12 @@ describe('/customers/[id] — the read-only Addresses section (C-1)', () => {
     expect(pageRegion().textContent).toBe('8 addresses for this customer.');
   });
 
-  it('empty: "This customer has no addresses."; a 403: the denied sentence; Retry → 1 → "1 address for this customer."', async () => {
+  // Customers C-5a (deliberate edit, L-10): the live empty sentence is "No addresses yet." (C-1's text survives as A6's
+  // archived case).
+  // Customers C-5a commit RED M-1: after the Retry, focus is on the Addresses heading (unpinned since C-1).
+  it('empty: "No addresses yet."; a 403: the denied sentence; Retry → 1 → "1 address for this customer.", focus on the heading', async () => {
     const { unmount } = show(okContacts([]), okAddresses([]));
-    expect(within(addressesSection()).getByText('This customer has no addresses.', { selector: 'p' })).toBeInTheDocument();
+    expect(within(addressesSection()).getByText('No addresses yet.', { selector: 'p' })).toBeInTheDocument();
     unmount();
     const r = show(okContacts([]), { kind: 'forbidden' });
     expect(within(addressesSection()).getByText("You don't have access to this customer's addresses.", { selector: 'p' })).toBeInTheDocument();
@@ -203,6 +207,7 @@ describe('/customers/[id] — the read-only Addresses section (C-1)', () => {
     expect(within(addressesSection()).getByText(ADDRESSES_FAILED)).toBeInTheDocument();
     await u.click(within(addressesSection()).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(pageRegion().textContent).toBe('1 address for this customer.'));
+    expect(document.activeElement).toBe(within(addressesSection()).getByRole('heading', { level: 2, name: 'Addresses' }));
     expect(calls[0]!.url).toMatch(new RegExp(`/bff/api/customers/${CID}/addresses$`));
     expect(rowsOf(addressesSection())).toEqual([['Billing', '2 Low Rd', 'City 1', 'PC1', 'GB']]);
   });

@@ -1,12 +1,12 @@
-import { CONTACT_ADD_REFUSAL, CONTACT_REMOVE_REFUSAL, CONTACT_SAVE_REFUSAL, CUSTOMER_SAVE_REFUSAL, type CreateCustomerContactInput, type Customer } from '../api/customers';
+import { ADDRESS_ADD_REFUSAL, ADDRESS_SAVE_REFUSAL, CONTACT_ADD_REFUSAL, CONTACT_REMOVE_REFUSAL, CONTACT_SAVE_REFUSAL, CUSTOMER_SAVE_REFUSAL, type CreateCustomerAddressInput, type CreateCustomerContactInput, type Customer } from '../api/customers';
 import { PLATFORM_REFUSAL } from '../api/problems';
 import type { ApiCaller } from '../bff/apiCall';
 import { ACTION_DEADLINES_MS, startDeadline } from '../bff/deadline';
 import { readOf, type ReadFailure } from '../bff/reads';
 import { fieldErrorsFrom } from '../forms/fieldErrors';
 import { wholeNumberOrText } from '../forms/wholeNumberOrText';
-import { isCustomer, isCustomerContact, loadCustomer } from './load';
-import { CONTACT_FIELDS, CUSTOMER_FIELDS, type ContactChange, type CreateContactAction, type CustomerChange, type RemoveContactAction, type SaveContactAction, type SaveCustomerAction } from './results';
+import { isCustomer, isCustomerAddress, isCustomerContact, loadCustomer } from './load';
+import { ADDRESS_FIELDS, CONTACT_FIELDS, CUSTOMER_FIELDS, type AddressChange, type ContactChange, type CreateAddressAction, type CreateContactAction, type CustomerChange, type RemoveContactAction, type SaveAddressAction, type SaveContactAction, type SaveCustomerAction } from './results';
 
 // The customer page's Save over the BFF (customers-plan.md Revision 1 — FINAL R1-5 C-2a + Revision 1c; the
 // `lib/suppliers/wired.ts` `supplierSave` shape, with one deliberate departure below). No Idempotency-Key: the update is a
@@ -23,7 +23,7 @@ import { CONTACT_FIELDS, CUSTOMER_FIELDS, type ContactChange, type CreateContact
 //   result is `refused-archived`: the page shows K-15, never the served sentence. **The departure from the supplier
 //   shape:** `supplierSave` returns P1 ("try again") as sent here; on a read-only page "try again" names an action that
 //   cannot be taken (H-1, customers-plan.md Revision 1c R1c-5), so no platform rule is compared in `customerSave`,
-//   `contactCreate` or `contactSave`; the Remove actions compare P1 after the customer re-read (K-1 (a′), pinned by
+//   `contactCreate`, `contactSave`, `addressCreate` or `addressSave`; the Remove actions compare P1 after the customer re-read (K-1 (a′), pinned by
 //   `CUSTOMER_P1_ACTIONS`).
 // - live → not committed, so the person's edits stay: `archived-then-restored` (K-16) when the rule was the archived one,
 //   else the refusal as sent (R2, P1, …).
@@ -228,6 +228,96 @@ export function contactDelete(caller: ApiCaller, customerId: string): RemoveCont
         default:
           return { kind: 'server-error' };
       }
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+// The address actions (customers-plan-c4c5.md Revision 1 R1-4 over Revision 0 J-7, F-1, F-9; the `contactCreate` /
+// `contactSave` shape exactly). No platform rule is compared in either. A refusal with field violations goes beside its
+// fields with no re-read. After ANY other refusal (P1 included) the CUSTOMER is re-read under the action's own deadline,
+// and what it shows decides (copy D-15, R1a-1): archived (any rule) → `refused-archived`; live → `archived-then-restored`
+// when the rule is the action's own constant, else the refusal as sent; failed → `archived-at-add` / `archived-at-save`
+// when the rule is the action's own constant, else the refusal as sent. Nothing is committed here; the page re-reads the
+// customer itself when the dialog goes (`onParentStale`). `not-found`, `forbidden`, `unreachable`, `server-error` and
+// `session-ended` never re-read. A 201/200 body that is not a whole address is `server-error`. The section re-reads its
+// addresses after the dialog closes, under `reread`. Each action compares only its own constant (`ADDRESS_ADD_REFUSAL` /
+// `ADDRESS_SAVE_REFUSAL`), inline, and nowhere else (P-1).
+
+/**
+ * Add address over the BFF. `CreateCustomerAddress` requires an Idempotency-Key but does not replay on it in any way the
+ * page relies on, so a fresh key is minted for EVERY submit (`newKey`) and never stored. The body is copied by name (never
+ * a spread): the chosen kind, each text as typed, the Country as the form upper-cased it.
+ */
+export function addressCreate(caller: ApiCaller, customerId: string, newKey: () => string = () => crypto.randomUUID()): CreateAddressAction {
+  return async (values) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.addressCreate);
+    try {
+      const body: CreateCustomerAddressInput = { kind: values.kind, line: values.line, city: values.city, postal_code: values.postal_code, country_code: values.country_code };
+      const r = await caller.call('CreateCustomerAddress', { id: customerId }, body, { signal: deadline.signal, idempotencyKey: newKey() });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, ADDRESS_FIELDS) };
+            const archivedRule = r.rule === ADDRESS_ADD_REFUSAL.archived;
+            const again = await loadCustomer(readOf(caller), customerId, deadline.signal);
+            if (again.kind === 'ok' && again.customer.archived_at !== null) return { kind: 'refused-archived' };
+            if (again.kind === 'ok') return archivedRule ? { kind: 'archived-then-restored' } : r;
+            return archivedRule ? { kind: 'archived-at-add' } : r;
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isCustomerAddress(r.body) ? { kind: 'created', address: r.body } : { kind: 'server-error' };
+    } finally {
+      deadline.cancel();
+    }
+  };
+}
+
+/**
+ * Edit address over the BFF. No Idempotency-Key: the update is a merge patch. The body is the changed members only, copied
+ * by name from `ADDRESS_FIELDS` (never a spread).
+ */
+export function addressSave(caller: ApiCaller, customerId: string): SaveAddressAction {
+  return async (addressId, changes) => {
+    const deadline = startDeadline(ACTION_DEADLINES_MS.addressSave);
+    try {
+      const body: AddressChange = {};
+      const copy = <K extends (typeof ADDRESS_FIELDS)[number]>(k: K) => {
+        if (changes[k] !== undefined) body[k] = changes[k];
+      };
+      for (const f of ADDRESS_FIELDS) copy(f);
+      const r = await caller.call('UpdateCustomerAddress', { id: customerId, addressId }, body, { signal: deadline.signal });
+      if (r.kind !== 'ok') {
+        switch (r.kind) {
+          case 'refused': {
+            if (r.violations !== undefined && r.violations.length > 0) return { kind: 'invalid', ...fieldErrorsFrom(r.violations, ADDRESS_FIELDS) };
+            const archivedRule = r.rule === ADDRESS_SAVE_REFUSAL.archived;
+            const again = await loadCustomer(readOf(caller), customerId, deadline.signal);
+            if (again.kind === 'ok' && again.customer.archived_at !== null) return { kind: 'refused-archived' };
+            if (again.kind === 'ok') return archivedRule ? { kind: 'archived-then-restored' } : r;
+            return archivedRule ? { kind: 'archived-at-save' } : r;
+          }
+          case 'not-found':
+          case 'forbidden':
+          case 'session-ended':
+          case 'unreachable':
+          case 'server-error':
+            return r;
+          default:
+            return { kind: 'server-error' };
+        }
+      }
+      return isCustomerAddress(r.body) ? { kind: 'saved', address: r.body } : { kind: 'server-error' };
     } finally {
       deadline.cancel();
     }

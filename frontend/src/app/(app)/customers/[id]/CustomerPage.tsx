@@ -35,6 +35,10 @@ export interface CustomerPageProps {
   canEditContact?: boolean;
   /** Holds DeleteCustomerContact's codes (from the contract): each contact row's **Remove** on a live customer (C-4b). */
   canRemoveContact?: boolean;
+  /** Holds CreateCustomerAddress's codes (from the contract): **Add address** on a live customer (C-5a). */
+  canAddAddress?: boolean;
+  /** Holds UpdateCustomerAddress's codes (from the contract): each address row's **Edit** on a live customer (C-5a). */
+  canEditAddress?: boolean;
   /** `ListCustomerContacts` on first render, or null when the viewer does not hold its codes: then absent, not fetched (A-20). */
   contacts?: ContactsLoad | null;
   /** `ListCustomerAddresses` on first render, or null when the viewer does not hold its codes: then absent, not fetched (A-20). */
@@ -54,15 +58,15 @@ type Cause = 'unreachable' | 'server-error';
  * ST-9 banner, its heading focused — never the server's R3 (copy Revision 1a D-6) — unless a newer live reading was
  * committed first (FE-R7). A failed re-read → the region error (focus on its heading), Retry re-reads; 403 → ST-4b; 404 →
  * ST-5. The four `customer` columns nothing writes (G-36) are not served and are never shown. Below the fields: the
- * Contacts section (Add and Edit contact from C-4a, Remove from C-4b), then the read-only Addresses section (`customers-c1-ux-copy.md` R1-5 L-4), each
+ * Contacts section (Add and Edit contact from C-4a, Remove from C-4b), then the Addresses section (`customers-c1-ux-copy.md` R1-5 L-4; Add and Edit address from C-5a), each
  * for a holder of its read's codes. The page owns the one status region, in the DOM from first render and empty; every
  * write to it goes through `announce`, which counts it (the page write counter, R1-5; ARCH K-9: one counter for the whole
  * page, both sections included), and a late correction is written through `replaceIfCurrent` only while the write it
  * corrects is still the region's last. After a save's message is on screen the router cache is refreshed once. A contact
- * write whose answer says the customer may be stale has the page re-read it (`onParentStale`, stamped, through `commit` /
+ * or address write whose answer says the customer may be stale has the page re-read it (`onParentStale`, stamped, through `commit` /
  * `failed`; it moves no focus); a re-read that commits an archived customer refreshes the router cache (ARCH K9-2).
  */
-export function CustomerPage({ customer: initial, canEdit = false, canAddContact = false, canEditContact = false, canRemoveContact = false, contacts = null, addresses = null }: CustomerPageProps) {
+export function CustomerPage({ customer: initial, canEdit = false, canAddContact = false, canEditContact = false, canRemoveContact = false, canAddAddress = false, canEditAddress = false, contacts = null, addresses = null }: CustomerPageProps) {
   const caller = useApiCaller();
   const router = useRouter();
   const timeZone = useViewerTimeZone();
@@ -130,7 +134,7 @@ export function CustomerPage({ customer: initial, canEdit = false, canAddContact
   // The wiring is built when the action runs, not during render: `commit` writes the stamp refs (react-hooks/refs).
   const save = useCallback((changes: CustomerChange) => customerSave({ caller, id, stamp, setCustomer: commit, onRereadFailed: failed })(changes), [caller, id, stamp, commit, failed]);
   const onSaved = useCallback(() => router.refresh(), [router]);
-  // Copy R1a-1 (C-4a): a contact write's answer says the page's customer may be stale. The page re-reads it under its own
+  // Copy R1a-1 (C-4a; addresses from C-5a): a contact or address write's answer says the page's customer may be stale. The page re-reads it under its own
   // stamp (the supplier page's `onParentStale`), so the archived banner, the sections' note and the loss of their actions
   // follow from what is read, not from the refusal. It moves no focus. An archived commit refreshes the router cache (K9-2).
   const onParentStale = useCallback(async () => {
@@ -243,7 +247,19 @@ export function CustomerPage({ customer: initial, canEdit = false, canAddContact
           onParentStale={() => void onParentStale()}
         />
       ) : null}
-      {addresses !== null ? <AddressesSection customerId={id} initial={addresses} announce={announce} /> : null}
+      {addresses !== null ? (
+        <AddressesSection
+          customerId={id}
+          initial={addresses}
+          customerArchived={archived}
+          customerCode={customer.code}
+          canAdd={canAddAddress}
+          canEdit={canEditAddress}
+          announce={announce}
+          replaceIfCurrent={replaceIfCurrent}
+          onParentStale={() => void onParentStale()}
+        />
+      ) : null}
     </section>
   );
 }
