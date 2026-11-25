@@ -46,7 +46,7 @@ down:
 reset:              ## destroy the database volume and rebuild it from the roles script
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d
-	@until $(COMPOSE) exec -T postgres pg_isready -q; do sleep 1; done
+	@until $(COMPOSE) exec -T postgres pg_isready -q -h 127.0.0.1; do sleep 1; done
 	@cd backend && php bin/assert-clean-database.php
 	$(MAKE) migrate
 

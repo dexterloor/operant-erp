@@ -21,7 +21,9 @@ use PHPUnit\Framework\TestCase;
  *   - pin an explicit image tag that is not `latest`.
  * Mutations: M11 (Mailpit UI on `0.0.0.0`) and M12 (`ERP_APP_PASSWORD` in a local service) → red; 2a's M1/M1b (the
  * PgBouncer or the Postgres line without `127.0.0.1:`) → red naming the service. The planted controls below go through
- * the same decisions.
+ * the same decisions. CI C1 (2026-11-25): any `network_mode` other than the default bridge is refused too, because a
+ * host-networked service publishes on every interface without a `ports` entry; the docs-free CI job's loopback condition
+ * (`RESIDUAL_GAPS.md` G-1.x) rests on this test as well as on `CiWorkflowTest`.
  */
 final class ComposeLocalServiceTest extends TestCase
 {
@@ -66,6 +68,9 @@ final class ComposeLocalServiceTest extends TestCase
         self::assertSame([], self::portFindings('planted-holder', $holder));
         self::assertNotSame([], self::portFindings('planted-holder', ['ports' => ['${POSTGRES_DIRECT_PORT}:5432']] + $holder), 'A credential holder on every interface was not refused.');
         self::assertNotSame([], self::portFindings('planted-holder', ['ports' => ['0.0.0.0:${PGBOUNCER_PORT}:6432']] + $holder), 'A credential holder on 0.0.0.0 was not refused.');
+        self::assertNotSame([], self::portFindings('planted-holder', ['network_mode' => 'host'] + $holder), 'A host-networked credential holder was not refused.');
+        self::assertNotSame([], self::findings('planted', ['network_mode' => 'host'] + $good), 'A host-networked local service was not refused.');
+        self::assertSame([], self::portFindings('planted-holder', ['network_mode' => 'bridge'] + $holder));
     }
 
     /**
@@ -79,6 +84,10 @@ final class ComposeLocalServiceTest extends TestCase
             return ["$name: not a map"];
         }
         $findings = [];
+        // CI C1 (SEC-RED M-2): a host-networked service listens on every interface with no `ports` entry at all.
+        if (\array_key_exists('network_mode', $definition) && 'bridge' !== $definition['network_mode']) {
+            $findings[] = "$name: network_mode ".json_encode($definition['network_mode']).' is not the default bridge';
+        }
         foreach ((array) ($definition['ports'] ?? []) as $port) {
             if (!\is_string($port) || !str_starts_with($port, '127.0.0.1:')) {
                 $findings[] = "$name: port ".json_encode($port).' is not bound to 127.0.0.1';

@@ -1,0 +1,98 @@
+# The docs-free subset: the whole test suite, run on the public checkout, where the private design documents are absent.
+# The tests that compare the code with those documents skip here, and the report lists every skip. This is NOT the
+# project's gate of record: that runs locally, from a destroyed volume, with the documents present.
+#
+# Every rule in this file is pinned by backend/tests/Architecture/CiWorkflowTest.php, which the local gate runs.
+# Change a rule there and here in the same commit.
+name: Docs-free subset (not the gate of record)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: docs-free-subset-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    name: docs-free subset — not the gate
+    # Runs only on the public mirror. On any other copy of this file the job is skipped.
+    if: github.repository == 'dexterloor/operant-erp'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: K-6 no private design documents in this checkout
+        run: test -z "$(git ls-files docs)" && test ! -e docs
+
+      # The default job token is left in place (read-only on a public repository): setup-php uses it for GitHub API
+      # calls while it fetches tools, and at this commit it also writes it into Composer's auth file.
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962  # 2.40.0
+        with:
+          php-version: '8.5'
+          ini-file: development
+          coverage: none
+          extensions: pdo_pgsql, pgsql, redis, bcmath, ctype, iconv, intl, mbstring, dom, xml, xmlwriter, tokenizer, posix, pcntl, sodium
+
+      - name: PHP preflight
+        run: |
+          php -r 'exit(defined("PASSWORD_ARGON2ID") ? 0 : 1);' || { echo "PHP was built without Argon2"; exit 1; }
+          {
+            echo "php $(php -r 'echo PHP_VERSION;')"
+            echo "pdo_pgsql $(php -r 'echo phpversion("pdo_pgsql");')"
+            echo "redis $(php -r 'echo phpversion("redis");')"
+            for k in zend.assertions zend.exception_ignore_args variables_order date.timezone; do
+              echo "$k=$(php -r "echo ini_get('$k');")"
+            done
+            echo "memory_limit=$(php -r 'echo ini_get("memory_limit");') (CLI default; the suite sets 512M)"
+          } | tee "$RUNNER_TEMP/ini.txt"
+
+      - name: Settings files with throwaway values
+        run: make env && bash .github/scripts/fill-env.sh
+
+      - name: Install
+        run: |
+          (cd backend && composer install --no-interaction --no-progress)
+          (cd backend/tools/deptrac && composer install --no-interaction --no-progress)
+
+      - name: Database from a destroyed volume
+        run: |
+          set -o pipefail
+          make DOCKER_CONTEXT=default reset | tee "$RUNNER_TEMP/reset.log"
+          grep -q 'migrations executed' "$RUNNER_TEMP/reset.log"
+          ! grep -q 'Already at the latest version' "$RUNNER_TEMP/reset.log"
+
+      - name: Suite
+        run: |
+          make DOCKER_CONTEXT=default refuse-demo-database
+          cd backend
+          set +e
+          php bin/phpunit --log-junit "$RUNNER_TEMP/junit.xml" --log-teamcity "$RUNNER_TEMP/teamcity.txt"
+          rc=$?
+          set -e
+          echo "$rc" > "$RUNNER_TEMP/phpunit.exit"
+          exit "$rc"
+
+      - name: Module boundaries
+        run: make deptrac
+
+      - name: K-8 the run left the checkout clean
+        run: |
+          changed="$(git status --porcelain)"
+          if [ -n "$changed" ]; then echo "$changed"; exit 1; fi
+
+      - name: Docs-free report
+        if: always()
+        run: php .github/scripts/docs-free-report.php "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"

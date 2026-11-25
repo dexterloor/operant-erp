@@ -31,7 +31,7 @@ not a real inbox.
   app.
 - **A way to create a workspace.** There is no supported way to create a workspace or its first owner. For trying the
   system locally there is a demo workspace; see "Try the demo" below. The test suite creates its own workspaces.
-- **CI and hosting.** There is no CI pipeline and no public deployment.
+- **Hosting.** There is no public deployment.
 
 **How the work was done.** Most features followed the same loop:
 
@@ -92,6 +92,7 @@ backend/src/
 backend/migrations/   Doctrine migrations, run by the schema owner only
 backend/tests/        Api, Tenancy, Auth, Architecture, Security, Messaging, Runtime, ...
 infra/                Compose file, PgBouncer config, database role bootstrap
+.github/              the docs-free CI job and its two scripts (see Checks)
 ```
 
 A module is split into layers: `ApiResource`, `Application`, `Infrastructure`, and where needed `Domain`,
@@ -234,6 +235,11 @@ A change is pushed only when both of these pass, run from a wiped database:
 
 Contract tests that compare the code against the private design record are skipped without it, so a clone of
 this repository runs fewer checks than the project is held to.
+
+A subset of the test suite runs on GitHub Actions for each push to this repository: the tests that compare the
+code with the private design record skip there, and the run lists them. It is not the project's gate, which runs
+locally with those documents present. Each run's result and its list of skipped tests are on the repository's
+Actions tab.
 
 ### Tenancy model
 
