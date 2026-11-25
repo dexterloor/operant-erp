@@ -6,6 +6,7 @@ namespace App\Modules\Customers\ApiResource\State;
 
 use App\Modules\Customers\ApiResource\CustomerResource;
 use App\Modules\Customers\Application\CustomerWriter;
+use App\Modules\Customers\Application\SharedNameSwitch;
 use App\Platform\Http\Bulk\BulkArchiveMember;
 
 /**
@@ -48,9 +49,16 @@ final readonly class CustomerBulkArchiveMember implements BulkArchiveMember
         return 'RestoreCustomer';
     }
 
-    /** G5-C3 (2026-10-23): exactly what `RestoreCustomer`'s processor runs — one copy of every restore rule and collision translation. */
+    /**
+     * G5-C3 (2026-10-23): exactly what `RestoreCustomer`'s processor runs — one copy of every restore rule and collision
+     * translation. **BK-47: with the shared-name switch OFF, always** (`docs/session13/bk47-design.md` §2.4, owner notice
+     * N-C): the bulk body is `{resource, ids}` for every resource, and a person restoring in bulk gets counts only, never a
+     * dialog. So a customer whose name another customer (live or archived) has is not applied, and two archived namesakes
+     * can never both be restored in bulk; each is restored on its own with `?allow_shared_name=true`. The first screen
+     * that bulk-restores customers must say so (`RESIDUAL_GAPS.md` G-48's bulk-screen trigger).
+     */
     public function restore(string $id): void
     {
-        $this->writer->restore($id);
+        $this->writer->restore($id, SharedNameSwitch::off());
     }
 }

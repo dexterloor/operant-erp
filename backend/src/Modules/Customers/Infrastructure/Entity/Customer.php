@@ -42,6 +42,8 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'customer_tenant_name_live', columns: ['tenant_id', 'name'], options: ['where' => '(deleted_at IS NULL)'])]
 // C5 C4a (Version20261014000200): the /customers Archived view's index, IA §5.7 D-a, with `id` for the keyset tie.
 #[ORM\Index(name: 'customer_tenant_archived_idx', columns: ['tenant_id', 'deleted_at', 'id'], options: ['where' => '(deleted_at IS NOT NULL)'])]
+// BK-47 (Version20261125000100): the shared-name check's index, over live AND archived rows (not partial).
+#[ORM\Index(name: 'customer_tenant_name_normalised', columns: ['tenant_id', 'name_normalised'])]
 class Customer
 {
     #[ORM\Id]
@@ -60,6 +62,20 @@ class Customer
 
     #[ORM\Column(type: Types::TEXT)]
     private string $name;
+
+    /**
+     * **BK-47 (Version20261125000100): a stored generated column, computed by the database** as
+     * `lower(btrim(name, <CustomerWriter::NAME_TRIM_CHARACTERS>))`. Mapped read-only only so the mapping matches the
+     * catalogue (unmapped, SchemaTool proposes to drop the column and its index); nothing reads it through the ORM —
+     * `CustomerWriter::NAME_SHARED` compares it in SQL, which is why the check can use `customer_tenant_name_normalised`
+     * under row security where an expression index on `lower(btrim(name))` cannot be used.
+     *
+     * `customer.name_normalised` (BK-47): derived from `name` by the database (lower-cased, outer white space trimmed);
+     * same class as `name`, personal data whenever `name` is, and follows any change or erasure of `name` automatically;
+     * readable wherever `name` is (`erp_app`, `erp_ai` SELECT, inherited); written by nothing. SEC TO CONFIRM.
+     */
+    #[ORM\Column(name: 'name_normalised', type: Types::TEXT, nullable: true, insertable: false, updatable: false, generated: 'ALWAYS')]
+    private ?string $nameNormalised = null;
 
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $email = null;

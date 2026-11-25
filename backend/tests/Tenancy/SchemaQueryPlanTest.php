@@ -10,6 +10,7 @@ use App\Modules\AuditLog\Application\AuditRecordCriteria;
 use App\Modules\AuditLog\Application\AuditRecordReader;
 use App\Modules\Customers\Application\CustomerListCriteria;
 use App\Modules\Customers\Application\CustomerReader;
+use App\Modules\Customers\Application\CustomerWriter;
 use App\Modules\Inventory\Application\ItemListCriteria;
 use App\Modules\Inventory\Application\ItemReader;
 use App\Modules\Inventory\Application\ItemRow;
@@ -517,6 +518,26 @@ final class SchemaQueryPlanTest extends TenancyTestCase
             'Customers — alphabetical list, live rows only (the reader\'s keyset page)',
             $this->plan($sql, $parameters),
             'customer_tenant_name_live');
+    }
+
+    /**
+     * **BK-47 option A, P-2: the shared-name check is an index condition on `customer_tenant_name_normalised`**, run as
+     * `erp_app` under row security with the tenant GUC set and NO planner setting (`bk47-option-a-design.md` Revision 1
+     * item 6). The statement is {@see CustomerWriter::NAME_SHARED} itself, bound as the writer binds it. It must compare
+     * the stored column bare (`name_normalised = …` in the Index Cond) and never apply a function to the column
+     * (`btrim(name` nowhere in the plan): an expression index on `lower(btrim(name))` is never used under row security,
+     * because `lower`/`btrim` are not leakproof. *Mutations:* functions back on the column, the index dropped, or the index
+     * made partial on live rows → red.
+     */
+    #[Test]
+    public function theSharedNameCheckUsesTheNormalisedNameIndex(): void
+    {
+        $plan = $this->plan(CustomerWriter::NAME_SHARED, ['Nobody Has This Name', CustomerWriter::NAME_TRIM_CHARACTERS, '00000000-0000-4000-8000-000000000000']);
+
+        $this->assertPlan('Customers — the shared-name check (BK-47), live and archived', $plan, 'customer_tenant_name_normalised');
+        self::assertMatchesRegularExpression('/Index Cond:[^\n]*name_normalised =/', $plan,
+            "The normalised name is not an index condition:\n$plan");
+        self::assertStringNotContainsString('btrim(name', $plan, "The plan applies a function to the stored name:\n$plan");
     }
 
     /**

@@ -43,8 +43,19 @@ use Symfony\Component\Uid\Uuid;
  *  3. country/currency not in the reference tables → 422 `unknown_reference` ("not supported yet": four rows each,
  *     `RESIDUAL_GAPS.md` G-37);
  *  4. a live customer already holding the code → 409 `customer.code_is_unique_per_workspace`, **refused, never
- *     replayed** (`unique:customer_tenant_code_live`; the `Idempotency-Key` header is demanded and unused), translated
- *     from the 23505 **outside** `TenantContext::run()`, because the failed statement aborted the transaction.
+ *     replayed** (`unique:customer_tenant_code_live`; the `Idempotency-Key` header is demanded and unused). Since BK-47 a
+ *     **pre-check** ({@see self::CODE_TAKEN}) answers it before the write, with the same rule and sentence; the 23505,
+ *     translated **outside** `TenantContext::run()` (the failed statement aborted the transaction), stays as the race
+ *     backstop for a code taken between the pre-check and the write;
+ *  5. **(BK-47) another customer, live or archived, with the same name** → 409 `customer.name_is_shared`
+ *     ({@see self::NAME_SHARED}: the stored `customer.name_normalised` — `lower(btrim(name))` over
+ *     {@see self::NAME_TRIM_CHARACTERS}, computed by the database — scoped to the workspace by RLS, never this customer's
+ *     own id), unless the request carries `?allow_shared_name=true`
+ *     ({@see SharedNameSwitch}). Customer names are still not unique (`s34-ruling.md` D-2): the refusal is a warning a
+ *     caller can pass. It runs **last**, after the code check, so "go ahead anyway" is offered only when going ahead would
+ *     work (`docs/session13/bk47-design.md` §2.3, R1-3). A malformed switch is refused in step 1's 422, beside the body's
+ *     field errors. A rename that changes only capitals or outer white space is not checked; bulk restore always checks
+ *     (`CustomerBulkArchiveMember`). The bounds of the comparison are `RESIDUAL_GAPS.md` G-48's.
  *
  * One row lock, taken by the first read (`FOR NO KEY UPDATE`, the lock the `UPDATE` would take anyway): last writer still
  * wins, and there is no `stale-record`; the lock exists so `customer.updated`'s field list is exact — an unlocked diff
@@ -99,11 +110,55 @@ final readonly class CustomerWriter
     public const NOT_ARCHIVED = 'This customer is not archived, so there is nothing to restore.';
 
     /**
-     * C5 C4a, `UX` final copy (`owed-ux-c5.md` FINAL (a1)): a live customer took the archived one's code while it was archived. **No name
-     * twin:** `customer_tenant_name_live` is a plain index, not a unique (measured C4a T-3) — customer names have no
-     * uniqueness rule, so a restore may leave two live customers of one name, as create already can.
+     * C5 C4a, `UX` final copy (`owed-ux-c5.md` FINAL (a1)): a live customer took the archived one's code while it was archived.
+     * Its name twin is not a uniqueness rule (`customer_tenant_name_live` is a plain index, measured C4a T-3): since BK-47 a
+     * restore beside a customer of the same name is refused {@see self::NAME_SHARED_ON_RESTORE} unless the request allows a
+     * shared name, and with the switch it may still leave two live customers of one name.
      */
     public const CODE_TAKEN_ON_RESTORE = 'Another customer now uses this customer\'s code, so it can\'t be restored. It can be restored once that customer\'s code is changed.';
+
+    /*
+     * BK-47 (`docs/session13/bk47-design.md` §2.1; `UX` TO CONFIRM): the three shared-name refusals. They state the condition
+     * the server checked, name the switch, and echo nothing submitted; never the other customer's id, code or name (SEC,
+     * design §6: every caller is checked, a `customer.create`-only seat included, so the body carries one bit only).
+     */
+    public const NAME_SHARED_ON_CREATE = 'Another customer, live or archived, already has this name, so this customer was not created. Two customers can share a name: to create it anyway, send the request again with allow_shared_name=true.';
+
+    public const NAME_SHARED_ON_UPDATE = 'Another customer, live or archived, already has this name, so the change was not saved. Two customers can share a name: to save it anyway, send the request again with allow_shared_name=true.';
+
+    public const NAME_SHARED_ON_RESTORE = 'Another customer, live or archived, has this customer\'s name, so it was not restored. Two customers can share a name: to restore it anyway, send the request again with allow_shared_name=true.';
+
+    /**
+     * The characters the name comparison ignores at either end (BK-47, `DATA` TO CONFIRM): PHP `trim()`'s set minus `\0`
+     * (which `text` cannot hold), i.e. exactly what the `blank` check already treats as nothing. **Bound as a parameter**
+     * in every statement; its one other copy is the `chr()` list in `Version20261125000100`'s generation expression,
+     * held equal to this constant by `CustomerSharedNameTest` P-1 — never written into a statement as a literal (a standard-string `' \t\n…'`
+     * would trim the letters `t`, `n`, `r`, `B`; final RED L-5). No-break and other Unicode spaces are NOT trimmed, by
+     * choice (G-48's bounds, pinned by `CustomerSharedNameTest`).
+     */
+    public const NAME_TRIM_CHARACTERS = " \t\n\r\x0B";
+
+    /**
+     * **The shared-name check** (BK-47) — public so tests run THIS statement. Parameters: the name, the trim set, this
+     * customer's id. It compares the stored generated column `name_normalised` (`Version20261125000100`, the trim set's
+     * second copy, held equal by `CustomerSharedNameTest` P-1) with the bound name normalised the same way. The functions
+     * apply to the bound value only, so under row security the clause is an index condition on
+     * `customer_tenant_name_normalised` (`SchemaQueryPlanTest`); an expression index on `lower(btrim(name))` never is
+     * (`lower`/`btrim` are not leakproof; `bk47-option-a-design.md`). No `deleted_at` predicate (archived customers count)
+     * and no `tenant_id` predicate (RLS scopes it, as every statement here relies on). Read unlocked, under READ COMMITTED:
+     * a point-in-time check (design §5).
+     */
+    public const NAME_SHARED = 'SELECT EXISTS (SELECT 1 FROM customer WHERE name_normalised = lower(btrim(?::text, ?::text)) AND id <> ?::uuid)';
+
+    /**
+     * **The code pre-check** (BK-47) — the live code unique's question asked before the write, so a request colliding on code
+     * and name is told the code first (R1-3). Compared exactly as stored, as `customer_tenant_code_live` does. `id <> ?` is a
+     * defence for a future caller: on every path today the own row is already excluded (final RED M-1).
+     */
+    public const CODE_TAKEN = 'SELECT EXISTS (SELECT 1 FROM customer WHERE code = ? AND deleted_at IS NULL AND id <> ?::uuid)';
+
+    /** Whether a rename changes the name beyond capitals and outer white space — decided by the database, never PHP (design §2.2). */
+    public const NAME_CHANGES = 'SELECT lower(btrim(?::text, ?::text)) IS DISTINCT FROM lower(btrim(?::text, ?::text))';
 
     public const TERMS_OUT_OF_RANGE = 'Payment terms must be a whole number of days from 0 to %d.';
 
@@ -155,17 +210,21 @@ final readonly class CustomerWriter
     }
 
     /** @param array<string, mixed> $values wire name => value, for the fields the body carried */
-    public function create(array $values): CustomerView
+    public function create(array $values, SharedNameSwitch $switch): CustomerView
     {
-        self::refuseMalformed($values, self::REQUIRED_ON_CREATE);
+        self::refuseMalformed($values, self::REQUIRED_ON_CREATE, $switch);
 
         $id = Uuid::v4()->toRfc4122();
         $tenantId = $this->tenant->tenantId();
         $identity = $this->identities->authenticated();
 
         try {
-            return $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($id, $tenantId, $values, $identity): CustomerView {
+            return $this->tenants->run($tenantId, function (EntityManagerInterface $em) use ($id, $tenantId, $values, $identity, $switch): CustomerView {
                 self::refuseUnsupportedReferences($em, $values);
+                self::refuseIfCodeTaken($em, (string) $values['code'], $id, self::CODE_TAKEN_ON_CREATE);
+                if (!$switch->isOn()) {
+                    self::refuseIfNameShared($em, (string) $values['name'], $id, self::NAME_SHARED_ON_CREATE);
+                }
 
                 $columns = ['id', 'tenant_id', 'code', 'name', 'country_code', 'currency_code'];
                 $parameters = [$id, $tenantId, $values['code'], $values['name'], $values['country_code'], $values['currency_code']];
@@ -198,24 +257,24 @@ final readonly class CustomerWriter
             });
         } catch (UniqueConstraintViolationException) {
             // Outside `run()`: the failed INSERT aborted the transaction. The table's only unique a write can hit is
-            // `customer_tenant_code_live` (the id is minted here).
+            // `customer_tenant_code_live` (the id is minted here) — reached only by a code taken after the pre-check.
             throw ApiProblem::businessRuleViolated('customer.code_is_unique_per_workspace', self::CODE_TAKEN_ON_CREATE);
         }
     }
 
     /** @param array<string, mixed> $submitted wire name => value, exactly the fields the body carried */
-    public function update(string $id, array $submitted): CustomerView
+    public function update(string $id, array $submitted, SharedNameSwitch $switch): CustomerView
     {
         if (!Uuid::isValid($id)) {
             throw ApiProblem::notFound();
         }
         $id = Uuid::fromString($id)->toRfc4122();
 
-        self::refuseMalformed($submitted, []);
+        self::refuseMalformed($submitted, [], $switch);
         $identity = $this->identities->authenticated();
 
         try {
-            return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $submitted, $identity): CustomerView {
+            return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $submitted, $identity, $switch): CustomerView {
                 $connection = $em->getConnection();
                 // The row lock (judge C-3): the diff below is taken against a row no concurrent update can move until this
                 // transaction ends, so `customer.updated` names exactly what this request changed.
@@ -237,6 +296,15 @@ final readonly class CustomerWriter
                 self::refuseUnsupportedReferences($em, $submitted);
 
                 $changed = self::changedFields($row, $submitted);
+                if (\in_array('code', $changed, true)) {
+                    self::refuseIfCodeTaken($em, (string) $submitted['code'], $id, self::CODE_TAKEN_ON_UPDATE);
+                }
+                // A rename that changes only capitals or outer white space creates no new collision: written and audited,
+                // never checked. The database decides "changes", with the check's own expression (design §2.2).
+                if (!$switch->isOn() && \array_key_exists('name', $submitted)
+                    && true === $connection->fetchOne(self::NAME_CHANGES, [$submitted['name'], self::NAME_TRIM_CHARACTERS, $row['name'], self::NAME_TRIM_CHARACTERS])) {
+                    self::refuseIfNameShared($em, (string) $submitted['name'], $id, self::NAME_SHARED_ON_UPDATE);
+                }
                 if ([] !== $changed) {
                     $set = [];
                     $parameters = [];
@@ -278,35 +346,48 @@ final readonly class CustomerWriter
      *     readers (C5 C3), and it conflicts with `DeleteCustomer`'s `FOR UPDATE` (C4b) and with `UpdateCustomer`'s lock;
      *  3. live → 409 `customer.is_not_archived` — the §4.2 `guard:customer.deleted_at` mechanism: a replayed restore is
      *     told the first one committed (no `Idempotency-Key` demanded, `RestoreItem`'s reason);
-     *  4. `UPDATE customer SET deleted_at = NULL, updated_at = now()` — the column grant `Version20261014000200` adds;
-     *  5. `customer.restored`, `{}`, after the UPDATE, in its transaction;
-     *  6. the row read back.
+     *  4. (BK-47) another live customer holding this row's code → 409, {@see self::CODE_TAKEN_ON_RESTORE} (the pre-check);
+     *  5. (BK-47) another customer, live or archived, with this row's name → 409 `customer.name_is_shared`, unless
+     *     `?allow_shared_name=true` (a malformed switch is a 422 after the uuid 404, before anything is read);
+     *  6. `UPDATE customer SET deleted_at = NULL, updated_at = now()` — the column grant `Version20261014000200` adds;
+     *  7. `customer.restored`, `{}`, after the UPDATE, in its transaction;
+     *  8. the row read back.
      *
      * **The restore collision** (design §3.4): `customer_tenant_code_live` is partial on `deleted_at IS NULL`, so a live
-     * customer may have taken the archived one's code while it was archived. The 23505 is translated **outside** `run()`
-     * to the existing rule code with a restore sentence; the failed UPDATE aborted the transaction, so no audit row is
-     * written. It is the table's only unique a restore can hit (the name index is not unique, measured C4a T-3), the same
-     * reasoning as `create()`'s catch. **No open-work check**: restoring creates no work. Children (`customer_address`,
+     * customer may have taken the archived one's code while it was archived. Step 4 answers it before the write; a code
+     * taken after the pre-check still meets the 23505, translated **outside** `run()` to the same rule and sentence (the
+     * failed UPDATE aborted the transaction, so no audit row is written). It is the table's only unique a restore can hit
+     * (the name index is not unique, measured C4a T-3). **The name** (BK-47, `bk47-design.md`): customer names are not
+     * unique, so with the switch a restore may still leave two live customers of one name; without it, a namesake —
+     * archived ones included — refuses. **No open-work check**: restoring creates no work. Children (`customer_address`,
      * `customer_contact`, `hard`) were never touched by archiving, so nothing is resurrected.
      */
-    public function restore(string $id): CustomerView
+    public function restore(string $id, SharedNameSwitch $switch): CustomerView
     {
         if (!Uuid::isValid($id)) {
             throw ApiProblem::notFound();
         }
         $id = Uuid::fromString($id)->toRfc4122();
+        // The one shape error a restore can have (it has no body), after the uuid 404 as `update()`'s shape check sits.
+        if (null !== $error = $switch->error()) {
+            throw ApiProblem::validationFailed([$error]);
+        }
         $identity = $this->identities->authenticated();
 
         try {
-            return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity): CustomerView {
+            return $this->tenants->run($this->tenant->tenantId(), function (EntityManagerInterface $em) use ($id, $identity, $switch): CustomerView {
                 $connection = $em->getConnection();
                 // fetchAssociative, never fetchOne: a live row's `false` would read as "no row" (C2a deviation 5).
-                $row = $connection->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived FROM customer WHERE id = ?::uuid FOR NO KEY UPDATE', [$id]);
+                $row = $connection->fetchAssociative('SELECT deleted_at IS NOT NULL AS archived, code, name FROM customer WHERE id = ?::uuid FOR NO KEY UPDATE', [$id]);
                 if (false === $row) {
                     throw ApiProblem::notFound();
                 }
                 if (true !== $row['archived']) {
                     throw ApiProblem::businessRuleViolated('customer.is_not_archived', self::NOT_ARCHIVED);
+                }
+                self::refuseIfCodeTaken($em, (string) $row['code'], $id, self::CODE_TAKEN_ON_RESTORE);
+                if (!$switch->isOn()) {
+                    self::refuseIfNameShared($em, (string) $row['name'], $id, self::NAME_SHARED_ON_RESTORE);
                 }
 
                 $connection->executeStatement('UPDATE customer SET deleted_at = NULL, updated_at = now() WHERE id = ?::uuid', [$id]);
@@ -430,12 +511,13 @@ final readonly class CustomerWriter
     }
 
     /**
-     * Shape, and only shape: decidable without the database, so it runs before a transaction is opened.
+     * Shape, and only shape: decidable without the database, so it runs before a transaction is opened. The switch's error
+     * (BK-47) joins the same list, after the body's field errors, so one 422 names everything (`bk47-red.md` L-4).
      *
      * @param array<string, mixed> $values
      * @param list<string>         $required
      */
-    private static function refuseMalformed(array $values, array $required): void
+    private static function refuseMalformed(array $values, array $required, SharedNameSwitch $switch): void
     {
         $errors = [];
 
@@ -479,8 +561,28 @@ final readonly class CustomerWriter
             }
         }
 
+        if (null !== $error = $switch->error()) {
+            $errors[] = $error;
+        }
+
         if ([] !== $errors) {
             throw ApiProblem::validationFailed($errors);
+        }
+    }
+
+    /** BK-47: the code pre-check ({@see self::CODE_TAKEN}), the same rule and sentence the 23505 backstop gives. */
+    private static function refuseIfCodeTaken(EntityManagerInterface $em, string $code, string $id, string $sentence): void
+    {
+        if (true === $em->getConnection()->fetchOne(self::CODE_TAKEN, [$code, $id])) {
+            throw ApiProblem::businessRuleViolated('customer.code_is_unique_per_workspace', $sentence);
+        }
+    }
+
+    /** BK-47: the shared-name check ({@see self::NAME_SHARED}); the trim set is bound, never a literal. */
+    private static function refuseIfNameShared(EntityManagerInterface $em, string $name, string $id, string $sentence): void
+    {
+        if (true === $em->getConnection()->fetchOne(self::NAME_SHARED, [$name, self::NAME_TRIM_CHARACTERS, $id])) {
+            throw ApiProblem::businessRuleViolated('customer.name_is_shared', $sentence);
         }
     }
 

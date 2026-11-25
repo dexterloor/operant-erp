@@ -116,15 +116,39 @@ final class BulkRestorationTest extends PurchaseOrderTestCase
             $taken = $this->archivedRow('customer', $this->seedCustomer(self::TENANT_A, 'Cus RS DUP '.$t));
             $holder = $this->seedCustomer(self::TENANT_A, 'Cus RS HOLD '.$t);
             $this->executeAsOwnerForTenant(self::TENANT_A, 'UPDATE customer SET code = (SELECT code FROM customer WHERE id = ?::uuid) WHERE id = ?::uuid', [$taken, $holder]);
+            // BK-47 (T-12a): an archived customer whose name a live customer has. The single restore without the switch is
+            // refused 409 `customer.name_is_shared`; the bulk member always checks (switch off), so it is not applied.
+            $this->seedCustomer(self::TENANT_A, 'Cus RS NAME '.$t);
 
             return [
                 'good' => [$this->archivedRow('customer', $this->seedCustomer(self::TENANT_A, 'Cus RS OK '.$t)), '/customers/%s', 200],
                 'live' => [$this->seedCustomer(self::TENANT_A, 'Cus RS LIVE '.$t), '/customers/%s', 409],
                 'code now held by a live customer' => [$taken, '/customers/%s', 409],
+                'name shared' => [$this->archivedRow('customer', $this->seedCustomer(self::TENANT_A, 'Cus RS NAME '.$t)), '/customers/%s', 409],
                 'foreign' => [$this->archivedRow('customer', $this->seedCustomer(self::TENANT_B, 'Cus RS FOR '.$t), self::TENANT_B), '/customers/%s', 404],
                 'absent' => [Uuid::v4()->toRfc4122(), '/customers/%s', 404],
             ];
         });
+    }
+
+    /**
+     * BK-47 (T-12b; `docs/session13/bk47-design.md` §2.4, owner notice N-C): two ARCHIVED customers of one name, restored in
+     * one bulk request, each see the other — neither is applied, no `customer.restored` row. Restored one at a time with
+     * `?allow_shared_name=true` they can both come back; bulk restore has no switch.
+     */
+    #[Test]
+    public function twoArchivedNamesakesAreNeverRestoredTogether(): void
+    {
+        $first = $this->archivedRow('customer', $this->seedCustomer(self::TENANT_A, 'Cus RS TWIN'));
+        $second = $this->archivedRow('customer', $this->seedCustomer(self::TENANT_A, 'Cus RS TWIN'));
+
+        $this->bulk('customer', [$first, $second]);
+
+        self::assertSame(200, $this->httpStatus(), $this->responseContent());
+        self::assertSame(['requested' => 2, 'applied' => 0], $this->json());
+        self::assertTrue($this->isArchived('customer', $first));
+        self::assertTrue($this->isArchived('customer', $second));
+        self::assertSame([], $this->auditRowsOf('customer.restored'));
     }
 
     #[Test]

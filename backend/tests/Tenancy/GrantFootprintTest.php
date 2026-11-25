@@ -1267,9 +1267,26 @@ final class GrantFootprintTest extends TenancyTestCase
     public function theApplicationCanWriteOnlyTheCustomerColumnsTheCustomerWritersName(): void
     {
         $columns = [];
+        $generated = [];
         foreach (array_keys(self::CUSTOMER_COLUMN_WRITES['INSERT']) as $table) {
+            // BK-47 (`bk47-option-a-design.md` Revision 1 item 2): a GENERATED column cannot be inserted or updated by anyone
+            // (SQLSTATE 428C9, which is not a permission refusal), so it is probed by privilege below, not by statement. The
+            // set is derived from the server (`attgenerated = 's'`), never a hand list.
             $columns[$table] = $this->owner()->fetchFirstColumn(
-                'SELECT a.attname FROM pg_attribute a WHERE a.attrelid = ?::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum', [$table]);
+                "SELECT a.attname FROM pg_attribute a WHERE a.attrelid = ?::regclass AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = '' ORDER BY a.attnum", [$table]);
+            $generated[$table] = $this->owner()->fetchFirstColumn(
+                "SELECT a.attname FROM pg_attribute a WHERE a.attrelid = ?::regclass AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = 's' ORDER BY a.attnum", [$table]);
+        }
+        self::assertSame(['customer' => ['name_normalised'], 'customer_address' => [], 'customer_contact' => []],
+            array_intersect_key($generated, ['customer' => true, 'customer_address' => true, 'customer_contact' => true]),
+            'The customer tables\' generated columns are not exactly customer.name_normalised (BK-47): a new one needs its own decision here.');
+        foreach ($generated as $table => $tableColumns) {
+            foreach ($tableColumns as $column) {
+                foreach (['INSERT', 'UPDATE'] as $privilege) {
+                    self::assertFalse((bool) $this->owner()->fetchOne('SELECT has_column_privilege(?, ?, ?, ?)', [DatabaseRoles::APP, $table, $column, $privilege]),
+                        sprintf('erp_app holds %s on the generated column %s.%s.', $privilege, $table, $column));
+                }
+            }
         }
 
         $run = function (string $table, string $key, string $sql) use (&$outcomes): void {

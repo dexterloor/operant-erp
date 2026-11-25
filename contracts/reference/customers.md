@@ -36,6 +36,12 @@ Creates one customer.
 
 **Idempotency-Key:** required: send a fresh key with each new request, and the same key to retry it.
 
+**Parameters**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `allow_shared_name` | query | boolean | no | Send `true` to go ahead when another customer, live or archived, already has this name. Two customers can share a name. |
+
 **Request body:** [Customer.CreateCustomerInput](schemas.md#customercreatecustomerinput) (`application/json`) — The customer to create.
 
 **Responses**
@@ -75,6 +81,7 @@ Changes one customer.
 | Name | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
 | `id` | path | string (`uuid`) | yes | The customer's id. |
+| `allow_shared_name` | query | boolean | no | Send `true` to go ahead when another customer, live or archived, already has this name. Two customers can share a name. |
 
 **Request body:** [Customer.UpdateCustomerInput](schemas.md#customerupdatecustomerinput) (`application/json`) — Only the fields to change. A field left out is not changed.
 
@@ -283,6 +290,7 @@ Restores one archived customer.
 | Name | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
 | `id` | path | string (`uuid`) | yes | The customer's id. |
+| `allow_shared_name` | query | boolean | no | Send `true` to go ahead when another customer, live or archived, already has this name. Two customers can share a name. |
 
 **Responses**
 

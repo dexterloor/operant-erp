@@ -6595,7 +6595,21 @@
             "post": {
                 "description": "Creates one customer.",
                 "operationId": "CreateCustomer",
-                "parameters": [],
+                "parameters": [
+                    {
+                        "deprecated": false,
+                        "description": "Send `true` to go ahead when another customer, live or archived, already has this name. Two customers can share a name.",
+                        "explode": true,
+                        "in": "query",
+                        "name": "allow_shared_name",
+                        "required": false,
+                        "schema": {
+                            "default": false,
+                            "type": "boolean"
+                        },
+                        "style": "form"
+                    }
+                ],
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -6878,6 +6892,19 @@
                             "type": "string"
                         },
                         "style": "simple"
+                    },
+                    {
+                        "deprecated": false,
+                        "description": "Send `true` to go ahead when another customer, live or archived, already has this name. Two customers can share a name.",
+                        "explode": true,
+                        "in": "query",
+                        "name": "allow_shared_name",
+                        "required": false,
+                        "schema": {
+                            "default": false,
+                            "type": "boolean"
+                        },
+                        "style": "form"
                     }
                 ],
                 "requestBody": {
@@ -7839,6 +7866,19 @@
                             "type": "string"
                         },
                         "style": "simple"
+                    },
+                    {
+                        "deprecated": false,
+                        "description": "Send `true` to go ahead when another customer, live or archived, already has this name. Two customers can share a name.",
+                        "explode": true,
+                        "in": "query",
+                        "name": "allow_shared_name",
+                        "required": false,
+                        "schema": {
+                            "default": false,
+                            "type": "boolean"
+                        },
+                        "style": "form"
                     }
                 ],
                 "responses": {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Api;
 
 use App\Modules\Customers\Application\CustomerWriter;
+use App\Modules\Customers\Application\SharedNameSwitch;
 use App\Modules\Inventory\Infrastructure\Entity\InventoryItem;
 use App\Platform\Http\Bulk\BulkArchival;
 use App\Platform\Http\Bulk\BulkArchiveMember;
@@ -103,7 +104,8 @@ final class BulkArchivalCoordinatorTest extends PurchaseOrderTestCase
         $plant = $this->member(
             static fn (string $id): never => throw new \LogicException('The restoration ran a member\'s archive.'),
             function (string $id) use ($customer): void {
-                $this->customers()->restore($id);
+                // BK-47: the switch is a required argument; off, as the bulk member passes it.
+                $this->customers()->restore($id, SharedNameSwitch::off());
                 if ($id === $customer) {
                     throw ApiProblem::businessRuleViolated('planted.refusal', 'Refused after writing.');
                 }

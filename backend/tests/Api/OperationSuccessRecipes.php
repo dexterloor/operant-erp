@@ -1153,14 +1153,20 @@ trait OperationSuccessRecipes
             // so the success path writes its `customer.updated` row.
             'CreateCustomer' => [$none, function () use ($key): array {
                 $this->send('POST', '/customers', [
-                    'code' => 'C-RECIPE', 'name' => 'Recipe New Customer', 'country_code' => 'GB', 'currency_code' => 'GBP',
+                    'code' => 'C-RECIPE', 'name' => 'Recipe New Customer '.bin2hex(random_bytes(3)), 'country_code' => 'GB', 'currency_code' => 'GBP',
                     'payment_terms_days' => 45,
                 ], $key());
 
                 return [201, 'create a customer'];
             }],
-            'UpdateCustomer' => [fn (): array => ['customer' => $this->seedCustomer(self::TENANT_A, 'Recipe Updated Customer')], function (array $c): array {
-                $this->send('PATCH', '/customers/'.$c['customer'], ['name' => 'Recipe Renamed Customer', 'payment_terms_days' => 60]);
+            // BK-47 (E-2): every customer name a recipe writes carries a random suffix, so no walker that runs a recipe twice
+            // meets the shared-name refusal by chance; no recipe sends `allow_shared_name`.
+            'UpdateCustomer' => [function (): array {
+                $suffix = bin2hex(random_bytes(3));
+
+                return ['customer' => $this->seedCustomer(self::TENANT_A, 'Recipe Updated Customer '.$suffix), 'suffix' => $suffix];
+            }, function (array $c): array {
+                $this->send('PATCH', '/customers/'.$c['customer'], ['name' => 'Recipe Renamed Customer '.$c['suffix'], 'payment_terms_days' => 60]);
 
                 return [200, 'update a customer'];
             }],

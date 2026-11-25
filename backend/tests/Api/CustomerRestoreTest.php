@@ -16,9 +16,11 @@ use Symfony\Component\Uid\Uuid;
  *
  * 200 with `GetCustomer`'s body in its new state; a live customer → 409 `customer.is_not_archived` (the guard that makes
  * a replay safe); a foreign, absent or malformed id → the same 404; a live customer that took the archived one's code
- * meanwhile → 409 on the existing unique rule with a restore sentence (the 23505 translated outside the transaction). **No
- * name collision exists** — `customer_tenant_name_live` is not unique (measured C4a T-3), so a restore may leave two live
- * customers of one name, as create already can (design §3.4 notice). One `customer.restored` row, `{}`, on success and
+ * meanwhile → 409 on the existing unique rule with a restore sentence (since BK-47 answered by a pre-check; the 23505
+ * translated outside the transaction stays as the race backstop). **Names: BK-47** — a restore beside another customer of
+ * the same name, live or archived, is refused 409 `customer.name_is_shared` unless the request carries
+ * `?allow_shared_name=true`; the pin that held the old "no name rule" behaviour was flipped deliberately and replaced by
+ * `CustomerSharedNameTest` (T-8, `docs/session13/bk47-design.md`). One `customer.restored` row, `{}`, on success and
  * none on any refusal. Archived customers are seeded by owner SQL (a fixture; `DeleteCustomer`, C5 C4b, archives through
  * the API — the round trip is `CustomerDeleteTest::anArchivedCustomerIsRestoredByTheOperationThatPairsWithIt`). Copy is `UX`'s final (`owed-ux-c5.md` FINAL (a1)).
  */
@@ -98,23 +100,6 @@ final class CustomerRestoreTest extends PurchaseOrderTestCase
         self::assertSame('Another customer now uses this customer\'s code, so it can\'t be restored. It can be restored once that customer\'s code is changed.', $this->json()['detail']);
         self::assertNotNull($this->stored($id)['deleted_at']);
         self::assertSame([], $this->auditRowsOf(AuditEvent::CUSTOMER_RESTORED), 'A refused restore wrote a trail row.');
-    }
-
-    /**
-     * **Customer names have no uniqueness rule** (design §3.4; `customer_tenant_name_live` is a plain index, C4a T-3): a
-     * restore beside a live customer of the same name SUCCEEDS and leaves two live customers of one name, as create already
-     * can. Pinned so a later name rule is a decision, not a surprise (supplier restore refuses this case; customer does not).
-     */
-    #[Test]
-    public function aRestoreBesideALiveCustomerOfTheSameNameSucceeds(): void
-    {
-        $id = $this->archived('Shared Name');
-        $this->seedCustomer(self::TENANT_A, 'Shared Name');
-
-        $this->restore($id);
-
-        self::assertSame(200, $this->httpStatus(), (string) $this->client()->getResponse()->getContent());
-        self::assertSame(2, $this->countAsOwnerForTenant(self::TENANT_A, "SELECT count(*) FROM customer WHERE name = 'Shared Name' AND deleted_at IS NULL"));
     }
 
     /** One `customer.restored`, `{}`, naming the restorer; the subject is the customer (business, PC-11 (4a), no IP). */

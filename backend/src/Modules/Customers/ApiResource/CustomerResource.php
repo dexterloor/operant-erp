@@ -10,6 +10,7 @@ use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
+use ApiPlatform\Metadata\QueryParameter;
 use ApiPlatform\OpenApi\Model\Operation as OpenApiOperation;
 use App\Modules\Customers\ApiResource\State\CreateCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\CustomerProvider;
@@ -17,6 +18,7 @@ use App\Modules\Customers\ApiResource\State\DeleteCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\RestoreCustomerProcessor;
 use App\Modules\Customers\ApiResource\State\UpdateCustomerProcessor;
 use App\Modules\Customers\Application\CustomerView;
+use App\Modules\Customers\Application\SharedNameSwitch;
 use App\Platform\Http\Idempotency\IdempotencyKeyGuard;
 use App\Platform\Http\Instant;
 use App\Platform\Security\PermissionGate;
@@ -37,6 +39,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
  * **`CreateCustomer` / `UpdateCustomer`** (customers slice 1 C2): `CustomerWriter` behind both, `ItemResource`'s operation
  * shape. Each writes one audit row in its transaction (`customer.created` `{payment_terms_days}` / `customer.updated`
  * `{fields[, payment_terms_days {from, to}]}` — field names only, except the terms value; `RESIDUAL_GAPS.md` G-35 (g)).
+ *
+ * **BK-47:** `CreateCustomer`, `UpdateCustomer` and `RestoreCustomer` each take the query parameter `allow_shared_name`, the
+ * one directive on a write (API-19e): it skips the shared-name refusal (`customer.name_is_shared`) and nothing else.
  *
  * **`RestoreCustomer`** (C5 C4a): `CustomerWriter::restore()`, `customer.restored` in its transaction.
  *
@@ -68,6 +73,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
                 'api_assign_object_to_populate' => false,
             ],
             processor: CreateCustomerProcessor::class,
+            parameters: [SharedNameSwitch::PARAMETER => new QueryParameter(description: self::SHARED_NAME_DESCRIPTION, schema: ['type' => 'boolean', 'default' => false])],
             // §4.2: `unique:customer_tenant_code_live`. API-14 demands the header; a repeat is refused by the code's live
             // unique, never replayed (`ItemResource`'s `CreateItem` precedent).
             extraProperties: [
@@ -90,6 +96,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             // The row is read first, so a PATCH at an id no row answers is `GetCustomer`'s 404 (§5.3 clause 2).
             provider: CustomerProvider::class,
             processor: UpdateCustomerProcessor::class,
+            parameters: [SharedNameSwitch::PARAMETER => new QueryParameter(description: self::SHARED_NAME_DESCRIPTION, schema: ['type' => 'boolean', 'default' => false])],
             extraProperties: [PermissionGate::OPERATION_PERMISSION => 'customer.edit'],
         ),
         // C5 C4b — `DeleteCustomer`, API-21 branch 3: 204, no body (`DeleteSupplier`'s shape). The row is read first, so a
@@ -116,6 +123,7 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
             deserialize: false,
             read: false,
             processor: RestoreCustomerProcessor::class,
+            parameters: [SharedNameSwitch::PARAMETER => new QueryParameter(description: self::SHARED_NAME_DESCRIPTION, schema: ['type' => 'boolean', 'default' => false])],
             // §4.2: `customer.delete` (undoing an archive is the same authority as making one; `RestoreItem`'s reason).
             // **No `IdempotencyKeyGuard::OPERATION_FLAG`:** §4.2's cell is `guard:customer.deleted_at` — a replayed restore
             // hits a live row and is refused `customer.is_not_archived` (`RestoreItem`'s reason; `IdempotencyContractTest`).
@@ -125,6 +133,9 @@ use Symfony\Component\Serializer\Attribute\SerializedName;
 )]
 final class CustomerResource
 {
+    /** BK-47 (`UX` TO CONFIRM): the switch's published description, one copy for its three operations; no record ids (rule I). */
+    public const SHARED_NAME_DESCRIPTION = 'Send `true` to go ahead when another customer, live or archived, already has this name. Two customers can share a name.';
+
     public function __construct(
         #[ApiProperty(schema: ['type' => 'string', 'format' => 'uuid'])]
         public string $id,
